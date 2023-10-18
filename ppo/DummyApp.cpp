@@ -875,7 +875,7 @@ void DummyApp::BuildMaterials()
 	skullMat->MatCBIndex = 3;
 	skullMat->DiffuseSrvHeapIndex = 0;
 	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05);
+	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	skullMat->Roughness = 0.3f;
 
 	auto colorMapMat = std::make_unique<Material>();
@@ -883,7 +883,7 @@ void DummyApp::BuildMaterials()
 	colorMapMat->MatCBIndex = 4;
 	colorMapMat->DiffuseSrvHeapIndex = 3;
 	colorMapMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	colorMapMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01);
+	colorMapMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
 	colorMapMat->Roughness = 0.05f;
 
 	mMaterials["bricks0"] = std::move(bricks0);

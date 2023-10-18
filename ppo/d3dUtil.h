@@ -277,11 +277,3 @@ struct Texture
 #ifndef ReleaseCom
 #define ReleaseCom(x) { if(x){ x->Release(); x = 0; } }
 #endif
-
-// stdafx.h DirectXMath
-#define EPSILON							1.0e-10f
-
-inline bool IsZero(float fValue) { return((fabsf(fValue) < EPSILON)); }
-inline bool IsEqual(float fA, float fB) { return(::IsZero(fA - fB)); }
-inline float InverseSqrt(float fValue) { return 1.0f / sqrtf(fValue); }
-inline void Swap(float* pfS, float* pfT) { float fTemp = *pfS; *pfS = *pfT; *pfT = fTemp; }
