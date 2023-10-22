@@ -1,10 +1,5 @@
 #pragma once
-
 #include "d3dUtil.h"
-
-class Object
-{
-};
 
 // 하나의 물체를 그리는 데 필요한 매개변수들을 담는 가벼운 구조체
 struct RenderItem
@@ -39,3 +34,21 @@ struct RenderItem
 	UINT StartIndexLocation = 0;
 	int BaseVertexLocation = 0;
 };
+
+class GameObject
+{
+public:
+    GameObject();
+    ~GameObject();
+
+	
+private:
+	RenderItem* mRenderItem;
+
+	GameObject* m_pParent = nullptr;
+	GameObject* m_pChild = nullptr;
+	GameObject* m_pSibling = nullptr;
+
+
+};
+

@@ -24,7 +24,7 @@ struct RenderItem
 	RenderItem() = default;
 
 	// 세계 공간을 기준으로 물체의 국소 공간을 서술하는 세계 행렬
-	// 이 행렬은 세계 공간 안에서의 물체의 의치와 방행, 크기를 결정
+	// 이 행렬은 세계 공간 안에서의 물체의 의치와 방향, 크기를 결정
 	XMFLOAT4X4 World = MathHelper::Identity4x4();
 
 	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();

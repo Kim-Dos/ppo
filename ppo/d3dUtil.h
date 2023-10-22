@@ -161,11 +161,11 @@ struct SubmeshGeometry
 
 struct MeshGeometry
 {
-	// Give it a name so we can look it up by name.
+	// 메시를 이름으로 조회
 	std::string Name;
 
-	// System memory copies.  Use Blobs because the vertex/index format can be generic.
-	// It is up to the client to cast appropriately.  
+	// 시스템 메모리 복사본. 
+	// 정점/색인 형식이 범용적일 수 있으므로 ID3DBlob을 사용한다.
 	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
 	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU = nullptr;
 
@@ -175,16 +175,15 @@ struct MeshGeometry
 	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferUploader = nullptr;
 
-	// Data about the buffers.
+	// 버퍼들에 관한 자료
 	UINT VertexByteStride = 0;
 	UINT VertexBufferByteSize = 0;
 
 	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
 	UINT IndexBufferByteSize = 0;
 
-	// A MeshGeometry may store multiple geometries in one vertex/index buffer.
-	// Use this container to define the Submesh geometries so we can draw
-	// the Submeshes individually.
+	// 한 MeshGeometry 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
+	// 부분 메시들을 개별적으로 그릴 수 있도록, 부분 메시 기하구조들을 컨테이너에 담아둔다.
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
 
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const
@@ -206,7 +205,7 @@ struct MeshGeometry
 		return ibv;
 	}
 
-	// We can free this memory after we finish upload to the GPU.
+	// 자료를 GPU에 모두 올린 후에는 메모리를 해제해도 된다.
 	void DisposeUploaders()
 	{
 		VertexBufferUploader = nullptr;
@@ -218,10 +217,10 @@ struct MeshGeometry
 struct Light
 {
 	DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };	// 빛의 색상
-	float FalloffStart = 1.0f;                          // point/spot light only
-	DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
-	float FalloffEnd = 10.0f;                           // point/spot light only
-	DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
+	float FalloffStart = 1.0f;                          // point, spot light only
+	DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional, spot light only
+	float FalloffEnd = 10.0f;                           // point, spot light only
+	DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point, spot light only
 	float SpotPower = 64.0f;                            // spot light only
 };
 

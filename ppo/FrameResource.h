@@ -8,6 +8,10 @@ struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    UINT     MaterialIndex;
+    UINT     ObjPad0;
+    UINT     ObjPad1;
+    UINT     ObjPad2;
 };
 
 struct PassConstants
@@ -36,6 +40,21 @@ struct PassConstants
     Light Lights[MaxLights];
 };
 
+struct MaterialData
+{
+    DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+    DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+    float Roughness = 64.0f;
+
+    // Used in texture mapping.
+    DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+
+    UINT DiffuseMapIndex = 0;
+    UINT MaterialPad0;
+    UINT MaterialPad1;
+    UINT MaterialPad2;
+};
+
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;
@@ -62,8 +81,9 @@ public:
     // 상수 버퍼는 그것을 참조하는 명령들을 GPU가 다 처리한 후에 갱신해야한다.
     // 따라서 프레임마다 할당자가 필요하다.
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
-    std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+
+    std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
     // Fence는 현재 울타리 지점까지의 명령들을 표시하는 값이다.
     // 이 값은 GPU가 아직 이 프레임 자원들을 사용하고 있는지 판정하는 용도로 쓰인다.

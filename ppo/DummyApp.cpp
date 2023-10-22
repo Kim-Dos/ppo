@@ -26,7 +26,7 @@ bool DummyApp::Initialize()
 	mCbvSrvDescriptorSize = md3dDevice->
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	mCamera.SetPosition(0.0f, 0.0f, 0.0f);
+	mCamera.SetPosition(0.0f, 0.0f, -10.0f);
 
 	LoadTextures();
 	BuildRootSignature();
@@ -132,7 +132,18 @@ void DummyApp::Draw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
 	auto passCB = mCurrFrameResource->PassCB->Resource();
-	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+	// 이 장면에 쓰이는 모든 재질을 묶는다.
+	// 구조적 버퍼는 힙을 생략하고 그냥 하나의 루트 서술자로 묶을 수 있다.
+	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
+	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+
+	// 이 장면에 쓰이는 모든 텍스처를 묶는다. 
+	// 테이블의 첫 서술자만 지정하면 된다.
+	// 테이블에 몇 개의 서술자가 있는지는 루트 서명에 설정되어 있다.
+	mCommandList->SetGraphicsRootDescriptorTable(3, 
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
 
@@ -261,6 +272,7 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+			objConstants.MaterialIndex = e->Mat->MatCBIndex;
 
 			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -272,23 +284,24 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 
 void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
 {
-	auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
+	auto currMaterialCB = mCurrFrameResource->MaterialBuffer.get();
 	for (auto& e : mMaterials)
 	{
-		// Only update the cbuffer data if the constants have changed.  If the cbuffer
-		// data changes, it needs to be updated for each FrameResource.
+		// 상수들이 바뀌었을 때에만 cbuffer 자료를 갱신한다.
+		// 이러한 갱신을 프레임 자원마다 수행해야한다.
 		Material* mat = e.second.get();
 		if (mat->NumFramesDirty > 0)
 		{
 			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
 
-			MaterialConstants matConstants;
-			matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
-			matConstants.FresnelR0 = mat->FresnelR0;
-			matConstants.Roughness = mat->Roughness;
-			XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+			MaterialData matData;
+			matData.DiffuseAlbedo = mat->DiffuseAlbedo;
+			matData.FresnelR0 = mat->FresnelR0;
+			matData.Roughness = mat->Roughness;
+			XMStoreFloat4x4(&matData.MatTransform, XMMatrixTranspose(matTransform));
+			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
 
-			currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
+			currMaterialCB->CopyData(mat->MatCBIndex, matData);
 
 			// Next FrameResource need to be updated too.
 			mat->NumFramesDirty--;
@@ -395,20 +408,17 @@ void DummyApp::BuildRootSignature()
 	// 함수의 매개변수들에 해당하므로, 루트 서명은 곧 함수 서명을 정의하는 수단이라 할 수 있다.
 
 	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(
-		D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		1,  // number of descriptors
-		0); // register t0
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4/*number of descriptors*/, 0/*register t0*/);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 
 	// 루트 CBV 생성한다.
-	// 사용빈도가 높은것에서 낮은것 순서대로 배열한다.
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[1].InitAsConstantBufferView(0);
-	slotRootParameter[2].InitAsConstantBufferView(1);
-	slotRootParameter[3].InitAsConstantBufferView(2);
+	// 성능 팁: 사용빈도가 높은것에서 낮은것 순서대로 배열한다.
+	slotRootParameter[0].InitAsConstantBufferView(0);
+	slotRootParameter[1].InitAsConstantBufferView(1);
+	slotRootParameter[2].InitAsShaderResourceView(0, 1);
+	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -496,10 +506,13 @@ void DummyApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", 
+		nullptr, "VS", "vs_5_1");
 	
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
-	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\ToonLighting.hlsl", nullptr, "PS", "ps_5_0");
+	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", 
+		nullptr, "PS", "ps_5_1");
+	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\ToonLighting.hlsl", 
+		nullptr, "PS", "ps_5_1");
 
 	mInputLayout =
 	{
@@ -903,7 +916,7 @@ void DummyApp::BuildRenderItems()
 	boxRitem->ObjCBIndex = objCBIndex++;
 	boxRitem->Mat = mMaterials["bricks0"].get();
 	boxRitem->Geo = mGeometries["shapeGeo"].get();
-	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
@@ -916,7 +929,7 @@ void DummyApp::BuildRenderItems()
 	gridRitem->ObjCBIndex = objCBIndex++;
 	gridRitem->Mat = mMaterials["tile0"].get();
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
-	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
 	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
 	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
@@ -929,7 +942,7 @@ void DummyApp::BuildRenderItems()
 	skullRitem->ObjCBIndex = objCBIndex++;
 	skullRitem->Mat = mMaterials["tile0"].get();
 	skullRitem->Geo = mGeometries["skullGeo"].get();
-	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	skullRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
 	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
 	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
@@ -941,7 +954,7 @@ void DummyApp::BuildRenderItems()
 	terrainRitem->ObjCBIndex = objCBIndex++;
 	terrainRitem->Mat = mMaterials["colorMap"].get();
 	terrainRitem->Geo = mGeometries["terrain"].get();
-	terrainRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	terrainRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	terrainRitem->IndexCount = terrainRitem->Geo->DrawArgs["terrain"].IndexCount;
 	terrainRitem->StartIndexLocation = terrainRitem->Geo->DrawArgs["terrain"].StartIndexLocation;
 	terrainRitem->BaseVertexLocation = terrainRitem->Geo->DrawArgs["terrain"].BaseVertexLocation;
@@ -966,7 +979,7 @@ void DummyApp::BuildRenderItems()
 		leftCylRitem->ObjCBIndex = objCBIndex++;
 		leftCylRitem->Mat = mMaterials["bricks0"].get();
 		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
-		leftCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		leftCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		leftCylRitem->IndexCount = leftCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
 		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
 		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
@@ -976,7 +989,7 @@ void DummyApp::BuildRenderItems()
 		rightCylRitem->ObjCBIndex = objCBIndex++;
 		rightCylRitem->Mat = mMaterials["bricks0"].get();
 		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
-		rightCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		rightCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		rightCylRitem->IndexCount = rightCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
 		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
 		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
@@ -986,7 +999,7 @@ void DummyApp::BuildRenderItems()
 		leftSphereRitem->ObjCBIndex = objCBIndex++;
 		leftSphereRitem->Mat = mMaterials["stone0"].get();
 		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
-		leftSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		leftSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		leftSphereRitem->IndexCount = leftSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
 		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
 		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
@@ -996,7 +1009,7 @@ void DummyApp::BuildRenderItems()
 		rightSphereRitem->ObjCBIndex = objCBIndex++;
 		rightSphereRitem->Mat = mMaterials["stone0"].get();
 		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
-		rightSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		rightSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		rightSphereRitem->IndexCount = rightSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
 		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
 		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
@@ -1015,10 +1028,8 @@ void DummyApp::BuildRenderItems()
 void DummyApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
 	// 각 렌더항목에 대해:
 	for (size_t i = 0; i < ritems.size(); ++i)
@@ -1029,23 +1040,14 @@ void DummyApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::ve
 		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-		if (ri->Mat->DiffuseSrvHeapIndex >= 0)
-		{
-			CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-			tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
-
-			cmdList->SetGraphicsRootDescriptorTable(0, tex);
-		}
-
 		// 현재 프레임 자원에 대한 이 물체를 위한 CBV의 오프셋을 구한다.
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() 
 			+ ri->ObjCBIndex * objCBByteSize;
-		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() 
-			+ ri->Mat->MatCBIndex * matCBByteSize;
-
 		
-		cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-		cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+		// CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		// tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, 
 			ri->StartIndexLocation, ri->BaseVertexLocation, 0);
