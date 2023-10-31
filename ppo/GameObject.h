@@ -41,14 +41,48 @@ public:
     GameObject();
     ~GameObject();
 
+	void SetName(std::string name) { mName = name; }
+	void SetName(const char* name) { mName = name; }
+	void SetMaterial(const std::vector<std::string> materials) { mMaterials = materials; }
+
+	void SetPosition(float x, float y, float z);
+	void SetPosition(XMFLOAT3 position);
+	void SetScale(float x, float y, float z);
+
+	void SetChild(GameObject* child);
+
+	std::string GetName() { return mName; }
+	std::vector<std::string> GetMaterials() { return mMaterials; }
 	
+	XMFLOAT3 GetPosition();
+	XMFLOAT3 GetLook();
+	XMFLOAT3 GetUp();
+	XMFLOAT3 GetRight();
+
+	RenderItem GetRenderItem() { return mRenderItem; }
+
+	void MoveStrafe(float distance = 1.0f);
+	void MoveUp(float distance = 1.0f);
+	void MoveForward(float distance = 1.0f);
+
+	void Rotate(float pitch, float yaw, float roll);
+	void Rotate(XMFLOAT3* axis, float angle);
+	void Rotate(XMFLOAT4* quaternion);
+
+	GameObject* GetParent() { return mParent; };
+	GameObject* FindFrame(const std::string frameName);
+
+	static GameObject* LoadFrameHierarchyFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
+	static GameObject* LoadGeometryFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, std::string fileName);
+
 private:
-	RenderItem* mRenderItem;
+	std::string mName;
 
-	GameObject* m_pParent = nullptr;
-	GameObject* m_pChild = nullptr;
-	GameObject* m_pSibling = nullptr;
+	std::vector<std::string> mMaterials;
+	RenderItem mRenderItem;
 
-
+	GameObject* mParent = nullptr;
+	GameObject* mChild = nullptr;
+	GameObject* mSibling = nullptr;
 };
 

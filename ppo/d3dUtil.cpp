@@ -20,7 +20,7 @@ bool d3dUtil::IsKeyDown(int vkeyCode)
 
 // 컴파일된 셰이더 바이트코드를 C++ 표준 파일 입출력 라이브러리를 이용해 적재하는 함수
 // 사용예시)
-// ComPtr<ID3DBlob> mvsByteCode = d3dUtil::LoadBinary(L"Shaders\\color_cs.cos");
+// ComPtr<ID3DBlob> mvsByteCode = d3dUtil::LoadBinary(L"Shaders\\color_vs.hlsl");
 ComPtr<ID3DBlob> d3dUtil::LoadBinary(const std::wstring& filename)
 {
     std::ifstream fin(filename, std::ios::binary);

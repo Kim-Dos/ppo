@@ -34,6 +34,7 @@ bool DummyApp::Initialize()
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildSkullGeometry();
+	BuildSkullGeometryTest();
 	LoadTerrain();
 	BuildMaterials();
 	BuildRenderItems();
@@ -57,7 +58,7 @@ void DummyApp::OnResize()
 
 	// 창의 크기가 변경되었기 때문에 종횡비를 갱신하고
 	// 투영행렬을 다시 계산한다.
-	mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+	mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), mCamera.GetNearZ(), mCamera.GetFarZ());
 }
 
 void DummyApp::Update(const GameTimer& gt)
@@ -139,13 +140,19 @@ void DummyApp::Draw(const GameTimer& gt)
 	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
 	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
 
+	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	skyTexDescriptor.Offset(mSkyTexHeapIndex, mCbvSrvDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
+
 	// 이 장면에 쓰이는 모든 텍스처를 묶는다. 
 	// 테이블의 첫 서술자만 지정하면 된다.
 	// 테이블에 몇 개의 서술자가 있는지는 루트 서명에 설정되어 있다.
-	mCommandList->SetGraphicsRootDescriptorTable(3, 
-		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	mCommandList->SetGraphicsRootDescriptorTable(4, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mCommandList->SetPipelineState(mPSOs["sky"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 
 
 
@@ -328,8 +335,8 @@ void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
-	mMainPassCB.NearZ = 1.0f;
-	mMainPassCB.FarZ = 1000.0f;
+	mMainPassCB.NearZ = mCamera.GetNearZ();
+	mMainPassCB.FarZ = mCamera.GetFarZ();
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 
@@ -366,38 +373,35 @@ void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 
 void DummyApp::LoadTextures()
 {
-	auto bricksTex = std::make_unique<Texture>();
-	bricksTex->Name = "bricksTex";
-	bricksTex->Filename = L"./Textures/bricks.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), bricksTex->Filename.c_str(),
-		bricksTex->Resource, bricksTex->UploadHeap));
+	std::vector<std::string> texNames =
+	{
+		"bricksDiffuseMap",
+		"stoneDiffuseMap",
+		"tileDiffuseMap",
+		"terrainDiffuseMap",
+		"skyCubeMap"
+	};
 
-	auto stoneTex = std::make_unique<Texture>();
-	stoneTex->Name = "stoneTex";
-	stoneTex->Filename = L"Textures/stone.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), stoneTex->Filename.c_str(),
-		stoneTex->Resource, stoneTex->UploadHeap));
+	std::vector<std::wstring> texFilenames =
+	{
+		L"Textures/bricks.dds",
+		L"Textures/stone.dds",
+		L"Textures/tile.dds",
+		L"Textures/terrainColorMap.dds",
+		L"Textures/grasscube1024.dds"
+	};
 
-	auto tileTex = std::make_unique<Texture>();
-	tileTex->Name = "tileTex";
-	tileTex->Filename = L"Textures/tile.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), tileTex->Filename.c_str(),
-		tileTex->Resource, tileTex->UploadHeap));
+	for (int i = 0; i < (int)texNames.size(); ++i)
+	{
+		auto texMap = std::make_unique<Texture>();
+		texMap->Name = texNames[i];
+		texMap->Filename = texFilenames[i];
+		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+			mCommandList.Get(), texMap->Filename.c_str(),
+			texMap->Resource, texMap->UploadHeap));
 
-	auto colorMapTex = std::make_unique<Texture>();
-	colorMapTex->Name = "colorMapTex";
-	colorMapTex->Filename = L"Textures/colormap.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), colorMapTex->Filename.c_str(),
-		colorMapTex->Resource, colorMapTex->UploadHeap));
-	
-	mTextures[bricksTex->Name] = std::move(bricksTex);
-	mTextures[stoneTex->Name] = std::move(stoneTex);
-	mTextures[tileTex->Name] = std::move(tileTex);
-	mTextures[colorMapTex->Name] = std::move(colorMapTex);
+		mTextures[texMap->Name] = std::move(texMap);
+	}
 }
 
 void DummyApp::BuildRootSignature()
@@ -407,23 +411,27 @@ void DummyApp::BuildRootSignature()
 	// 셰이더 프로그램은 본질적으로 하나의 함수이고 셰이더에 입력되는 자원들은 
 	// 함수의 매개변수들에 해당하므로, 루트 서명은 곧 함수 서명을 정의하는 수단이라 할 수 있다.
 
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4/*number of descriptors*/, 0/*register t0*/);
+	CD3DX12_DESCRIPTOR_RANGE texTable0;
+	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+
+	CD3DX12_DESCRIPTOR_RANGE texTable1;
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 1, 0);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
 
 	// 루트 CBV 생성한다.
 	// 성능 팁: 사용빈도가 높은것에서 낮은것 순서대로 배열한다.
 	slotRootParameter[0].InitAsConstantBufferView(0);
 	slotRootParameter[1].InitAsConstantBufferView(1);
 	slotRootParameter[2].InitAsShaderResourceView(0, 1);
-	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[3].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[4].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	// 루트 서명은 루트 매개변수들의 배열이다.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, 
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, 
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -449,22 +457,23 @@ void DummyApp::BuildRootSignature()
 
 void DummyApp::BuildDescriptorHeaps()
 {
-	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 서술자 4개 짜리 힙을 생성
+	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 4;
+	srvHeapDesc.NumDescriptors = 5;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
-	// 4개의 텍스처 자원이 이미 로드되어 있을때
+	// 텍스처 자원이 이미 로드되어 있을때
 
 	// 힙의 시작을 가리키는 포인터를 얻는다.
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-	auto bricksTex = mTextures["bricksTex"]->Resource;
-	auto stoneTex = mTextures["stoneTex"]->Resource;
-	auto tileTex = mTextures["tileTex"]->Resource;
-	auto colorMapTex = mTextures["colorMapTex"]->Resource;
+	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
+	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
+	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
+	auto terrainTex = mTextures["terrainDiffuseMap"]->Resource;
+	auto skyTex = mTextures["skyCubeMap"]->Resource;
 
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -493,9 +502,21 @@ void DummyApp::BuildDescriptorHeaps()
 	// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	srvDesc.Format = colorMapTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = colorMapTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(colorMapTex.Get(), &srvDesc, hDescriptor);
+	srvDesc.Format = terrainTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = terrainTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(terrainTex.Get(), &srvDesc, hDescriptor);
+
+	// 다음 서술자로 넘어간다. skyCubeMap
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+	srvDesc.TextureCube.MostDetailedMip = 0;
+	srvDesc.TextureCube.MipLevels = skyTex->GetDesc().MipLevels;
+	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+	srvDesc.Format = skyTex->GetDesc().Format;
+	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
+
+	mSkyTexHeapIndex = 4;
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -508,10 +529,14 @@ void DummyApp::BuildShadersAndInputLayout()
 
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", 
 		nullptr, "VS", "vs_5_1");
-	
 	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", 
 		nullptr, "PS", "ps_5_1");
 	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\ToonLighting.hlsl", 
+		nullptr, "PS", "ps_5_1");
+
+	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", 
+		nullptr, "VS", "vs_5_1");
+	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", 
 		nullptr, "PS", "ps_5_1");
 
 	mInputLayout =
@@ -714,11 +739,11 @@ void DummyApp::BuildSkullGeometry()
 	auto geo = std::make_unique<MeshGeometry>();
 	geo->Name = "skullGeo";
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+	//ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	//CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+	//ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	//CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
 	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
 		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
@@ -741,9 +766,17 @@ void DummyApp::BuildSkullGeometry()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
+void DummyApp::BuildSkullGeometryTest()
+{
+	/*
+	GameObject *gameObject = GameObject::LoadGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), 
+		"Models/Gunship.bin");
+	*/
+}
+
 void DummyApp::LoadTerrain()
 {
-	mTerrain.LoadHeightMap(L"heightmap.r16", 1025, 1025, XMFLOAT3(1.0f, 0.01f, 1.0f));
+	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, XMFLOAT3(1.0f, 0.01f, 1.0f));
 	
 	UINT vcount = 1025 * 1025;
 	UINT tcount = 1024 * 1024 * 2 * 3;
@@ -827,7 +860,6 @@ void DummyApp::BuildPSOs()
 	//
 	// PSO for opaque wireframe objects.
 	//
-
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc = opaquePsoDesc;
 	opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, 
@@ -836,7 +868,6 @@ void DummyApp::BuildPSOs()
 	//
 	// PSO for toon shading.
 	//
-
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC toonShadingPsoDesc = opaquePsoDesc;
 	toonShadingPsoDesc.PS =
 	{
@@ -845,6 +876,30 @@ void DummyApp::BuildPSOs()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&toonShadingPsoDesc,
 		IID_PPV_ARGS(&mPSOs["opaque_toonShading"])));
+
+	//
+	// PSO for sky.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = opaquePsoDesc;
+
+	// 카메라가 스카이 박스 안에 있기때문에 컬링을 비활성화한다.
+	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+	// 깊이 판정 통과를 위해 깊이비교를 LESS_EQUAL로 설정한다.
+	// LESS가 아닌 이유: 만약 깊이 버퍼를 1로 지우는 경우 z = 1에서 정규화된 깊이값이 깊이 판정에 실패한다.
+	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
+		mShaders["skyVS"]->GetBufferSize()
+	};
+	skyPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
+		mShaders["skyPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
 }
 
 void DummyApp::BuildFrameResources()
@@ -891,24 +946,46 @@ void DummyApp::BuildMaterials()
 	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	skullMat->Roughness = 0.3f;
 
-	auto colorMapMat = std::make_unique<Material>();
-	colorMapMat->Name = "colorMapMat";
-	colorMapMat->MatCBIndex = 4;
-	colorMapMat->DiffuseSrvHeapIndex = 3;
-	colorMapMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	colorMapMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-	colorMapMat->Roughness = 0.05f;
+	auto terrainMat = std::make_unique<Material>();
+	terrainMat->Name = "terrainMat";
+	terrainMat->MatCBIndex = 4;
+	terrainMat->DiffuseSrvHeapIndex = 3;
+	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+	terrainMat->Roughness = 0.05f;
+
+	auto sky = std::make_unique<Material>();
+	sky->Name = "sky";
+	sky->MatCBIndex = 5;
+	sky->DiffuseSrvHeapIndex = 4;
+	sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	sky->Roughness = 1.0f;
 
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
 	mMaterials["tile0"] = std::move(tile0);
 	mMaterials["skullMat"] = std::move(skullMat);
-	mMaterials["colorMap"] = std::move(colorMapMat);
+	mMaterials["terrainMat"] = std::move(terrainMat);
+	mMaterials["sky"] = std::move(sky);
 }
 
 void DummyApp::BuildRenderItems()
 {
 	UINT objCBIndex = 0;
+
+	auto skyRitem = std::make_unique<RenderItem>();
+	skyRitem->TexTransform = MathHelper::Identity4x4();
+	skyRitem->ObjCBIndex = objCBIndex++;
+	skyRitem->Mat = mMaterials["sky"].get();
+	skyRitem->Geo = mGeometries["shapeGeo"].get();
+	skyRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	skyRitem->IndexCount = skyRitem->Geo->DrawArgs["sphere"].IndexCount;
+	skyRitem->StartIndexLocation = skyRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
+	skyRitem->BaseVertexLocation = skyRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::Sky].push_back(skyRitem.get());
+	mAllRitems.push_back(std::move(skyRitem));
 
 	auto boxRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
@@ -920,6 +997,8 @@ void DummyApp::BuildRenderItems()
 	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::Opaque].push_back(boxRitem.get());
 	mAllRitems.push_back(std::move(boxRitem));
 
 	/*
@@ -937,27 +1016,31 @@ void DummyApp::BuildRenderItems()
 	*/
 	
 	auto skullRitem = std::make_unique<RenderItem>();
-	XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, 2.0f, 0.0f));
+	XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, 20.0f, 0.0f));
 	skullRitem->TexTransform = MathHelper::Identity4x4();
 	skullRitem->ObjCBIndex = objCBIndex++;
-	skullRitem->Mat = mMaterials["tile0"].get();
+	skullRitem->Mat = mMaterials["bricks0"].get();
 	skullRitem->Geo = mGeometries["skullGeo"].get();
 	skullRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
 	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
 	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::Opaque].push_back(skullRitem.get());
 	mAllRitems.push_back(std::move(skullRitem));
 	
 	auto terrainRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&terrainRitem->World, XMMatrixTranslation(0.0f, -200.0f, 0.0f));
 	terrainRitem->TexTransform = MathHelper::Identity4x4();
 	terrainRitem->ObjCBIndex = objCBIndex++;
-	terrainRitem->Mat = mMaterials["colorMap"].get();
+	terrainRitem->Mat = mMaterials["terrainMat"].get();
 	terrainRitem->Geo = mGeometries["terrain"].get();
 	terrainRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	terrainRitem->IndexCount = terrainRitem->Geo->DrawArgs["terrain"].IndexCount;
 	terrainRitem->StartIndexLocation = terrainRitem->Geo->DrawArgs["terrain"].StartIndexLocation;
 	terrainRitem->BaseVertexLocation = terrainRitem->Geo->DrawArgs["terrain"].BaseVertexLocation;
+
+	mRitemLayer[(int)RenderLayer::Opaque].push_back(terrainRitem.get());
 	mAllRitems.push_back(std::move(terrainRitem));
 	
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
@@ -1014,15 +1097,16 @@ void DummyApp::BuildRenderItems()
 		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
 		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
 
+		mRitemLayer[(int)RenderLayer::Opaque].push_back(leftCylRitem.get());
+		mRitemLayer[(int)RenderLayer::Opaque].push_back(rightCylRitem.get());
+		mRitemLayer[(int)RenderLayer::Opaque].push_back(leftSphereRitem.get());
+		mRitemLayer[(int)RenderLayer::Opaque].push_back(rightSphereRitem.get());
+
 		mAllRitems.push_back(std::move(leftCylRitem));
 		mAllRitems.push_back(std::move(rightCylRitem));
 		mAllRitems.push_back(std::move(leftSphereRitem));
 		mAllRitems.push_back(std::move(rightSphereRitem));
 	}
-
-	// All the render items are opaque.
-	for (auto& e : mAllRitems)
-		mOpaqueRitems.push_back(e.get());
 }
 
 void DummyApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)

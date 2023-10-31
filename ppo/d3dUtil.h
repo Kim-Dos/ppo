@@ -28,6 +28,7 @@
 #include "d3dx12.h"
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
+#include "Mesh.h"
 
 extern const int gNumFrameResources;
 
@@ -144,74 +145,6 @@ public:
     if(FAILED(hr__)) { throw DxException(hr__, L#x, wfn, __LINE__); } \
 }
 #endif
-
-// Defines a subrange of geometry in a MeshGeometry.  This is for when multiple
-// geometries are stored in one vertex and index buffer.  It provides the offsets
-// and data needed to draw a subset of geometry stores in the vertex and index 
-// buffers so that we can implement the technique described by Figure 6.3.
-struct SubmeshGeometry
-{
-	UINT IndexCount = 0;
-	UINT StartIndexLocation = 0;
-	INT BaseVertexLocation = 0;
-
-	// 서브메쉬의 바운딩 박스
-	DirectX::BoundingBox Bounds;
-};
-
-struct MeshGeometry
-{
-	// 메시를 이름으로 조회
-	std::string Name;
-
-	// 시스템 메모리 복사본. 
-	// 정점/색인 형식이 범용적일 수 있으므로 ID3DBlob을 사용한다.
-	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU = nullptr;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferGPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferGPU = nullptr;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferUploader = nullptr;
-
-	// 버퍼들에 관한 자료
-	UINT VertexByteStride = 0;
-	UINT VertexBufferByteSize = 0;
-
-	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
-	UINT IndexBufferByteSize = 0;
-
-	// 한 MeshGeometry 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
-	// 부분 메시들을 개별적으로 그릴 수 있도록, 부분 메시 기하구조들을 컨테이너에 담아둔다.
-	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
-
-	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const
-	{
-		D3D12_VERTEX_BUFFER_VIEW vbv;
-		vbv.BufferLocation = VertexBufferGPU->GetGPUVirtualAddress();
-		vbv.StrideInBytes = VertexByteStride;
-		vbv.SizeInBytes = VertexBufferByteSize;
-
-		return vbv;
-	}
-	D3D12_INDEX_BUFFER_VIEW IndexBufferView()const
-	{
-		D3D12_INDEX_BUFFER_VIEW ibv;
-		ibv.BufferLocation = IndexBufferGPU->GetGPUVirtualAddress();
-		ibv.Format = IndexFormat;
-		ibv.SizeInBytes = IndexBufferByteSize;
-
-		return ibv;
-	}
-
-	// 자료를 GPU에 모두 올린 후에는 메모리를 해제해도 된다.
-	void DisposeUploaders()
-	{
-		VertexBufferUploader = nullptr;
-		IndexBufferUploader = nullptr;
-	}
-};
 
 // HLSL 구조체 채우기 규칙을 고려하여 4차원 벡터 단위로 채워넣는다.
 struct Light

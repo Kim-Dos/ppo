@@ -8,6 +8,8 @@
 #include "GeometryGenerator.h"
 #include "Terrain.h"
 #include "Camera.h"
+#include "GameObject.h"
+#include "Mesh.h"
 
 
 using Microsoft::WRL::ComPtr;
@@ -19,6 +21,7 @@ extern const int gNumFrameResources;
 
 
 // 하나의 물체를 그리는 데 필요한 매개변수들을 담는 가벼운 구조체
+/*
 struct RenderItem
 {
 	RenderItem() = default;
@@ -51,7 +54,14 @@ struct RenderItem
 	UINT StartIndexLocation = 0;
 	int BaseVertexLocation = 0;
 };
+*/
 
+enum class RenderLayer : int
+{
+	Opaque = 0,
+	Sky,
+	Count
+};
 
 class DummyApp : public D3DApp
 {
@@ -87,6 +97,7 @@ private:
 	void BuildShadersAndInputLayout();
 	void BuildShapeGeometry();
 	void BuildSkullGeometry();
+	void BuildSkullGeometryTest();
 	void LoadTerrain();
 	void BuildPSOs();
 	void BuildFrameResources();
@@ -120,8 +131,7 @@ private:
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 
-	// Render items divided by PSO.
-	std::vector<RenderItem*> mOpaqueRitems;
+	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
 	PassConstants mMainPassCB;
 
@@ -131,6 +141,8 @@ private:
 	Camera mCamera;
 
 	POINT mLastMousePos;
+
+	UINT mSkyTexHeapIndex = 0;
 };
 
 
