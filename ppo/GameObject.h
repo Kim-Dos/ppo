@@ -1,5 +1,6 @@
 #pragma once
 #include "d3dUtil.h"
+#include "Mesh.h"
 
 // 하나의 물체를 그리는 데 필요한 매개변수들을 담는 가벼운 구조체
 struct RenderItem
@@ -33,6 +34,12 @@ struct RenderItem
 	UINT IndexCount = 0;
 	UINT StartIndexLocation = 0;
 	int BaseVertexLocation = 0;
+
+	// Only applicable to skinned render-items.
+	UINT SkinnedCBIndex = -1;
+
+	// nullptr if this render-item is not animated by skinned mesh.
+	//SkinnedModelInstance* SkinnedModelInst = nullptr;
 };
 
 class GameObject
@@ -74,6 +81,8 @@ public:
 
 	static GameObject* LoadFrameHierarchyFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
 	static GameObject* LoadGeometryFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, std::string fileName);
+	void LoadMaterialsFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
+
 
 private:
 	std::string mName;

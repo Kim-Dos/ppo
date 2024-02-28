@@ -9,8 +9,7 @@
 #include "Terrain.h"
 #include "Camera.h"
 #include "GameObject.h"
-#include "Mesh.h"
-
+#include "SkinnedMesh.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -59,6 +58,8 @@ struct RenderItem
 enum class RenderLayer : int
 {
 	Opaque = 0,
+	SkinnedOpaque,
+	Debug,
 	Sky,
 	Count
 };
@@ -88,6 +89,7 @@ private:
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
+	void UpdateSkinnedCBs(const GameTimer& gt);
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	
@@ -96,6 +98,7 @@ private:
 	void BuildDescriptorHeaps();
 	void BuildShadersAndInputLayout();
 	void BuildShapeGeometry();
+	void LoadSkinnedModel();
 	void BuildSkullGeometry();
 	void BuildSkullGeometryTest();
 	void LoadTerrain();
@@ -127,6 +130,7 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -137,6 +141,8 @@ private:
 
 	bool mIsWireframe = false;
 	bool mIsToonShading = false;
+
+	SkinnedMesh mSkinnedMesh;
 
 	Camera mCamera;
 

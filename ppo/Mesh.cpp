@@ -3,12 +3,19 @@
 
 D3D12_VERTEX_BUFFER_VIEW MeshGeometry::VertexBufferView() const
 {
-	D3D12_VERTEX_BUFFER_VIEW vbv;
-	vbv.BufferLocation = VertexBufferGPU->GetGPUVirtualAddress();
-	vbv.StrideInBytes = VertexByteStride;
-	vbv.SizeInBytes = VertexBufferByteSize;
+	if (VertexBufferGPU != nullptr) {
+		D3D12_VERTEX_BUFFER_VIEW vbv;
+		vbv.BufferLocation = VertexBufferGPU->GetGPUVirtualAddress();
+		vbv.StrideInBytes = VertexByteStride;
+		vbv.SizeInBytes = VertexBufferByteSize;
 
-	return vbv;
+		return vbv;
+	}
+}
+
+int MeshGeometry::VertexBufferViewMemberCnt() const
+{
+	return 1;
 }
 
 D3D12_INDEX_BUFFER_VIEW MeshGeometry::IndexBufferView() const
@@ -31,200 +38,193 @@ void MeshGeometry::DisposeUploaders()
 void MeshGeometry::LoadMeshFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, FILE* file)
 {
 	char pstrToken[64] = { '\0' };
-	BYTE nStrLength = 0;
+	BYTE strLength = 0;
 
-	int nPositions = 0, nColors = 0, nNormals = 0, 
-		nTangents = 0, nBiTangents = 0, nTextureCoords = 0, 
-		nIndices = 0, nSubMeshes = 0, nSubIndices = 0;
+	int positionCnt = 0, colorCnt = 0, normalCnt = 0,
+		tangentCnt = 0, biTangentCnt = 0, textureCoordCnt = 0,
+		indexCnt = 0, subMesheCnt = 0, subIndexCnt = 0;
 
-	UINT nReads = (UINT)::fread(&nPositions, sizeof(int), 1, file);
-	nReads = (UINT)::fread(&nStrLength, sizeof(BYTE), 1, file);
+	XMFLOAT3* positions = nullptr;
+	XMFLOAT3* normals = nullptr;
+	XMFLOAT2* textureCoords0 = nullptr;
+
+	UINT nReads = (UINT)::fread(&positionCnt, sizeof(int), 1, file);
+	
+	nReads = (UINT)::fread(&strLength, sizeof(BYTE), 1, file);
 	char meshName[256];
-	nReads = (UINT)::fread(meshName, sizeof(char), nStrLength, file);
-	meshName[nStrLength] = '\0';
+	nReads = (UINT)::fread(meshName, sizeof(char), strLength, file);
+	meshName[strLength] = '\0';
 	//Name = meshName;
 
 	for (; ; )
 	{
-		nReads = (UINT)::fread(&nStrLength, sizeof(BYTE), 1, file);
-		nReads = (UINT)::fread(pstrToken, sizeof(char), nStrLength, file);
-		pstrToken[nStrLength] = '\0';
+		nReads = (UINT)::fread(&strLength, sizeof(BYTE), 1, file);
+		nReads = (UINT)::fread(pstrToken, sizeof(char), strLength, file);
+		pstrToken[strLength] = '\0';
 
 		if (!strcmp(pstrToken, "<Bounds>:")) {
-			nReads = (UINT)::fread(&mAABBCenter, sizeof(XMFLOAT3), 1, file);
-			nReads = (UINT)::fread(&mAABBExtents, sizeof(XMFLOAT3), 1, file);
+			nReads = (UINT)::fread(&AABBCenter, sizeof(XMFLOAT3), 1, file);
+			nReads = (UINT)::fread(&AABBExtents, sizeof(XMFLOAT3), 1, file);
 		}
 		else if (!strcmp(pstrToken, "<Positions>:")) {
-			nReads = (UINT)::fread(&nPositions, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&positionCnt, sizeof(int), 1, file);
 
-			if (nPositions > 0) {
+			if (positionCnt > 0) {
 				mType |= VERTEXT_POSITION;
-				mPositions = new XMFLOAT3[nPositions];
-				nReads = (UINT)::fread(mPositions, sizeof(XMFLOAT3), nPositions, file);
-
-				VertexBufferGPU = d3dUtil::CreateDefaultBuffer(device, commandList, 
-					mPositions, nPositions * sizeof(XMFLOAT3), VertexBufferUploader);
-				/*
-				m_pd3dPositionBuffer = ::CreateBufferResource(device, commandList, m_pxmf3Positions, sizeof(XMFLOAT3) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dPositionUploadBuffer);
-
-				m_d3dPositionBufferView.BufferLocation = m_pd3dPositionBuffer->GetGPUVirtualAddress();
-				m_d3dPositionBufferView.StrideInBytes = sizeof(XMFLOAT3);
-				m_d3dPositionBufferView.SizeInBytes = sizeof(XMFLOAT3) * mVertexCnt;
-				*/
+				positions = new XMFLOAT3[positionCnt];
+				nReads = (UINT)::fread(positions, sizeof(XMFLOAT3), positionCnt, file);
 			}
 		}
 		else if (!strcmp(pstrToken, "<Colors>:")) {
-			nReads = (UINT)::fread(&nColors, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&colorCnt, sizeof(int), 1, file);
 
-			if (nColors > 0) {
+			if (colorCnt > 0) {
 				mType |= VERTEXT_COLOR;
-				mColors = new XMFLOAT4[nColors];
-				nReads = (UINT)::fread(mColors, sizeof(XMFLOAT4), nColors, file);
+				XMFLOAT4* colors = new XMFLOAT4[colorCnt];
+				nReads = (UINT)::fread(colors, sizeof(XMFLOAT4), colorCnt, file);
+
+				delete[] colors;
 			}
 		}
 		else if (!strcmp(pstrToken, "<TextureCoords0>:")) {
-			nReads = (UINT)::fread(&nTextureCoords, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&textureCoordCnt, sizeof(int), 1, file);
 
-			if (nTextureCoords > 0)
-			{
+			if (textureCoordCnt > 0) {
 				mType |= VERTEXT_TEXTURE_COORD0;
-				mTextureCoords0 = new XMFLOAT2[nTextureCoords];
-				nReads = (UINT)::fread(mTextureCoords0, sizeof(XMFLOAT2), nTextureCoords, file);
-				/*
-				m_pd3dTextureCoord0Buffer = ::CreateBufferResource(device, commandList, mTextureCoords0, sizeof(XMFLOAT2) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dTextureCoord0UploadBuffer);
-
-				m_d3dTextureCoord0BufferView.BufferLocation = m_pd3dTextureCoord0Buffer->GetGPUVirtualAddress();
-				m_d3dTextureCoord0BufferView.StrideInBytes = sizeof(XMFLOAT2);
-				m_d3dTextureCoord0BufferView.SizeInBytes = sizeof(XMFLOAT2) * mVertexCnt;
-				*/
+				textureCoords0 = new XMFLOAT2[textureCoordCnt];
+				nReads = (UINT)::fread(textureCoords0, sizeof(XMFLOAT2), textureCoordCnt, file);
 			}
 		}
 		else if (!strcmp(pstrToken, "<TextureCoords1>:")) {
-			nReads = (UINT)::fread(&nTextureCoords, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&textureCoordCnt, sizeof(int), 1, file);
 
-			if (nTextureCoords > 0) {
-				mType |= VERTEXT_TEXTURE_COORD1;
-				mTextureCoords1 = new XMFLOAT2[nTextureCoords];
-				nReads = (UINT)::fread(mTextureCoords1, sizeof(XMFLOAT2), nTextureCoords, file);
-
+			if (textureCoordCnt > 0) {	// ¹«½Ã
 				/*
-				m_pd3dTextureCoord1Buffer = ::CreateBufferResource(device, commandList, mTextureCoords1, sizeof(XMFLOAT2) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dTextureCoord1UploadBuffer);
+				mType |= VERTEXT_TEXTURE_COORD1;
+				XMFLOAT2* textureCoords1 = new XMFLOAT2[textureCoordCnt];
+				nReads = (UINT)::fread(textureCoords1, sizeof(XMFLOAT2), textureCoordCnt, file);
 
-				m_d3dTextureCoord1BufferView.BufferLocation = m_pd3dTextureCoord1Buffer->GetGPUVirtualAddress();
-				m_d3dTextureCoord1BufferView.StrideInBytes = sizeof(XMFLOAT2);
-				m_d3dTextureCoord1BufferView.SizeInBytes = sizeof(XMFLOAT2) * mVertexCnt;
+				ThrowIfFailed(D3DCreateBlob(1, &TextureCoord1BufferCPU));
+				CopyMemory(TextureCoord1BufferCPU->GetBufferPointer(), textureCoords1, sizeof(XMFLOAT2) * textureCoordCnt);
+
+				TextureCoord0BufferGPU = d3dUtil::CreateDefaultBuffer(device, commandList,
+					textureCoords1, sizeof(XMFLOAT2) * textureCoordCnt, TextureCoord1BufferUploader);
+
+				delete[] textureCoords1;
 				*/
+				nReads = (UINT)::fseek(file, sizeof(XMFLOAT2) * textureCoordCnt, SEEK_CUR);
 			}
 		}
 		else if (!strcmp(pstrToken, "<Normals>:")) {
-			nReads = (UINT)::fread(&nNormals, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&normalCnt, sizeof(int), 1, file);
 
-			if (nNormals > 0) {
+			if (normalCnt > 0) {
 				mType |= VERTEXT_NORMAL;
-				mNormals = new XMFLOAT3[nNormals];
-				nReads = (UINT)::fread(mNormals, sizeof(XMFLOAT3), nNormals, file);
-				/*
-				m_pd3dNormalBuffer = ::CreateBufferResource(device, commandList, mNormals, sizeof(XMFLOAT3) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dNormalUploadBuffer);
-
-				m_d3dNormalBufferView.BufferLocation = m_pd3dNormalBuffer->GetGPUVirtualAddress();
-				m_d3dNormalBufferView.StrideInBytes = sizeof(XMFLOAT3);
-				m_d3dNormalBufferView.SizeInBytes = sizeof(XMFLOAT3) * mVertexCnt;
-				*/
+				normals = new XMFLOAT3[normalCnt];
+				nReads = (UINT)::fread(normals, sizeof(XMFLOAT3), normalCnt, file);
 			}
 		}
 		else if (!strcmp(pstrToken, "<Tangents>:")) {
-			nReads = (UINT)::fread(&nTangents, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&tangentCnt, sizeof(int), 1, file);
 
-			if (nTangents > 0) {
-				mType |= VERTEXT_TANGENT;
-				mTangents = new XMFLOAT3[nTangents];
-				nReads = (UINT)::fread(mTangents, sizeof(XMFLOAT3), nTangents, file);
+			if (tangentCnt > 0) {
 				/*
-				m_pd3dTangentBuffer = ::CreateBufferResource(device, commandList, mTangents, sizeof(XMFLOAT3) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dTangentUploadBuffer);
+				mType |= VERTEXT_TANGENT;
+				XMFLOAT3* tangents = new XMFLOAT3[tangentCnt];
+				nReads = (UINT)::fread(tangents, sizeof(XMFLOAT3), tangentCnt, file);
 
-				m_d3dTangentBufferView.BufferLocation = m_pd3dTangentBuffer->GetGPUVirtualAddress();
-				m_d3dTangentBufferView.StrideInBytes = sizeof(XMFLOAT3);
-				m_d3dTangentBufferView.SizeInBytes = sizeof(XMFLOAT3) * mVertexCnt;
+				delete[] tangents;
 				*/
+				nReads = (UINT)::fseek(file, sizeof(XMFLOAT3) * tangentCnt, SEEK_CUR);
 			}
 		}
 		else if (!strcmp(pstrToken, "<BiTangents>:")) {
-			nReads = (UINT)::fread(&nBiTangents, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&biTangentCnt, sizeof(int), 1, file);
 
-			if (nBiTangents > 0) {
-				mBiTangents = new XMFLOAT3[nBiTangents];
-				nReads = (UINT)::fread(mBiTangents, sizeof(XMFLOAT3), nBiTangents, file);
+			if (biTangentCnt > 0) {
 				/*
-				m_pd3dBiTangentBuffer = ::CreateBufferResource(device, commandList, mBiTangents, sizeof(XMFLOAT3) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dBiTangentUploadBuffer);
-
-				m_d3dBiTangentBufferView.BufferLocation = m_pd3dBiTangentBuffer->GetGPUVirtualAddress();
-				m_d3dBiTangentBufferView.StrideInBytes = sizeof(XMFLOAT3);
-				m_d3dBiTangentBufferView.SizeInBytes = sizeof(XMFLOAT3) * mVertexCnt;
+				XMFLOAT3* biTangents = new XMFLOAT3[biTangentCnt];
+				nReads = (UINT)::fread(biTangents, sizeof(XMFLOAT3), biTangentCnt, file);
+				
+				delete[] biTangents;
 				*/
+				nReads = (UINT)::fseek(file, sizeof(XMFLOAT3) * biTangentCnt, SEEK_CUR);
 			}
 		}
 		else if (!strcmp(pstrToken, "<Indices>:")) {
-			nReads = (UINT)::fread(&nIndices, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&indexCnt, sizeof(int), 1, file);
 			
-			if (nIndices > 0) {
-				mIndices = new UINT[nIndices];
-				nReads = (UINT)::fread(mIndices, sizeof(UINT), nIndices, file);
+			if (indexCnt > 0) {
+				UINT* indices = new UINT[indexCnt];
+				nReads = (UINT)::fread(indices, sizeof(UINT), indexCnt, file);
+
+				IndexBufferByteSize = sizeof(UINT) * indexCnt;
+
+				ThrowIfFailed(D3DCreateBlob(sizeof(UINT) * indexCnt, &IndexBufferCPU));
+				CopyMemory(IndexBufferCPU->GetBufferPointer(), indices, sizeof(UINT)* indexCnt);
 
 				IndexBufferGPU = d3dUtil::CreateDefaultBuffer(device, commandList,
-					mIndices, nIndices * sizeof(XMFLOAT3), VertexBufferUploader);
-				
-				ThrowIfFailed(D3DCreateBlob(sizeof(UINT) * nIndices, &IndexBufferCPU));
-				CopyMemory(IndexBufferCPU->GetBufferPointer(), mIndices, sizeof(UINT) * nIndices);
-				/*
-				m_pd3dPositionBuffer = ::CreateBufferResource(device, commandList, m_pxmf3Positions, sizeof(XMFLOAT3) * mVertexCnt, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, &m_pd3dPositionUploadBuffer);
+					indices, sizeof(UINT) * indexCnt, IndexBufferUploader);
 
-				m_d3dPositionBufferView.BufferLocation = m_pd3dPositionBuffer->GetGPUVirtualAddress();
-				m_d3dPositionBufferView.StrideInBytes = sizeof(XMFLOAT3);
-				m_d3dPositionBufferView.SizeInBytes = sizeof(XMFLOAT3) * mVertexCnt;
-				*/
+				delete[] indices;
 			}
 		}
 		else if (!strcmp(pstrToken, "<SubMeshes>:")) {
-			nReads = (UINT)::fread(&nSubMeshes, sizeof(int), 1, file);
+			nReads = (UINT)::fread(&subMesheCnt, sizeof(int), 1, file);
 
-			if (nSubMeshes > 0) {
-				SubmeshGeometry subMesh;
-				/*
-				m_pnSubSetIndices = new int[m_nSubMeshes];
-				m_ppnSubSetIndices = new UINT * [m_nSubMeshes];
-
-				m_ppd3dSubSetIndexBuffers = new ID3D12Resource * [m_nSubMeshes];
-				m_ppd3dSubSetIndexUploadBuffers = new ID3D12Resource * [m_nSubMeshes];
-				m_pd3dSubSetIndexBufferViews = new D3D12_INDEX_BUFFER_VIEW[m_nSubMeshes];
-				*/
-				for (int i = 0; i < nSubMeshes; i++)
+			if (subMesheCnt > 0) {
+				for (int i = 0; i < subMesheCnt; i++)
 				{
-					nReads = (UINT)::fread(&nStrLength, sizeof(BYTE), 1, file);
-					nReads = (UINT)::fread(pstrToken, sizeof(char), nStrLength, file);
-					pstrToken[nStrLength] = '\0';
+					nReads = (UINT)::fread(&strLength, sizeof(BYTE), 1, file);
+					nReads = (UINT)::fread(pstrToken, sizeof(char), strLength, file);
+					pstrToken[strLength] = '\0';
 
 					if (!strcmp(pstrToken, "<SubMesh>:")) {
+						SubmeshGeometry subMesh;
+
+						subMesh.BaseVertexLocation = 0;
 						nReads = (UINT)::fread(&subMesh.StartIndexLocation, sizeof(int), 1, file);
 						nReads = (UINT)::fread(&subMesh.IndexCount, sizeof(int), 1, file);
-						/*
-						if (nIndex > 0) {
-							UINT* subMeshIndices = new UINT[nIndex];
-							nReads = (UINT)::fread(subMeshIndices, sizeof(UINT) * nIndex, 1, file);
 
-							m_ppd3dSubSetIndexBuffers[i] = ::CreateBufferResource(device, commandList, m_ppnSubSetIndices[i], sizeof(UINT) * m_pnSubSetIndices[i], D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_INDEX_BUFFER, &m_ppd3dSubSetIndexUploadBuffers[i]);
-
-							m_pd3dSubSetIndexBufferViews[i].BufferLocation = m_ppd3dSubSetIndexBuffers[i]->GetGPUVirtualAddress();
-							m_pd3dSubSetIndexBufferViews[i].Format = DXGI_FORMAT_R32_UINT;
-							m_pd3dSubSetIndexBufferViews[i].SizeInBytes = sizeof(UINT) * m_pnSubSetIndices[i];
-							
-						}
-					*/
+						DrawArgs["subMeshName"] = subMesh;
 					}
 				}
 			}
 		}
 		else if (!strcmp(pstrToken, "</Mesh>"))
 		{
+			// vertex..
+			struct Vertex {
+				XMFLOAT3 position;
+				XMFLOAT3 normal;
+				XMFLOAT2 textureCoord0;
+			};
+
+			Vertex* vertices = new Vertex[positionCnt];
+
+			for (int i = 0; i < positionCnt; i++)
+			{
+				Vertex vertex;
+				vertex.position = positions[i];
+				vertex.normal = normals[i];
+				vertex.textureCoord0 = textureCoords0[i];
+
+				vertices[i] = vertex;
+			}
+
+			VertexByteStride = sizeof(Vertex);
+			VertexBufferByteSize = sizeof(Vertex) * positionCnt;
+
+			ThrowIfFailed(D3DCreateBlob(sizeof(Vertex) * positionCnt, &VertexBufferCPU));
+			CopyMemory(VertexBufferCPU->GetBufferPointer(), vertices, sizeof(Vertex)* positionCnt);
+
+			VertexBufferGPU = d3dUtil::CreateDefaultBuffer(device, commandList,
+				vertices, sizeof(Vertex) * positionCnt, VertexBufferUploader);
+
+			delete[] vertices;
+			delete[] positions;
+			delete[] normals;
+			delete[] textureCoords0;
 			break;
 		}
 	}

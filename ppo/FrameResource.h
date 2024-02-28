@@ -14,6 +14,11 @@ struct ObjectConstants
     UINT     ObjPad2;
 };
 
+struct SkinnedConstants
+{
+    DirectX::XMFLOAT4X4 BoneTransforms[96];
+};
+
 struct PassConstants
 {
     DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
@@ -44,7 +49,7 @@ struct MaterialData
 {
     DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
     DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
-    float Roughness = 64.0f;
+    float Roughness = 0.5f;
 
     // Used in texture mapping.
     DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
@@ -62,6 +67,15 @@ struct Vertex
     DirectX::XMFLOAT2 TexC;
 };
 
+struct SkinnedVertex
+{
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT3 Normal;
+    DirectX::XMFLOAT2 TexC;
+    DirectX::XMFLOAT3 BoneWeights;
+    BYTE BoneIndices[4];
+};
+
 // CPU가 한 프레임의 명령 목록들을 구축하는 데 필요한 자원들을 대표하는 클래스
 // 응용 프로그램마다 필요한 자원이 다를 것이므로,
 // 이런 클래스의 멤버 구성 역시 응용 프로그램마다 달라야 할 것이다.
@@ -69,7 +83,7 @@ struct FrameResource
 {
 public:
     
-    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount);
+    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT skinnedObjectCount, UINT materialCount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource();
@@ -82,6 +96,7 @@ public:
     // 따라서 프레임마다 할당자가 필요하다.
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+    std::unique_ptr<UploadBuffer<SkinnedConstants>> SkinnedCB = nullptr;
 
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 

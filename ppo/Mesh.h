@@ -25,33 +25,24 @@ struct SubmeshGeometry
 	DirectX::BoundingBox Bounds;
 };
 
-class MeshGeometry
+struct MeshGeometry
 {
-public:
 	// 메시를 이름으로 조회
 	std::string Name;
 
 	UINT							mType = 0x00;
 
-	XMFLOAT3						mAABBCenter = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	XMFLOAT3						mAABBExtents = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	XMFLOAT3						AABBCenter = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	XMFLOAT3						AABBExtents = XMFLOAT3(0.0f, 0.0f, 0.0f);
 
 	D3D12_PRIMITIVE_TOPOLOGY		mPrimitiveTopology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	UINT							mSlot = 0;
-	UINT							mOffset = 0;
 
-	int mVertexCnt;
-	int indexCnt;
-	XMFLOAT3* mPositions;
-	UINT* mIndices;
-	XMFLOAT4* mColors;
-	XMFLOAT3* mNormals;
-	XMFLOAT3* mTangents;
-	XMFLOAT3* mBiTangents;
-	XMFLOAT2* mTextureCoords0;
-	XMFLOAT2* mTextureCoords1;
+	int vertexCnt = 0;
+	int indexCnt = 0;
 
-	// 시스템 메모리 복사본. 
+	int vertexMemberCnt = 0;
+
+	// 시스템 메모리 복사본.
 	// 정점/색인 형식이 범용적일 수 있으므로 ID3DBlob을 사용한다.
 	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
 	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU = nullptr;
@@ -66,7 +57,7 @@ public:
 	UINT VertexByteStride = 0;
 	UINT VertexBufferByteSize = 0;
 
-	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
+	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R32_UINT;
 	UINT IndexBufferByteSize = 0;
 
 	// 한 MeshGeometry 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
@@ -74,6 +65,7 @@ public:
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
 
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const;
+	int VertexBufferViewMemberCnt()const;
 	D3D12_INDEX_BUFFER_VIEW IndexBufferView()const;
 
 	void DisposeUploaders();
