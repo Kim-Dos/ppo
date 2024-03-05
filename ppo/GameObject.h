@@ -46,51 +46,60 @@ class GameObject
 {
 public:
     GameObject();
+    GameObject(const string name, UINT objCBIndex, 
+		XMFLOAT4X4 world = MathHelper::Identity4x4(), 
+		XMFLOAT4X4 texTransform = MathHelper::Identity4x4());
     ~GameObject();
 
-	void SetName(const std::string name) { mName = name; }
-	void SetName(const char* name) { mName = name; }
-	void SetMaterial(const std::vector<std::string> materials) { mMaterials = materials; }
+	void SetName(const string name) { mName = name; }
 
 	void SetPosition(float x, float y, float z);
 	void SetPosition(XMFLOAT3 position);
 	void SetScale(float x, float y, float z);
-
-	void SetChild(GameObject* child);
+	void SetScale(XMFLOAT3 scale);
 
 	std::string GetName() { return mName; }
-	std::vector<std::string> GetMaterials() { return mMaterials; }
 	
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetLook();
 	XMFLOAT3 GetUp();
 	XMFLOAT3 GetRight();
 
-	RenderItem GetRenderItem() { return mRenderItem; }
-
 	void MoveStrafe(float distance = 1.0f);
 	void MoveUp(float distance = 1.0f);
 	void MoveForward(float distance = 1.0f);
+	void MoveFront(float distance = 1.0f);
 
 	void Rotate(float pitch, float yaw, float roll);
 	void Rotate(XMFLOAT3* axis, float angle);
 	void Rotate(XMFLOAT4* quaternion);
 
-	GameObject* GetParent() { return mParent; };
-	GameObject* FindFrame(const std::string frameName);
-
-	static GameObject* LoadFrameHierarchyFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
-	static GameObject* LoadGeometryFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, std::string fileName);
-	void LoadMaterialsFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
-
 private:
 	std::string mName;
+	
+	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 
-	std::vector<std::string> mMaterials;
-	RenderItem mRenderItem;
+	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
 
-	GameObject* mParent = nullptr;
-	GameObject* mChild = nullptr;
-	GameObject* mSibling = nullptr;
+	// 물체의 자료가 변해서 상수버퍼를 갱신해야 하는지의 여부를 뜻하는 'Dirty'플래그
+	// FrameResource마다 물체의 cBuffer가 있으므로 물체의 자료를 수정할 떄는 반드시
+	// NumFramesDirty = gNumFrameResources로 설정해야 한다.
+	// 그래야 각각의 프레임 자원이 갱신된다.
+	int mNumFramesDirty = gNumFrameResources;
+
+	// 이 렌더 항목의 물체 상수 버퍼에 해당하는 
+	// GPU 상수 버퍼의 색인
+	UINT mObjCBIndex = -1;
+
+	Material* mMaterial = nullptr;
+	Mesh* mMesh = nullptr;
+
+	// Primitive topology.
+	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	// DrawIndexedInstanced 매개변수들.
+	UINT IndexCount = 0;
+	UINT StartIndexLocation = 0;
+	UINT BaseVertexLocation = 0;
 };
 
