@@ -25,7 +25,7 @@ struct RenderItem
 
 	// 이 렌더 항목에 연관된 기하구조. 여러 렌더항목이 같은 기하구조를 참조할 수 있다.
 	Material* Mat = nullptr;
-	MeshGeometry* Geo = nullptr;
+	Mesh* Geo = nullptr;
 
 	// Primitive topology.
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -48,7 +48,7 @@ public:
     GameObject();
     ~GameObject();
 
-	void SetName(std::string name) { mName = name; }
+	void SetName(const std::string name) { mName = name; }
 	void SetName(const char* name) { mName = name; }
 	void SetMaterial(const std::vector<std::string> materials) { mMaterials = materials; }
 
@@ -82,7 +82,6 @@ public:
 	static GameObject* LoadFrameHierarchyFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
 	static GameObject* LoadGeometryFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, std::string fileName);
 	void LoadMaterialsFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, GameObject* parent, FILE* file);
-
 
 private:
 	std::string mName;

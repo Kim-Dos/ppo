@@ -99,8 +99,6 @@ private:
 	void BuildShadersAndInputLayout();
 	void BuildShapeGeometry();
 	void LoadSkinnedModel();
-	void BuildSkullGeometry();
-	void BuildSkullGeometryTest();
 	void LoadTerrain();
 	void BuildPSOs();
 	void BuildFrameResources();
@@ -123,7 +121,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
 	Terrain mTerrain;
-	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+	std::unordered_map<std::string, std::unique_ptr<Mesh>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;

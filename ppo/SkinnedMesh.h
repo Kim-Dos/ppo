@@ -7,6 +7,7 @@
 #include <assimp/postprocess.h>
 #include <assimp\cimport.h>
 #include "d3dUtil.h"
+#include "Mesh.h"
 #include <map>
 
 using namespace DirectX;
@@ -93,7 +94,7 @@ struct BasicMeshEntry {
     unsigned int MaterialIndex;
 };
 
-class SkinnedMesh
+class SkinnedMesh : public Mesh
 {
 public:
     SkinnedMesh() {};
@@ -110,13 +111,6 @@ public:
 
     void GetBoneTransforms(float animationTimeSec, vector<XMFLOAT4X4>& transforms, int animationIndex);
 
-    vector<BasicMeshEntry> mMeshes;
-    vector<Material> mMaterials;
-
-    vector<XMFLOAT3> mPositions;
-    vector<XMFLOAT3> mNormals;
-    vector<XMFLOAT2> mTexCoords;
-    vector<unsigned int> mIndices;
     vector<VertexBoneData> mBones;
 
     map<string, int> mBoneNameToIndexMap;
@@ -139,8 +133,8 @@ private:
     void LoadSpecularTexture(const string& Dir, const aiMaterial* pMaterial, int index);
     void LoadColors(const aiMaterial* pMaterial, int index);
 
-    void LoadMeshBones(int MeshIndex, const aiMesh* pMesh);
-    void LoadSingleBone(int MeshIndex, const aiBone* pBone);
+    void LoadMeshBones(string meshName, const aiMesh* pMesh);
+    void LoadSingleBone(string meshName, const aiBone* pBone);
     void LoadBoneHierarchy(const aiNode* pNode);
     int GetBoneId(const aiBone* pBone);     // 기존에 없는 값이 오면 새로운 index를 추가함.
     int GetBoneId(const string boneName);   // 기존에 없는 값이 오면 -1 반환

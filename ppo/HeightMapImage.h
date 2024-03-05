@@ -11,14 +11,13 @@ public:
 	HeightMapImage();
 	~HeightMapImage();
 
-	void LoadHeightMapImage(const wchar_t* filepath, int width, int length, XMFLOAT3 scale);
+	void LoadHeightMapImage(const wchar_t* filepath, int width, int length, float scale);
 
 	//높이 맵 이미지에서 (x, z) 위치의 픽셀 값에 기반한 지형의 높이를 반환한다. 
 	float GetHeight(float x, float z);
 	//높이 맵 이미지에서 (x, z) 위치의 법선 벡터를 반환한다. 
-	XMFLOAT3 GetHeightMapNormal(int x, int z);
-
-	XMFLOAT3 GetScale() { return mScale; }
+	XMFLOAT3 GetHeightMapNormal(int x, int z, float dx, float dz);
+	
 	uint16_t* GetHeightMapPixels() { return mHeightMapPixels; }
 	int GetHeightMapWidth() { return mWidth; }
 	int GetHeightMapLength() { return mLength; }
@@ -28,6 +27,6 @@ private:
 
 	int			mWidth;
 	int			mLength;
-	XMFLOAT3	mScale;
+	float		mYScale;
 };
 

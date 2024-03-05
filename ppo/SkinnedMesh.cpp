@@ -72,22 +72,27 @@ void SkinnedMesh::Clear()
 
 bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filename)
 {
-    mMeshes.resize(pScene->mNumMeshes);
+    int numSubmeshes = pScene->mNumMeshes;
+    //mSubmeshes.resize(numSubmeshes);
     //m_Materials.resize(pScene->mNumMaterials);
 
     // 모든 정점과 인덱스 개수 구하기
     unsigned int NumVertices = 0;
     unsigned int NumIndices = 0;
 
-    for (int i = 0; i < mMeshes.size(); i++)
+    for (int i = 0; i < numSubmeshes; i++)
     {
-        mMeshes[i].MaterialIndex = pScene->mMeshes[i]->mMaterialIndex;
-        mMeshes[i].NumIndices = pScene->mMeshes[i]->mNumFaces * 3;
-        mMeshes[i].BaseVertex = NumVertices;
-        mMeshes[i].BaseIndex = NumIndices;
+        Submesh submesh;
+        
+        submesh.materialIndex = pScene->mMeshes[i]->mMaterialIndex;
+        submesh.numIndices = pScene->mMeshes[i]->mNumFaces * 3;
+        submesh.baseVertex = NumVertices;
+        submesh.baseIndex = NumIndices;
 
         NumVertices += pScene->mMeshes[i]->mNumVertices;
-        NumIndices += mMeshes[i].NumIndices;
+        NumIndices += submesh.numIndices;
+
+        mSubmeshes[pScene->mMeshes[i]->mName.C_Str()] = submesh;
     }
 
     mPositions.resize(NumVertices);
@@ -109,7 +114,7 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
 
 void SkinnedMesh::InitAllMeshes(const aiScene* pScene)
 {
-    for (unsigned int i = 0; i < mMeshes.size(); i++) 
+    for (unsigned int i = 0; i < mSubmeshes.size(); i++)
     {
         const aiMesh* paiMesh = pScene->mMeshes[i];
         InitSingleMesh(i, paiMesh);
@@ -200,7 +205,7 @@ void SkinnedMesh::InitSingleMesh(int MeshIndex, const aiMesh* paiMesh)
             mTexCoords[i] = XMFLOAT2(0.0f, 0.0f);
     }
 
-    LoadMeshBones(MeshIndex, paiMesh);
+    LoadMeshBones(paiMesh->mName.C_Str(), paiMesh);
 
     // 인덱스 정보 채우기
     for (unsigned int i = 0; i < paiMesh->mNumFaces; i++) 
@@ -343,14 +348,14 @@ void SkinnedMesh::LoadColors(const aiMaterial* pMaterial, int index)
     */
 }
 
-void SkinnedMesh::LoadMeshBones(int MeshIndex, const aiMesh* pMesh)
+void SkinnedMesh::LoadMeshBones(string meshName, const aiMesh* pMesh)
 {
     for (int i = 0; i < pMesh->mNumBones; i++) {
-        LoadSingleBone(MeshIndex, pMesh->mBones[i]);
+        LoadSingleBone(meshName, pMesh->mBones[i]);
     }
 }
 
-void SkinnedMesh::LoadSingleBone(int MeshIndex, const aiBone* pBone)
+void SkinnedMesh::LoadSingleBone(string meshName, const aiBone* pBone)
 {
     int BoneId = GetBoneId(pBone);
 
@@ -363,7 +368,7 @@ void SkinnedMesh::LoadSingleBone(int MeshIndex, const aiBone* pBone)
 
     for (int i = 0; i < pBone->mNumWeights; i++) {
         const aiVertexWeight& vw = pBone->mWeights[i];
-        int GlobalVertexID = mMeshes[MeshIndex].BaseVertex + pBone->mWeights[i].mVertexId;
+        int GlobalVertexID = mSubmeshes[meshName].baseVertex + pBone->mWeights[i].mVertexId;
         mBones[GlobalVertexID].AddBoneData(BoneId, vw.mWeight);
     }
 }

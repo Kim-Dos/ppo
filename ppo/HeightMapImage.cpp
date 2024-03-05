@@ -5,7 +5,7 @@ HeightMapImage::HeightMapImage()
 	mHeightMapPixels = nullptr;
 	mWidth = 0;
 	mLength = 0;
-	mScale = XMFLOAT3(1.0f, 1.0f, 1.0f);
+	mYScale = 1.0f;
 }
 
 HeightMapImage::~HeightMapImage()
@@ -15,11 +15,11 @@ HeightMapImage::~HeightMapImage()
 	mHeightMapPixels = NULL;
 }
 
-void HeightMapImage::LoadHeightMapImage(const wchar_t* filepath, int width, int length, XMFLOAT3 scale)
+void HeightMapImage::LoadHeightMapImage(const wchar_t* filepath, int width, int length, float yScale)
 {
 	mWidth = width;
 	mLength = length;
-	mScale = scale;
+	mYScale = yScale;
 
 	std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
@@ -48,7 +48,7 @@ void HeightMapImage::LoadHeightMapImage(const wchar_t* filepath, int width, int 
 		for (int x = 0; x < mWidth; x++)
 		{
 			mHeightMapPixels[x + (y * mWidth)] =
-				heightMapPixels[x + (y * mWidth)] * scale.y;
+				heightMapPixels[x + (y * mWidth)] * yScale;
 		}
 	}
 
@@ -114,7 +114,7 @@ float HeightMapImage::GetHeight(float fx, float fz)
 	return(fHeight);
 }
 
-DirectX::XMFLOAT3 HeightMapImage::GetHeightMapNormal(int x, int z)
+DirectX::XMFLOAT3 HeightMapImage::GetHeightMapNormal(int x, int z, float dx, float dz)
 {
 	//x-좌표와 z-좌표가 높이 맵의 범위를 벗어나면 지형의 법선 벡터는 y-축 방향 벡터이다. 
 	if ((x < 0.0f) || (z < 0.0f) || (x >= mWidth) || (z >= mLength))
@@ -126,15 +126,15 @@ DirectX::XMFLOAT3 HeightMapImage::GetHeightMapNormal(int x, int z)
 	int xHeightMapAdd = (x < (mWidth - 1)) ? 1 : -1;
 	int zHeightMapAdd = (z < (mLength - 1)) ? mWidth : -mWidth;
 
-	//(x, z), (x+1, z), (z, z+1)의 픽셀에서 지형의 높이를 구한다. 
-	float y1 = (float)mHeightMapPixels[nHeightMapIndex] * mScale.y;
-	float y2 = (float)mHeightMapPixels[nHeightMapIndex + xHeightMapAdd] * mScale.y;
-	float y3 = (float)mHeightMapPixels[nHeightMapIndex + zHeightMapAdd] * mScale.y;
+	//(x, z), (x+2, z), (z, z+2)의 픽셀에서 지형의 높이를 구한다. 
+	float y1 = (float)mHeightMapPixels[nHeightMapIndex];
+	float y2 = (float)mHeightMapPixels[nHeightMapIndex + xHeightMapAdd];
+	float y3 = (float)mHeightMapPixels[nHeightMapIndex + zHeightMapAdd];
 
 	//xmf3Edge1은 (0, y3, m_xmf3Scale.z) - (0, y1, 0) 벡터이다. 
-	XMFLOAT3 xmf3Edge1 = XMFLOAT3(0.0f, y3 - y1, mScale.z);
+	XMFLOAT3 xmf3Edge1 = XMFLOAT3(0.0f, y3 - y1, dz);
 	//xmf3Edge2는 (m_xmf3Scale.x, y2, 0) - (0, y1, 0) 벡터이다. 
-	XMFLOAT3 xmf3Edge2 = XMFLOAT3(mScale.x, y2 - y1, 0.0f);
+	XMFLOAT3 xmf3Edge2 = XMFLOAT3(dx, y2 - y1, 0.0f);
 	//법선 벡터는 xmf3Edge1과 xmf3Edge2의 외적을 정규화하면 된다. 
 	XMFLOAT3 xmf3Normal = Vector3::CrossProduct(xmf3Edge1, xmf3Edge2, true);
 

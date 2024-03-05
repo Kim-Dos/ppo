@@ -1,5 +1,6 @@
 #pragma once
 #include "d3dUtil.h"
+#include "FrameResource.h"
 
 #define VERTEXT_POSITION				0x01
 #define VERTEXT_COLOR					0x02
@@ -15,60 +16,78 @@
 #define VERTEXT_NORMAL_DETAIL			(VERTEXT_POSITION | VERTEXT_NORMAL | VERTEXT_TEXTURE_COORD0 | VERTEXT_TEXTURE_COORD1)
 #define VERTEXT_NORMAL_TANGENT__DETAIL	(VERTEXT_POSITION | VERTEXT_NORMAL | VERTEXT_TANGENT | VERTEXT_TEXTURE_COORD0 | VERTEXT_TEXTURE_COORD1)
 
-struct SubmeshGeometry
+using namespace std;
+using namespace DirectX;
+
+struct Submesh
 {
-	UINT IndexCount = 0;
-	UINT StartIndexLocation = 0;
-	INT BaseVertexLocation = 0;
+	UINT baseVertex = 0;
+	UINT baseIndex = 0;
+	UINT numIndices = 0;
+	UINT materialIndex = -1;
 
 	// 서브메쉬의 바운딩 박스
-	DirectX::BoundingBox Bounds;
+	BoundingBox bounds;
 };
 
-struct MeshGeometry
+// 메시의 이름, 정점, 인덱스를 저장
+class Mesh
 {
+public:
+	Mesh();
+	~Mesh();
+
 	// 메시를 이름으로 조회
-	std::string Name;
+	string mName;
 
-	UINT							mType = 0x00;
+	UINT mType = 0x00;
 
-	XMFLOAT3						AABBCenter = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	XMFLOAT3						AABBExtents = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	BoundingBox mBounds;
 
-	D3D12_PRIMITIVE_TOPOLOGY		mPrimitiveTopology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	D3D12_PRIMITIVE_TOPOLOGY mPrimitiveTopology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
-	int vertexCnt = 0;
-	int indexCnt = 0;
+	int mNumVertices = 0;
+	int mNumIndices = 0;
 
-	int vertexMemberCnt = 0;
+	vector<XMFLOAT3> mPositions;
+	vector<XMFLOAT3> mNormals;
+	vector<XMFLOAT2> mTexCoords;
+	vector<uint32_t> mIndices;
+
+	vector<Material> mMaterials;
 
 	// 시스템 메모리 복사본.
 	// 정점/색인 형식이 범용적일 수 있으므로 ID3DBlob을 사용한다.
-	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> mVertexBufferCPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> mIndexBufferCPU = nullptr;
 
-	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferGPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mVertexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBufferGPU = nullptr;
 
-	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferUploader = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mVertexBufferUploader = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mIndexBufferUploader = nullptr;
 
 	// 버퍼들에 관한 자료
-	UINT VertexByteStride = 0;
-	UINT VertexBufferByteSize = 0;
+	UINT mVertexByteStride = 0;
+	UINT mVertexBufferByteSize = 0;
 
-	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R32_UINT;
-	UINT IndexBufferByteSize = 0;
+	DXGI_FORMAT mIndexFormat = DXGI_FORMAT_R32_UINT;
+	unsigned int mIndexBufferByteSize = 0;
 
-	// 한 MeshGeometry 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
-	// 부분 메시들을 개별적으로 그릴 수 있도록, 부분 메시 기하구조들을 컨테이너에 담아둔다.
-	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
+	// 한 Mesh 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
+	// 부분 메시들을 개별적으로 그릴 수 있도록, submesh를 컨테이너에 담아둔다.
+	std::unordered_map<std::string, Submesh> mSubmeshes;
+public:
+	void AddSubmesh(const string name, UINT numIndices,
+		UINT baseVertex = 0, UINT baseIndex = 0, UINT materialIndex = 0);
 
+	void UploadBuffer(Microsoft::WRL::ComPtr<ID3D12Device> d3dDevice, 
+		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList, 
+		vector<Vertex> vertices, vector<UINT> indices);
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const;
-	int VertexBufferViewMemberCnt()const;
 	D3D12_INDEX_BUFFER_VIEW IndexBufferView()const;
 
 	void DisposeUploaders();
 
-	void LoadMeshFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, FILE* file);
+	//void LoadMeshFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, FILE* file);
 };

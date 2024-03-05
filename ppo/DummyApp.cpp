@@ -33,8 +33,7 @@ bool DummyApp::Initialize()
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
-	BuildSkullGeometry();
-	BuildSkullGeometryTest();
+	LoadSkinnedModel();
 	LoadTerrain();
 	BuildMaterials();
 	BuildRenderItems();
@@ -151,7 +150,7 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 테이블에 몇 개의 서술자가 있는지는 루트 서명에 설정되어 있다.
 	mCommandList->SetGraphicsRootDescriptorTable(5, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-	//DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
 	mCommandList->SetPipelineState(mPSOs["skinnedOpaque"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::SkinnedOpaque]);
@@ -634,25 +633,25 @@ void DummyApp::BuildShapeGeometry()
 	UINT sphereIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
 	UINT cylinderIndexOffset = sphereIndexOffset + (UINT)sphere.Indices32.size();
 
-	SubmeshGeometry boxSubmesh;
-	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-	boxSubmesh.StartIndexLocation = boxIndexOffset;
-	boxSubmesh.BaseVertexLocation = boxVertexOffset;
+	Submesh boxSubmesh;
+	boxSubmesh.numIndices = (UINT)box.Indices32.size();
+	boxSubmesh.baseIndex = boxIndexOffset;
+	boxSubmesh.baseVertex = boxVertexOffset;
 
-	SubmeshGeometry gridSubmesh;
-	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-	gridSubmesh.StartIndexLocation = gridIndexOffset;
-	gridSubmesh.BaseVertexLocation = gridVertexOffset;
+	Submesh gridSubmesh;
+	gridSubmesh.numIndices = (UINT)grid.Indices32.size();
+	gridSubmesh.baseIndex = gridIndexOffset;
+	gridSubmesh.baseVertex = gridVertexOffset;
 
-	SubmeshGeometry sphereSubmesh;
-	sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
-	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
-	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
+	Submesh sphereSubmesh;
+	sphereSubmesh.numIndices = (UINT)sphere.Indices32.size();
+	sphereSubmesh.baseIndex = sphereIndexOffset;
+	sphereSubmesh.baseVertex = sphereVertexOffset;
 
-	SubmeshGeometry cylinderSubmesh;
-	cylinderSubmesh.IndexCount = (UINT)cylinder.Indices32.size();
-	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
-	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
+	Submesh cylinderSubmesh;
+	cylinderSubmesh.numIndices = (UINT)cylinder.Indices32.size();
+	cylinderSubmesh.baseIndex = cylinderIndexOffset;
+	cylinderSubmesh.baseVertex = cylinderVertexOffset;
 
 	//
 	// Extract the vertex elements we are interested in and pack the
@@ -705,50 +704,35 @@ void DummyApp::BuildShapeGeometry()
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "shapeGeo";
+	auto geo = std::make_unique<Mesh>();
+	geo->mName = "shapeGeo";
+	
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->mVertexBufferCPU));
+	CopyMemory(geo->mVertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->mIndexBufferCPU));
+	CopyMemory(geo->mIndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+	geo->mVertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->mVertexBufferUploader);
 
-	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+	geo->mIndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->mIndexBufferUploader);
 
-	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+	geo->mVertexByteStride = sizeof(Vertex);
+	geo->mVertexBufferByteSize = vbByteSize;
+	geo->mIndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->mIndexBufferByteSize = ibByteSize;
 
-	geo->VertexByteStride = sizeof(Vertex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-	geo->IndexBufferByteSize = ibByteSize;
+	geo->mSubmeshes["box"] = boxSubmesh;
+	geo->mSubmeshes["grid"] = gridSubmesh;
+	geo->mSubmeshes["sphere"] = sphereSubmesh;
+	geo->mSubmeshes["cylinder"] = cylinderSubmesh;
 
-	geo->DrawArgs["box"] = boxSubmesh;
-	geo->DrawArgs["grid"] = gridSubmesh;
-	geo->DrawArgs["sphere"] = sphereSubmesh;
-	geo->DrawArgs["cylinder"] = cylinderSubmesh;
-
-	mGeometries[geo->Name] = std::move(geo);
+	mGeometries[geo->mName] = std::move(geo);
 }
 
 void DummyApp::LoadSkinnedModel()
-{
-	vector<SkinnedVertex> vertices;
-	vector<UINT> indices;
-
-	mSkinnedMesh.LoadMesh("Models/animation_with_skeleton.fbx");
-
-	const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
-
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "animation_with_skeleton";
-
-}
-
-void DummyApp::BuildSkullGeometry()
 {
 	//mSkinnedMesh.LoadMesh("Models/example4.fbx");
 	//mSkinnedMesh.LoadMesh("Models/animation_with_skeleton.fbx");
@@ -800,51 +784,6 @@ void DummyApp::BuildSkullGeometry()
 		indices.push_back(mSkinnedMesh.mIndices[i]);
 	}
 
-	/*
-	Assimp::Importer importer;
-
-	const aiScene* scene = importer.ReadFile("Models/animation_with_skeleton.fbx",
-		aiProcess_ConvertToLeftHanded | 
-		aiProcess_ValidateDataStructure |
-		aiProcess_Triangulate |
-		aiProcess_PopulateArmatureData |
-		aiProcess_LimitBoneWeights);
-
-	int numMeshes = scene->mNumMeshes;
-	for (int i = 0; i < numMeshes; i++)
-	{
-		aiMesh* mesh = scene->mMeshes[i];
-		UINT numVertices = mesh->mNumVertices;
-		for (int j = 0; j < numVertices; j++)
-		{
-			Vertex vertex;
-			vertex.Pos.x = mesh->mVertices[j].x;
-			vertex.Pos.y = mesh->mVertices[j].y;
-			vertex.Pos.z = mesh->mVertices[j].z;
-
-			vertex.Normal.x = mesh->mNormals[j].x;
-			vertex.Normal.y = mesh->mNormals[j].y;
-			vertex.Normal.z = mesh->mNormals[j].z;
-
-			//vertex.TexC.x = mesh->mTextureCoords[j]->x;
-			//vertex.TexC.y = mesh->mTextureCoords[j]->y;
-			
-			vertex.TexC.x = (rand() % 5) / 4;
-			vertex.TexC.y = (rand() % 5) / 4;
-
-			vertices.push_back(vertex);
-		}
-		
-		UINT numFaces = mesh->mNumFaces;
-		for (int i = 0; i < numFaces; i++)
-		{
-			for (int j = 0; j < mesh->mFaces[i].mNumIndices; j++)
-			{
-				indices.push_back(mesh->mFaces[i].mIndices[j]);
-			}
-		}
-	}
-	*/
 	/*
 	std::ifstream fin("Models/skinnedMeshData.txt");
 
@@ -898,55 +837,39 @@ void DummyApp::BuildSkullGeometry()
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(uint32_t);
 
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "skullGeo";
+	auto geo = std::make_unique<Mesh>();
+	geo->mName = "skullGeo";
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->mVertexBufferCPU));
+	CopyMemory(geo->mVertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->mIndexBufferCPU));
+	CopyMemory(geo->mIndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
-	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+	geo->mVertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->mVertexBufferUploader);
 
-	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+	geo->mIndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->mIndexBufferUploader);
 
-	geo->VertexByteStride = sizeof(SkinnedVertex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->IndexBufferByteSize = ibByteSize;
+	geo->mVertexByteStride = sizeof(SkinnedVertex);
+	geo->mVertexBufferByteSize = vbByteSize;
+	geo->mIndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->mIndexBufferByteSize = ibByteSize;
 
-	SubmeshGeometry submesh;
-	submesh.IndexCount = (UINT)indices.size();
-	submesh.StartIndexLocation = 0;
-	submesh.BaseVertexLocation = 0;
+	Submesh submesh;
+	submesh.numIndices = (UINT)indices.size();
+	submesh.baseIndex = 0;
+	submesh.baseVertex = 0;
 
-	geo->DrawArgs["skull"] = submesh;
+	geo->mSubmeshes["skull"] = submesh;
 
-	mGeometries[geo->Name] = std::move(geo);
-}
-
-void DummyApp::BuildSkullGeometryTest()
-{
-	/*
-	GameObject *gameObject = GameObject::LoadGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), 
-		"Models/Gunship.bin");
-	
-	auto geo = std::make_unique<MeshGeometry>();
-	MeshGeometry meshGeo = *gameObject->GetRenderItem().Geo;
-
-	*geo = meshGeo;
-	geo->Name = "test";
-
-	mGeometries[geo->Name] = std::move(geo);
-	*/
+	mGeometries[geo->mName] = std::move(geo);
 }
 
 void DummyApp::LoadTerrain()
 {
-	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, XMFLOAT3(1.0f, 0.01f, 1.0f));
+	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, 0.02f);
 	
 	UINT vcount = 1025 * 1025;
 	UINT tcount = 1024 * 1024 * 2 * 3;
@@ -958,39 +881,16 @@ void DummyApp::LoadTerrain()
 	std::vector<Vertex> vertices(vcount);
 	std::vector<uint32_t> indices(tcount);
 
-	mTerrain.CreateTerrain(2000.0f, 2000.f, vertices, indices);
+	mTerrain.CreateTerrain(4000.0f, 4000.f, vertices, indices);
 
-	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(uint32_t);
+	auto geo = std::make_unique<Mesh>();
+	geo->mName = "terrain";
 
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "terrain";
+	geo->UploadBuffer(md3dDevice, mCommandList, vertices, indices);
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-	geo->VertexByteStride = sizeof(Vertex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->IndexBufferByteSize = ibByteSize;
-
-	SubmeshGeometry submesh;
-	submesh.IndexCount = (UINT)indices.size();
-	submesh.StartIndexLocation = 0;
-	submesh.BaseVertexLocation = 0;
-
-	geo->DrawArgs["terrain"] = submesh;
-
-	mGeometries[geo->Name] = std::move(geo);
+	geo->AddSubmesh("terrain", indices.size());
+	
+	mGeometries[geo->mName] = std::move(geo);
 }
 
 void DummyApp::BuildPSOs()
@@ -1180,9 +1080,9 @@ void DummyApp::BuildRenderItems()
 	skyRitem->Mat = mMaterials["sky"].get();
 	skyRitem->Geo = mGeometries["shapeGeo"].get();
 	skyRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	skyRitem->IndexCount = skyRitem->Geo->DrawArgs["sphere"].IndexCount;
-	skyRitem->StartIndexLocation = skyRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
-	skyRitem->BaseVertexLocation = skyRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+	skyRitem->IndexCount = skyRitem->Geo->mSubmeshes["sphere"].numIndices;
+	skyRitem->StartIndexLocation = skyRitem->Geo->mSubmeshes["sphere"].baseIndex;
+	skyRitem->BaseVertexLocation = skyRitem->Geo->mSubmeshes["sphere"].baseVertex;
 
 	mRitemLayer[(int)RenderLayer::Sky].push_back(skyRitem.get());
 	mAllRitems.push_back(std::move(skyRitem));
@@ -1194,25 +1094,27 @@ void DummyApp::BuildRenderItems()
 	boxRitem->Mat = mMaterials["bricks0"].get();
 	boxRitem->Geo = mGeometries["shapeGeo"].get();
 	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
-	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
-	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+	boxRitem->IndexCount = boxRitem->Geo->mSubmeshes["box"].IndexCount;
+	boxRitem->StartIndexLocation = boxRitem->Geo->mSubmeshes["box"].StartIndexLocation;
+	boxRitem->BaseVertexLocation = boxRitem->Geo->mSubmeshes["box"].BaseVertexLocation;
 
 	mRitemLayer[(int)RenderLayer::Opaque].push_back(boxRitem.get());
 	mAllRitems.push_back(std::move(boxRitem));
 	*/
 	auto gridRitem = std::make_unique<RenderItem>();
-	gridRitem->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
+	XMStoreFloat4x4(&gridRitem->World, XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, -10.0f, 0.0f));
+	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(3.0f, 4.0f, 1.0f));
 	gridRitem->ObjCBIndex = objCBIndex++;
 	gridRitem->Mat = mMaterials["tile0"].get();
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
 	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
-	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
-	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
+	gridRitem->IndexCount = gridRitem->Geo->mSubmeshes["grid"].numIndices;
+	gridRitem->StartIndexLocation = gridRitem->Geo->mSubmeshes["grid"].baseIndex;
+	gridRitem->BaseVertexLocation = gridRitem->Geo->mSubmeshes["grid"].baseVertex;
+	
+	mRitemLayer[(int)RenderLayer::Opaque].push_back(gridRitem.get());
 	mAllRitems.push_back(std::move(gridRitem));
-
+	/*
 	auto skullRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, -10.0f, 0.0f));
 	skullRitem->TexTransform = MathHelper::Identity4x4();
@@ -1220,13 +1122,13 @@ void DummyApp::BuildRenderItems()
 	skullRitem->Mat = mMaterials["bricks0"].get();
 	skullRitem->Geo = mGeometries["skullGeo"].get();
 	skullRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
-	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
-	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
+	skullRitem->IndexCount = skullRitem->Geo->mSubmeshes["skull"].numIndices;
+	skullRitem->StartIndexLocation = skullRitem->Geo->mSubmeshes["skull"].baseIndex;
+	skullRitem->BaseVertexLocation = skullRitem->Geo->mSubmeshes["skull"].baseVertex;
 
 	mRitemLayer[(int)RenderLayer::Opaque].push_back(skullRitem.get());
 	mAllRitems.push_back(std::move(skullRitem));
-
+	*/
 	/*
 	auto testRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&testRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, 20.0f, 0.0f));
@@ -1235,28 +1137,26 @@ void DummyApp::BuildRenderItems()
 	testRitem->Mat = mMaterials["bricks0"].get();
 	testRitem->Geo = mGeometries["test"].get();
 	testRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	testRitem->IndexCount = testRitem->Geo->DrawArgs["subMeshName"].IndexCount;
-	testRitem->StartIndexLocation = testRitem->Geo->DrawArgs["subMeshName"].StartIndexLocation;
-	testRitem->BaseVertexLocation = testRitem->Geo->DrawArgs["subMeshName"].BaseVertexLocation;
+	testRitem->IndexCount = testRitem->Geo->mSubmeshes["subMeshName"].IndexCount;
+	testRitem->StartIndexLocation = testRitem->Geo->mSubmeshes["subMeshName"].StartIndexLocation;
+	testRitem->BaseVertexLocation = testRitem->Geo->mSubmeshes["subMeshName"].BaseVertexLocation;
 
 	mRitemLayer[(int)RenderLayer::Opaque].push_back(testRitem.get());
 	mAllRitems.push_back(std::move(testRitem));
 	*/
-	/*
 	auto terrainRitem = std::make_unique<RenderItem>();
-	XMStoreFloat4x4(&terrainRitem->World, XMMatrixTranslation(0.0f, -200.0f, 0.0f));
+	XMStoreFloat4x4(&terrainRitem->World, XMMatrixTranslation(0.0f, -500.0f, 0.0f));
 	terrainRitem->TexTransform = MathHelper::Identity4x4();
 	terrainRitem->ObjCBIndex = objCBIndex++;
 	terrainRitem->Mat = mMaterials["terrainMat"].get();
 	terrainRitem->Geo = mGeometries["terrain"].get();
 	terrainRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	terrainRitem->IndexCount = terrainRitem->Geo->DrawArgs["terrain"].IndexCount;
-	terrainRitem->StartIndexLocation = terrainRitem->Geo->DrawArgs["terrain"].StartIndexLocation;
-	terrainRitem->BaseVertexLocation = terrainRitem->Geo->DrawArgs["terrain"].BaseVertexLocation;
+	terrainRitem->IndexCount = terrainRitem->Geo->mSubmeshes["terrain"].numIndices;
+	terrainRitem->StartIndexLocation = terrainRitem->Geo->mSubmeshes["terrain"].baseIndex;
+	terrainRitem->BaseVertexLocation = terrainRitem->Geo->mSubmeshes["terrain"].baseVertex;
 
 	mRitemLayer[(int)RenderLayer::Opaque].push_back(terrainRitem.get());
 	mAllRitems.push_back(std::move(terrainRitem));
-	*/
 	/*
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	for (int i = 0; i < 5; ++i)
@@ -1278,9 +1178,9 @@ void DummyApp::BuildRenderItems()
 		leftCylRitem->Mat = mMaterials["bricks0"].get();
 		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
 		leftCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		leftCylRitem->IndexCount = leftCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
-		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
-		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
+		leftCylRitem->IndexCount = leftCylRitem->Geo->mSubmeshes["cylinder"].IndexCount;
+		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->mSubmeshes["cylinder"].StartIndexLocation;
+		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->mSubmeshes["cylinder"].BaseVertexLocation;
 
 		XMStoreFloat4x4(&rightCylRitem->World, leftCylWorld);
 		XMStoreFloat4x4(&rightCylRitem->TexTransform, brickTexTransform);
@@ -1288,9 +1188,9 @@ void DummyApp::BuildRenderItems()
 		rightCylRitem->Mat = mMaterials["bricks0"].get();
 		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
 		rightCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		rightCylRitem->IndexCount = rightCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
-		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
-		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
+		rightCylRitem->IndexCount = rightCylRitem->Geo->mSubmeshes["cylinder"].IndexCount;
+		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->mSubmeshes["cylinder"].StartIndexLocation;
+		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->mSubmeshes["cylinder"].BaseVertexLocation;
 
 		XMStoreFloat4x4(&leftSphereRitem->World, leftSphereWorld);
 		leftSphereRitem->TexTransform = MathHelper::Identity4x4();
@@ -1298,9 +1198,9 @@ void DummyApp::BuildRenderItems()
 		leftSphereRitem->Mat = mMaterials["stone0"].get();
 		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
 		leftSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		leftSphereRitem->IndexCount = leftSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
-		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
-		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+		leftSphereRitem->IndexCount = leftSphereRitem->Geo->mSubmeshes["sphere"].IndexCount;
+		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->mSubmeshes["sphere"].StartIndexLocation;
+		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->mSubmeshes["sphere"].BaseVertexLocation;
 
 		XMStoreFloat4x4(&rightSphereRitem->World, rightSphereWorld);
 		rightSphereRitem->TexTransform = MathHelper::Identity4x4();
@@ -1308,9 +1208,9 @@ void DummyApp::BuildRenderItems()
 		rightSphereRitem->Mat = mMaterials["stone0"].get();
 		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
 		rightSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		rightSphereRitem->IndexCount = rightSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
-		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
-		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+		rightSphereRitem->IndexCount = rightSphereRitem->Geo->mSubmeshes["sphere"].IndexCount;
+		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->mSubmeshes["sphere"].StartIndexLocation;
+		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->mSubmeshes["sphere"].BaseVertexLocation;
 
 		mRitemLayer[(int)RenderLayer::Opaque].push_back(leftCylRitem.get());
 		mRitemLayer[(int)RenderLayer::Opaque].push_back(rightCylRitem.get());
@@ -1334,9 +1234,9 @@ void DummyApp::BuildRenderItems()
 	ritem->Mat = mMaterials["missing"].get();
 	ritem->Geo = mGeometries["skullGeo"].get();
 	ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	ritem->IndexCount = ritem->Geo->DrawArgs["skull"].IndexCount;
-	ritem->StartIndexLocation = ritem->Geo->DrawArgs["skull"].StartIndexLocation;
-	ritem->BaseVertexLocation = ritem->Geo->DrawArgs["skull"].BaseVertexLocation;
+	ritem->IndexCount = ritem->Geo->mSubmeshes["skull"].numIndices;
+	ritem->StartIndexLocation = ritem->Geo->mSubmeshes["skull"].baseIndex;
+	ritem->BaseVertexLocation = ritem->Geo->mSubmeshes["skull"].baseVertex;
 
 	// the same skinned model instance.
 	ritem->SkinnedCBIndex = 0;

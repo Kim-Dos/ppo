@@ -8,9 +8,9 @@ Terrain::~Terrain()
 {
 }
 
-void Terrain::LoadHeightMap(const wchar_t* filepath, int width, int length, XMFLOAT3 scale)
+void Terrain::LoadHeightMap(const wchar_t* filepath, int width, int length, float yScale)
 {
-	mHeightImage.LoadHeightMapImage(filepath, width, length, scale);
+	mHeightImage.LoadHeightMapImage(filepath, width, length, yScale);
 }
 
 void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
@@ -42,7 +42,7 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 			float y = mHeightImage.GetHeight(j, i);
 
 			vertices[i * imageWidth + j].Pos = XMFLOAT3(x, y, z);
-			vertices[i * imageWidth + j].Normal = mHeightImage.GetHeightMapNormal(j, i);
+			vertices[i * imageWidth + j].Normal = mHeightImage.GetHeightMapNormal(j, i, dx, dz);
 			//vertices[i * imageWidth + j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
 
 			// Stretch texture over grid.
@@ -50,7 +50,35 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 			vertices[i * imageWidth + j].TexC.y = i * dv;
 		}
 	}
-
+	// terrain y pos °ª ÆòÅºÈ­, normal °ª ÆòÅºÈ­
+	int flattening = 3;
+	for (UINT i = 2; i < imageLength -2; ++i)
+	{
+		for (UINT j = 2; j < imageWidth - 2; ++j)
+		{
+			XMFLOAT3 addNormal = XMFLOAT3(0.0f, 0.0f, 0.0f);
+			float addYPos = 0.0f;
+			int numAdd = 0;
+			for (int x = j - flattening; x <= j + flattening; x++)
+			{
+				if (x < 3 || x > imageWidth - 4)
+					continue;
+				for (int y = i - flattening; y <= i + flattening; y++)
+				{
+					if (y < 3 || y > imageLength -4)
+						continue;
+					addYPos += vertices[x + imageWidth * y].Pos.y;
+					addNormal.x += vertices[x + imageWidth * y].Normal.x;
+					addNormal.y += vertices[x + imageWidth * y].Normal.y;
+					addNormal.z += vertices[x + imageWidth * y].Normal.z;
+					numAdd++;
+				}
+			}
+			vertices[i * imageWidth + j].Pos.y = addYPos / numAdd;
+			vertices[i * imageWidth + j].Normal = Vector3::Normalize(addNormal);
+		}
+	}
+	
 	//
 	// Create the indices.
 	//
