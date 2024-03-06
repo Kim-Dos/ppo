@@ -4,16 +4,39 @@ GameObject::GameObject()
 {
 }
 
-GameObject::GameObject(const string name, UINT objCBIndex, XMFLOAT4X4 world, XMFLOAT4X4 texTransform)
+GameObject::GameObject(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform)
 {
     mName = name;
-    mObjCBIndex = objCBIndex;
     mWorld = world;
     mTexTransform = texTransform;
 }
 
+GameObject::GameObject(const string name, XMMATRIX world, XMMATRIX texTransform)
+{
+    mName = name;
+    XMStoreFloat4x4(&mWorld, world);
+    XMStoreFloat4x4(&mTexTransform, texTransform);
+}
+
 GameObject::~GameObject()
 {
+}
+
+void GameObject::Update(const GameTimer& gt)
+{
+}
+
+void GameObject::SetCBIndex(int objCBIndex, int skinnedCBIndex)
+{
+    mObjCBIndex = objCBIndex;
+    mSkinnedCBIndex = skinnedCBIndex;
+}
+
+void GameObject::SetDrawIndexedInstanced(UINT numindices, UINT baseIndex, UINT baseVertex)
+{
+    mNumIndices = numindices;
+    mBaseIndex = baseIndex;
+    mBaseVertex = baseVertex;
 }
 
 void GameObject::SetPosition(float x, float y, float z)
@@ -40,6 +63,18 @@ void GameObject::SetScale(XMFLOAT3 scale)
 {
     XMMATRIX mtxScale = XMMatrixScaling(scale.x, scale.y, scale.z);
     mWorld = Matrix4x4::Multiply(mtxScale, mWorld);
+}
+
+void GameObject::SetTextureScale(float x, float y, float z)
+{
+    XMMATRIX mtxScale = XMMatrixScaling(x, y, z);
+    mTexTransform = Matrix4x4::Multiply(mtxScale, mTexTransform);
+}
+
+void GameObject::SetTextureScale(XMFLOAT3 scale)
+{
+    XMMATRIX mtxScale = XMMatrixScaling(scale.x, scale.y, scale.z);
+    mTexTransform = Matrix4x4::Multiply(mtxScale, mTexTransform);
 }
 
 XMFLOAT3 GameObject::GetPosition()

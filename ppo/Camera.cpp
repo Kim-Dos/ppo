@@ -35,6 +35,18 @@ void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 	XMStoreFloat4x4(&mProj, P);
 }
 
+void Camera::SetLens(float fovY, float aspect)
+{
+	mFovY = fovY;
+	mAspect = aspect;
+
+	mNearWindowHeight = 2.0f * mNearZ * tanf(0.5f * mFovY);
+	mFarWindowHeight = 2.0f * mFarZ * tanf(0.5f * mFovY);
+
+	XMMATRIX P = XMMatrixPerspectiveFovLH(mFovY, mAspect, mNearZ, mFarZ);
+	XMStoreFloat4x4(&mProj, P);
+}
+
 void Camera::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
 {
 	XMVECTOR L = XMVector3Normalize(XMVectorSubtract(target, pos));

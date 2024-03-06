@@ -39,6 +39,7 @@ public:
 
 	// 시야 절두체 설정
 	void SetLens(float fovY, float aspect, float zn, float zf);
+	void SetLens(float fovY, float aspect);
 
 	// 카메라 위치, 시선 벡터, 상향 벡터로 카메라 좌표계를 설정한다.
 	void LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp);

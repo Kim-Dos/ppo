@@ -1,6 +1,7 @@
 #pragma once
 #include "d3dUtil.h"
 #include "Mesh.h"
+#include "GameTimer.h"
 
 // 하나의 물체를 그리는 데 필요한 매개변수들을 담는 가벼운 구조체
 struct RenderItem
@@ -46,20 +47,43 @@ class GameObject
 {
 public:
     GameObject();
-    GameObject(const string name, UINT objCBIndex, 
-		XMFLOAT4X4 world = MathHelper::Identity4x4(), 
-		XMFLOAT4X4 texTransform = MathHelper::Identity4x4());
-    ~GameObject();
+    GameObject(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
+	GameObject(const string name, XMMATRIX world, XMMATRIX texTransform);
+	~GameObject();
+
+	virtual void Update(const GameTimer& gt);
 
 	void SetName(const string name) { mName = name; }
+
+	void SetMesh(Mesh* mesh) { mMesh = mesh; }
+	void SetMaterial(Material* material) { mMaterial = material; }
+	void SetCBIndex(int objCBIndex, int skinnedCBIndex = -1);
+	void SetPrimitiveType(D3D12_PRIMITIVE_TOPOLOGY primitiveType) { mPrimitiveType = primitiveType; }
+	void SetDrawIndexedInstanced(UINT numIndex, UINT baseIndex, UINT baseVertex);
+	void SetFrameDirty() { mNumFramesDirty = gNumFrameResources; }
+	void DecreaseFrameDirty() { mNumFramesDirty--; }
+
+	Mesh* GetMesh() { return mMesh; };
+	Material* GetMeterial() { return mMaterial; };
+	D3D12_PRIMITIVE_TOPOLOGY GetPrimitiveType() { return mPrimitiveType; };
+	int GetObjCBIndex() { return mObjCBIndex; };
+	int GetSkinnedCBIndex() { return mSkinnedCBIndex; };
+	UINT GetNumIndices() { return mNumIndices; };
+	UINT GetBaseIndex() { return mBaseIndex; };
+	UINT GetBaseVertex() { return mBaseVertex; };
+	UINT GetFramesDirty() { return mNumFramesDirty; }
 
 	void SetPosition(float x, float y, float z);
 	void SetPosition(XMFLOAT3 position);
 	void SetScale(float x, float y, float z);
 	void SetScale(XMFLOAT3 scale);
+	void SetTextureScale(float x, float y, float z);
+	void SetTextureScale(XMFLOAT3 scale);
 
 	std::string GetName() { return mName; }
 	
+	XMFLOAT4X4 GetWorld() { return mWorld; }
+	XMFLOAT4X4 GetTexTransform() { return mTexTransform; }
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetLook();
 	XMFLOAT3 GetUp();
@@ -89,17 +113,18 @@ private:
 
 	// 이 렌더 항목의 물체 상수 버퍼에 해당하는 
 	// GPU 상수 버퍼의 색인
-	UINT mObjCBIndex = -1;
+	int mObjCBIndex = -1;
+	int mSkinnedCBIndex = -1;
 
 	Material* mMaterial = nullptr;
 	Mesh* mMesh = nullptr;
 
 	// Primitive topology.
-	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	D3D12_PRIMITIVE_TOPOLOGY mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	// DrawIndexedInstanced 매개변수들.
-	UINT IndexCount = 0;
-	UINT StartIndexLocation = 0;
-	UINT BaseVertexLocation = 0;
+	UINT mNumIndices = 0;
+	UINT mBaseIndex = 0;
+	UINT mBaseVertex = 0;
 };
 

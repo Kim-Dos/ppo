@@ -1,14 +1,21 @@
 #pragma once
 
 #include "Camera.h"
+#include "GameObject.h"
 
-class Player
+class Player : public GameObject
 {
-	XMFLOAT3					m_xmf3Position = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	XMFLOAT3					m_xmf3Right = XMFLOAT3(1.0f, 0.0f, 0.0f);
-	XMFLOAT3					m_xmf3Up = XMFLOAT3(0.0f, 1.0f, 0.0f);
-	XMFLOAT3					m_xmf3Look = XMFLOAT3(0.0f, 0.0f, 1.0f);
+public:
+	Player() {}
+	Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
+	Player(const string name, XMMATRIX world, XMMATRIX texTransform);
+	~Player() {}
 
+	virtual void Update(const GameTimer& gt);
+
+	void KeyInput(float dt);
+
+private:
 	XMFLOAT3					m_xmf3Velocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	XMFLOAT3     				m_xmf3Gravity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 
@@ -19,9 +26,6 @@ class Player
 	float           			m_fMaxVelocityXZ = 0.0f;
 	float           			m_fMaxVelocityY = 0.0f;
 	float           			m_fFriction = 0.0f;
-
-	LPVOID						m_pPlayerUpdatedContext = NULL;
-	LPVOID						m_pCameraUpdatedContext = NULL;
 
 	Camera* mCamera = nullptr;
 };
