@@ -78,13 +78,13 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <ExternalIncludePath>$(SolutionDir)ppo\include\assimp;$(SolutionDir)ppo\include;$(ExternalIncludePath)</ExternalIncludePath>
-    <LibraryPath>$(SolutionDir)ppo\lib\assimp;$(LibraryPath)</LibraryPath>
+    <ExternalIncludePath>$(SolutionDir)$(SolutionName)\include\assimp;$(SolutionDir)$(SolutionName)\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <LibraryPath>$(SolutionDir)$(SolutionName)\lib\assimp;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <ExternalIncludePath>$(SolutionDir)ppo\include\assimp;$(SolutionDir)ppo\include;$(ExternalIncludePath)</ExternalIncludePath>
-    <LibraryPath>$(SolutionDir)ppo\lib\assimp;$(LibraryPath)</LibraryPath>
+    <ExternalIncludePath>$(SolutionDir)$(SolutionName)\include\assimp;$(SolutionDir)$(SolutionName)\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <LibraryPath>$(SolutionDir)$(SolutionName)\lib\assimp;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
