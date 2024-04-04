@@ -63,6 +63,7 @@ public:
 	void SetFrameDirty() { mNumFramesDirty = gNumFrameResources; }
 	void DecreaseFrameDirty() { mNumFramesDirty--; }
 
+	// renderItem
 	Mesh* GetMesh() { return mMesh; };
 	Material* GetMeterial() { return mMaterial; };
 	D3D12_PRIMITIVE_TOPOLOGY GetPrimitiveType() { return mPrimitiveType; };
@@ -82,7 +83,7 @@ public:
 
 	std::string GetName() { return mName; }
 	
-	XMFLOAT4X4 GetWorld() { return mWorld; }
+	XMFLOAT4X4 GetWorld();
 	XMFLOAT4X4 GetTexTransform() { return mTexTransform; }
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetLook();
@@ -97,12 +98,12 @@ public:
 	void Rotate(float pitch, float yaw, float roll);
 	void Rotate(XMFLOAT3* axis, float angle);
 	void Rotate(XMFLOAT4* quaternion);
-
 private:
-	std::string mName;
-	
-	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 
+	string mName;
+	
+	bool mWorldMatDirty = true;
+	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
 
 	// 물체의 자료가 변해서 상수버퍼를 갱신해야 하는지의 여부를 뜻하는 'Dirty'플래그
@@ -119,10 +120,9 @@ private:
 	Material* mMaterial = nullptr;
 	Mesh* mMesh = nullptr;
 
-	// Primitive topology.
 	D3D12_PRIMITIVE_TOPOLOGY mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
-	// DrawIndexedInstanced 매개변수들.
+	// DrawIndexedInstanced 매개변수
 	UINT mNumIndices = 0;
 	UINT mBaseIndex = 0;
 	UINT mBaseVertex = 0;

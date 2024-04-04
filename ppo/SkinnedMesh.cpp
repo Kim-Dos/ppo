@@ -10,7 +10,7 @@ bool SkinnedMesh::LoadMesh(const std::string& Filename)
     Clear();
 
     /*
-    aiProcess_JoinIdenticalVertices |        // 동일한 꼭지점 결합, 인덱싱 최적화
+        aiProcess_JoinIdenticalVertices |        // 동일한 꼭지점 결합, 인덱싱 최적화
         aiProcess_ValidateDataStructure |        // 로더의 출력을 검증
         aiProcess_ImproveCacheLocality |        // 출력 정점의 캐쉬위치를 개선
         aiProcess_RemoveRedundantMaterials |    // 중복된 매터리얼 제거
@@ -26,6 +26,7 @@ bool SkinnedMesh::LoadMesh(const std::string& Filename)
     */
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(Filename.c_str(),
+        aiProcess_JoinIdenticalVertices |
         aiProcess_ValidateDataStructure |
         aiProcess_Triangulate |
         aiProcess_LimitBoneWeights |
@@ -46,6 +47,33 @@ bool SkinnedMesh::LoadMesh(const std::string& Filename)
     return false;
 }
 
+bool SkinnedMesh::LoadAnimations(const std::string& Filename)
+{
+    //Clear();
+
+    Assimp::Importer importer;
+    const aiScene* pScene = importer.ReadFile(Filename.c_str(),
+        aiProcess_JoinIdenticalVertices |
+        aiProcess_ValidateDataStructure |
+        aiProcess_Triangulate |
+        aiProcess_LimitBoneWeights |
+        aiProcess_ConvertToLeftHanded);
+
+    if (pScene) {
+        XMStoreFloat4x4(&m_GlobalInverseTransform, XMMatrixTranspose(XMMATRIX(&pScene->mRootNode->mTransformation.a1)));
+        //m_GlobalInverseTransform = Matrix4x4::Inverse(m_GlobalInverseTransform);
+
+        InitAllAnimations(pScene);
+        importer.FreeScene();
+        return true;
+    }
+    else {
+        return false;
+    }
+
+    return false;
+}
+
 void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& transforms, int animationIndex)
 {
     if (mAnimations.empty())
@@ -57,8 +85,8 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     float timeInTicks = timeInSeconds * ticksPerSecond;
     float animationTimeTicks = fmod(timeInTicks, mAnimations[animationIndex].duration);
 
-    //ReadNodeHierarchy(animationTimeTicks, pScene->mRootNode, Identity);
-    ReadBoneHierarchy(animationTimeTicks, 0, animationIndex, Identity);
+    //ReadBoneHierarchy(animationTimeTicks, 0, animationIndex, Identity);
+    ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationIndex, Identity);
     transforms.resize(mBoneInfo.size());
 
     for (int i = 0; i < mBoneInfo.size(); i++) {
@@ -76,14 +104,18 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
     //mSubmeshes.resize(numSubmeshes);
     //m_Materials.resize(pScene->mNumMaterials);
 
+    rootNodeName = pScene->mRootNode->mName.C_Str();
+
     // 모든 정점과 인덱스 개수 구하기
     unsigned int NumVertices = 0;
     unsigned int NumIndices = 0;
-
+    
     for (int i = 0; i < numSubmeshes; i++)
     {
         Submesh submesh;
         
+        submesh.name = pScene->mMeshes[i]->mName.C_Str();
+
         submesh.materialIndex = pScene->mMeshes[i]->mMaterialIndex;
         submesh.numIndices = pScene->mMeshes[i]->mNumFaces * 3;
         submesh.baseVertex = NumVertices;
@@ -92,7 +124,9 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
         NumVertices += pScene->mMeshes[i]->mNumVertices;
         NumIndices += submesh.numIndices;
 
-        mSubmeshes[pScene->mMeshes[i]->mName.C_Str()] = submesh;
+        mSubmeshes.push_back(submesh);
+
+        if (i == 1) break;
     }
 
     mPositions.resize(NumVertices);
@@ -103,6 +137,9 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
 
     InitAllMeshes(pScene);
     InitAllAnimations(pScene);
+
+    LoadNodeHierarchy(pScene->mRootNode);
+    mBoneHierarchy.resize(NumBones());
     LoadBoneHierarchy(pScene->mRootNode);
 
     if (!InitMaterials(pScene, Filename)) {
@@ -114,10 +151,15 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
 
 void SkinnedMesh::InitAllMeshes(const aiScene* pScene)
 {
+    int baseVertex = 0;
+    int baseIndex = 0;
+
     for (unsigned int i = 0; i < mSubmeshes.size(); i++)
     {
         const aiMesh* paiMesh = pScene->mMeshes[i];
-        InitSingleMesh(i, paiMesh);
+        InitSingleMesh(i, paiMesh, baseVertex, baseIndex);
+        baseVertex += pScene->mMeshes[i]->mNumVertices;
+        baseIndex += pScene->mMeshes[i]->mNumFaces * 3;
     }
 }
 
@@ -135,15 +177,13 @@ void SkinnedMesh::InitAllAnimations(const aiScene* pScene)
         animationClip.name = pAnimation->mName.C_Str();
         animationClip.duration = pAnimation->mDuration;
         animationClip.tickPerSecond = pAnimation->mTicksPerSecond != 0 ? pAnimation->mTicksPerSecond : 25.0f;
-        animationClip.boneAnimations.resize(mBoneNameToIndexMap.size());
 
         int numChannels = pAnimation->mNumChannels;
         for (unsigned int j = 0; j < numChannels; j++)
         {
             aiNodeAnim* pChannel = pAnimation->mChannels[j];
             BoneAnimation boneAnimation;
-            boneAnimation.boneName = pChannel->mNodeName.C_Str();
-            int boneId = GetBoneId(boneAnimation.boneName);
+            string boneName = pChannel->mNodeName.C_Str();
 
             // PositionKeyframe 채우기
             int numPositionKeys = pChannel->mNumPositionKeys;
@@ -179,40 +219,44 @@ void SkinnedMesh::InitAllAnimations(const aiScene* pScene)
                 boneAnimation.scale[k] = scale;
             }
 
-            animationClip.boneAnimations[boneId] = boneAnimation;
+            animationClip.boneAnimations[boneName] = boneAnimation;
         }
 
         mAnimations.push_back(animationClip);
     }
 }
 
-void SkinnedMesh::InitSingleMesh(int MeshIndex, const aiMesh* paiMesh)
+void SkinnedMesh::InitSingleMesh(int MeshIndex, const aiMesh* paiMesh, int baseVertex, int baseIndex)
 {
     // 정점 정보 채우기
     int numVertices = paiMesh->mNumVertices;
+    int numFace = paiMesh->mNumFaces;
+
     for (UINT i = 0; i < numVertices; i++)
     {
-        mPositions[i] = XMFLOAT3(paiMesh->mVertices[i].x, paiMesh->mVertices[i].y, paiMesh->mVertices[i].z);
+        UINT base = baseVertex + i;
+        mPositions[base] = XMFLOAT3(paiMesh->mVertices[i].x, paiMesh->mVertices[i].y, paiMesh->mVertices[i].z);
 
         if (paiMesh->mNormals)
-            mNormals[i] = XMFLOAT3(paiMesh->mNormals[i].x, paiMesh->mNormals[i].y, paiMesh->mNormals[i].z);
+            mNormals[base] = XMFLOAT3(paiMesh->mNormals[i].x, paiMesh->mNormals[i].y, paiMesh->mNormals[i].z);
         else
-            mNormals[i] = XMFLOAT3(0.0f, 1.0f, 0.0f);
+            mNormals[base] = XMFLOAT3(0.0f, 1.0f, 0.0f);
 
         if (paiMesh->HasTextureCoords(0)) 
-            mTexCoords[i] = XMFLOAT2(paiMesh->mTextureCoords[0][i].x, paiMesh->mTextureCoords[0][i].y);
+            mTexCoords[base] = XMFLOAT2(paiMesh->mTextureCoords[0][i].x, paiMesh->mTextureCoords[0][i].y);
         else 
-            mTexCoords[i] = XMFLOAT2(0.0f, 0.0f);
+            mTexCoords[base] = XMFLOAT2(0.0f, 0.0f);
     }
 
-    LoadMeshBones(paiMesh->mName.C_Str(), paiMesh);
+    LoadMeshBones(MeshIndex, paiMesh);
 
     // 인덱스 정보 채우기
-    for (unsigned int i = 0; i < paiMesh->mNumFaces; i++) 
+    for (UINT i = 0; i < numFace; i++)
     {
-        mIndices.push_back(paiMesh->mFaces[i].mIndices[0]);
-        mIndices.push_back(paiMesh->mFaces[i].mIndices[1]);
-        mIndices.push_back(paiMesh->mFaces[i].mIndices[2]);
+        UINT base = baseIndex + 3 * i;
+        mIndices[base] = paiMesh->mFaces[i].mIndices[0];
+        mIndices[base + 1] = paiMesh->mFaces[i].mIndices[1];
+        mIndices[base + 2] = paiMesh->mFaces[i].mIndices[2];
     }
 }
 
@@ -348,14 +392,14 @@ void SkinnedMesh::LoadColors(const aiMaterial* pMaterial, int index)
     */
 }
 
-void SkinnedMesh::LoadMeshBones(string meshName, const aiMesh* pMesh)
+void SkinnedMesh::LoadMeshBones(UINT meshID, const aiMesh* pMesh)
 {
     for (int i = 0; i < pMesh->mNumBones; i++) {
-        LoadSingleBone(meshName, pMesh->mBones[i]);
+        LoadSingleBone(meshID, pMesh->mBones[i]);
     }
 }
 
-void SkinnedMesh::LoadSingleBone(string meshName, const aiBone* pBone)
+void SkinnedMesh::LoadSingleBone(UINT meshID, const aiBone* pBone)
 {
     int BoneId = GetBoneId(pBone);
 
@@ -368,7 +412,7 @@ void SkinnedMesh::LoadSingleBone(string meshName, const aiBone* pBone)
 
     for (int i = 0; i < pBone->mNumWeights; i++) {
         const aiVertexWeight& vw = pBone->mWeights[i];
-        int GlobalVertexID = mSubmeshes[meshName].baseVertex + pBone->mWeights[i].mVertexId;
+        int GlobalVertexID = mSubmeshes[meshID].baseVertex + pBone->mWeights[i].mVertexId;
         mBones[GlobalVertexID].AddBoneData(BoneId, vw.mWeight);
     }
 }
@@ -397,6 +441,16 @@ int SkinnedMesh::GetBoneId(const string boneName)
     }
     else {
         return mBoneNameToIndexMap[boneName];
+    }
+}
+
+int SkinnedMesh::GetNodeId(const string nodeName)
+{
+    if (mNodeNameToIndexMap.find(nodeName) == mNodeNameToIndexMap.end()) {
+        return -1;
+    }
+    else {
+        return mNodeNameToIndexMap[nodeName];
     }
 }
 
@@ -640,6 +694,23 @@ const aiNodeAnim* SkinnedMesh::FindNodeAnim(const aiAnimation* pAnimation, const
     return nullptr;
 }
 
+void SkinnedMesh::LoadNodeHierarchy(const aiNode* pNode)
+{
+    string nodeName(pNode->mName.data);
+    vector<string> children;
+    // bone이 있는 노드면 저장
+    for (int i = 0; i < pNode->mNumChildren; i++)
+    {
+        children.push_back(pNode->mChildren[i]->mName.C_Str());
+    }
+    mNodeNameToIndexMap[nodeName] = mNodeHierarchy.size();
+    mNodeHierarchy.push_back(make_pair(nodeName, children));
+    // 모든 자식 노드에 대해 재귀 호출
+    for (int i = 0; i < pNode->mNumChildren; i++) {
+        LoadNodeHierarchy(pNode->mChildren[i]);
+    }
+}
+
 void SkinnedMesh::LoadBoneHierarchy(const aiNode* pNode)
 {
     string nodeName(pNode->mName.data);
@@ -647,13 +718,8 @@ void SkinnedMesh::LoadBoneHierarchy(const aiNode* pNode)
     // bone이 있는 노드면 저장
     if (mBoneNameToIndexMap.find(nodeName) != mBoneNameToIndexMap.end()) {
         vector<int> children;
-        for (int i = 0; i < pNode->mNumChildren; i++) 
-        {
-            string childName = pNode->mChildren[i]->mName.C_Str();
-            if (mBoneNameToIndexMap.find(childName) != mBoneNameToIndexMap.end())
-                children.push_back(GetBoneId(childName));
-        }
-        mBoneHierarchy.push_back(children);
+        LoadChildren(children, pNode);
+        mBoneHierarchy[GetBoneId(nodeName)] = make_pair(nodeName, children);
     }
 
     // 모든 자식 노드에 대해 재귀 호출
@@ -661,6 +727,22 @@ void SkinnedMesh::LoadBoneHierarchy(const aiNode* pNode)
         LoadBoneHierarchy(pNode->mChildren[i]);
     }
 }
+
+void SkinnedMesh::LoadChildren(vector<int>& children, const aiNode* pNode)
+{
+    for (int i = 0; i < pNode->mNumChildren; i++)
+    {
+        string childName = pNode->mChildren[i]->mName.C_Str();
+        // 자식 노드가 Bone 노드일경우 자식으로 저장
+        if (mBoneNameToIndexMap.find(childName) != mBoneNameToIndexMap.end())
+            children.push_back(GetBoneId(childName));
+        // 자식 노드가 Bone 노드가 아닐 경우 계속 탐색
+        else {
+            LoadChildren(children, pNode->mChildren[i]);
+        }
+    }
+}
+
 /*
 void SkinnedMesh::ReadNodeHierarchy(float AnimationTimeTicks, const aiNode* pNode, const XMMATRIX& ParentTransform)
 {
@@ -711,13 +793,13 @@ void SkinnedMesh::ReadNodeHierarchy(float AnimationTimeTicks, const aiNode* pNod
 */
 void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const int animationId, const XMMATRIX& ParentTransform)
 {
-    BoneAnimation boneAnimation = mAnimations[animationId].boneAnimations[boneId];
-    string boneName = boneAnimation.boneName;
-
+    string boneName = mBoneHierarchy[boneId].first;
+    BoneAnimation boneAnimation = mAnimations[animationId].boneAnimations[boneName];
+    
     XMMATRIX NodeTransformation = XMMatrixIdentity();
     XMMATRIX GlobalTransformation = XMMatrixIdentity();
 
-    if (boneId == GetBoneId(boneAnimation.boneName)) {
+    if (boneId == GetBoneId(boneName)) {
         // 애니매이션 시간을 이용해 변환을 보간한다
         XMVECTOR scaling = CalcInterpolatedScaling(AnimationTimeTicks, boneAnimation);
         XMVECTOR rotationQuat = CalcInterpolatedRotation(AnimationTimeTicks, boneAnimation);
@@ -725,15 +807,13 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, 
 
         // Combine the above transformations
         NodeTransformation = XMMatrixAffineTransformation(scaling, XMQuaternionIdentity(), rotationQuat, translation);
-
-        
         /*
         int BoneIndex = mBoneNameToIndexMap[boneName];
         XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation * XMLoadFloat4x4(&m_GlobalInverseTransform);
         XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
         */
     }
-
+   
     GlobalTransformation = NodeTransformation * ParentTransform;
 
     if (mBoneNameToIndexMap.find(boneName) != mBoneNameToIndexMap.end()) {
@@ -743,9 +823,50 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, 
     }
 
     // 모든 자식 노드에 대해 재귀 호출
-    int numChildren = mBoneHierarchy[boneId].size();
+    int numChildren = mBoneHierarchy[boneId].second.size();
     for (int i = 0; i < numChildren; i++) {
-        ReadBoneHierarchy(AnimationTimeTicks, mBoneHierarchy[boneId][i], animationId, GlobalTransformation);
+        ReadBoneHierarchy(AnimationTimeTicks, mBoneHierarchy[boneId].second[i], animationId, GlobalTransformation);
     }
 }
 
+void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const string name, const int animationId, const XMMATRIX& ParentTransform)
+{
+    string nodeName = name;
+    int nodeId = GetNodeId(nodeName);
+    int numChildren = mNodeHierarchy[nodeId].second.size();
+
+    // 애니메이션에 등록되지 않은 노드일 경우
+    if (mAnimations[animationId].boneAnimations.find(nodeName) == mAnimations[animationId].boneAnimations.end()) {
+        for (int i = 0; i < numChildren; i++) {
+            ReadBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationId, ParentTransform);
+        }
+        return;
+    }
+
+    XMMATRIX GlobalTransformation = XMMatrixIdentity();
+    XMMATRIX NodeTransformation = XMMatrixIdentity();
+
+    BoneAnimation boneAnimation = mAnimations[animationId].boneAnimations[nodeName];
+
+    // 애니매이션 시간을 이용해 변환을 보간한다
+    XMVECTOR scaling = CalcInterpolatedScaling(AnimationTimeTicks, boneAnimation);
+    XMVECTOR rotationQuat = CalcInterpolatedRotation(AnimationTimeTicks, boneAnimation);
+    XMVECTOR translation = CalcInterpolatedPosition(AnimationTimeTicks, boneAnimation);
+
+    // Combine the above transformations
+    NodeTransformation = XMMatrixAffineTransformation(scaling, XMQuaternionIdentity(), rotationQuat, translation);
+
+    GlobalTransformation = NodeTransformation * ParentTransform;
+
+    // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
+    if (GetBoneId(nodeName) != -1) {
+        int BoneIndex = mBoneNameToIndexMap[nodeName];
+        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation * XMLoadFloat4x4(&m_GlobalInverseTransform);
+        XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
+    }
+
+    // 모든 자식 노드에 대해 재귀 호출
+    for (int i = 0; i < numChildren; i++) {
+        ReadBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationId, GlobalTransformation);
+    }
+}

@@ -9,6 +9,17 @@ Camera::~Camera()
 {
 }
 
+XMVECTOR Camera::GetPosition() const
+{
+	return XMLoadFloat3(&mPosition);
+}
+
+XMFLOAT3 Camera::GetPosition3f() const
+{
+	//return mPosition;
+	return mPosition;
+}
+
 void Camera::SetPosition(float x, float y, float z)
 {
 	mPosition = XMFLOAT3(x, y, z);
@@ -17,7 +28,7 @@ void Camera::SetPosition(float x, float y, float z)
 
 void Camera::SetPosition(const XMFLOAT3& v)
 {
-	mPosition = v;
+	mPosition = Vector3::Add(v, mOffsetPosition);
 	mViewDirty = true;
 }
 
@@ -69,6 +80,17 @@ void Camera::LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3&
 
 	LookAt(P, T, U);
 
+	mViewDirty = true;
+}
+
+void Camera::SetOffset(XMFLOAT3 position, float pitch, float yaw, float roll)
+{
+	mOffsetPosition = position;
+	/*
+	XMStoreFloat4x4(&mOffsetMat, 
+		XMMatrixTranslation(position.x, position.y, position.z) * 
+		XMMatrixRotationRollPitchYaw(XMConvertToRadians(pitch), XMConvertToRadians(yaw), XMConvertToRadians(roll)));
+	*/
 	mViewDirty = true;
 }
 
@@ -131,10 +153,17 @@ void Camera::Up(float d)
 	mViewDirty = true;
 }
 
-void Camera::Pitch(float angle)
+void Camera::Pitch(float radian)
 {
+	if (fabs(mCurrentPitch + radian) > mMaxPitch) {
+		radian = (radian > 0) ? XMConvertToRadians(mMaxPitch - mCurrentPitch) : -XMConvertToRadians(mMaxPitch + mCurrentPitch);
+		mCurrentPitch = (mCurrentPitch + radian> 0) ? mMaxPitch : -mMaxPitch;
+	}
+
+	mCurrentPitch += XMConvertToDegrees(radian);
+
 	// up, look 벡터를 right 벡터에 대해 회전
-	XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), angle);
+	XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), radian);
 
 	XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
 	XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
@@ -142,10 +171,10 @@ void Camera::Pitch(float angle)
 	mViewDirty = true;
 }
 
-void Camera::RotateY(float angle)
+void Camera::RotateY(float radian)
 {
 	// up, look, right를 월드 공간 Y축에 대해 회전
-	XMMATRIX R = XMMatrixRotationY(angle);
+	XMMATRIX R = XMMatrixRotationY(radian);
 
 	XMStoreFloat3(&mRight, XMVector3TransformNormal(XMLoadFloat3(&mRight), R));
 	XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));

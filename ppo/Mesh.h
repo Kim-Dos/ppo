@@ -21,6 +21,8 @@ using namespace DirectX;
 
 struct Submesh
 {
+	string name;
+
 	UINT baseVertex = 0;
 	UINT baseIndex = 0;
 	UINT numIndices = 0;
@@ -76,8 +78,10 @@ public:
 
 	// 한 Mesh 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
 	// 부분 메시들을 개별적으로 그릴 수 있도록, submesh를 컨테이너에 담아둔다.
-	std::unordered_map<std::string, Submesh> mSubmeshes;
+	vector<Submesh> mSubmeshes;
 public:
+	Submesh GetSubmesh(string name);
+
 	void AddSubmesh(const string name, UINT numIndices,
 		UINT baseVertex = 0, UINT baseIndex = 0, UINT materialIndex = 0);
 

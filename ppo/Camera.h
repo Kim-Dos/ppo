@@ -11,8 +11,8 @@ public:
     ~Camera();
 
 	// 세계 공간 카메라 위치 조회, 설정
-	XMVECTOR GetPosition()const { return XMLoadFloat3(&mPosition); };
-	XMFLOAT3 GetPosition3f()const { return mPosition; };
+	XMVECTOR GetPosition()const;
+	XMFLOAT3 GetPosition3f()const;
 	void SetPosition(float x, float y, float z);
 	void SetPosition(const XMFLOAT3& v);
 
@@ -45,6 +45,8 @@ public:
 	void LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp);
 	void LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3& up);
 
+	void SetOffset(XMFLOAT3 position, float pitch, float yaw, float roll);
+
 	// 시야 행렬과 투영 행렬 조회
 	XMMATRIX GetView()const;
 	XMMATRIX GetProj()const;
@@ -69,6 +71,9 @@ private:
 	XMFLOAT3 mRight = { 1.0f, 0.0f, 0.0f };
 	XMFLOAT3 mUp = { 0.0f, 1.0f, 0.0f };
 	XMFLOAT3 mLook = { 0.0f, 0.0f, 1.0f };
+	
+	float mMaxPitch = 89.5f;
+	float mCurrentPitch = 0.0f;
 
 	// 절두체 속성
 	float mNearZ = 0.0f;
@@ -80,7 +85,10 @@ private:
 
 	bool mViewDirty = true;
 
-	// 시야 행렬, 투영 행렬
+	XMFLOAT4X4 mOffsetMat = MathHelper::Identity4x4();
+	XMFLOAT3 mOffsetPosition = { 0.0f, 0.0f, 0.0f };
+
+	// 시야 행렬, 투영 행렬;
 	XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 };

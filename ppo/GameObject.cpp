@@ -77,6 +77,14 @@ void GameObject::SetTextureScale(XMFLOAT3 scale)
     mTexTransform = Matrix4x4::Multiply(mtxScale, mTexTransform);
 }
 
+XMFLOAT4X4 GameObject::GetWorld()
+{
+    /*if (mWorldMatDirty)
+        UpdateWorldMatrix();*/
+
+    return mWorld;
+}
+
 XMFLOAT3 GameObject::GetPosition()
 {
     return XMFLOAT3(mWorld._41, mWorld._42, mWorld._43);
@@ -121,9 +129,15 @@ void GameObject::MoveForward(float distance)
 
 void GameObject::Rotate(float pitch, float yaw, float roll)
 {
-    XMMATRIX rotateMat = XMMatrixRotationRollPitchYaw(
-        XMConvertToRadians(pitch), XMConvertToRadians(yaw), XMConvertToRadians(roll));
-    mWorld = Matrix4x4::Multiply(rotateMat, mWorld);
+    XMVECTOR rotation = XMQuaternionRotationMatrix(XMLoadFloat4x4(&mWorld));
+
+    XMMATRIX pitchRotation = XMMatrixRotationAxis(XMLoadFloat3(&GetRight()), pitch);
+    XMMATRIX yawRotation = XMMatrixRotationAxis(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), yaw);
+    XMMATRIX rollRotation = XMMatrixRotationAxis(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), roll);
+
+    XMMATRIX rotationMatrix = rollRotation * pitchRotation * yawRotation;
+
+    XMStoreFloat4x4(&mWorld, rotationMatrix * XMLoadFloat4x4(&mWorld));
 }
 
 void GameObject::Rotate(XMFLOAT3* axis, float angle)

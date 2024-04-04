@@ -9,23 +9,24 @@ public:
 	Player() {}
 	Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
 	Player(const string name, XMMATRIX world, XMMATRIX texTransform);
-	~Player() {}
+	~Player();
 
 	virtual void Update(const GameTimer& gt);
+	void UpdateCamera();
 
 	void KeyInput(float dt);
 
+	Camera* GetCamera() { return mCamera; }
+
 private:
-	XMFLOAT3					m_xmf3Velocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	XMFLOAT3     				m_xmf3Gravity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	void InitPlayer();
 
-	float						m_fPitch = 0.0f;
-	float           			m_fYaw = 0.0f;
-	float           			m_fRoll = 0.0f;
+	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	XMFLOAT3 mAcceleration = XMFLOAT3(10.0f, 10.0f, 10.0f);
 
-	float           			m_fMaxVelocityXZ = 0.0f;
-	float           			m_fMaxVelocityY = 0.0f;
-	float           			m_fFriction = 0.0f;
+	float mMaxVelocityXZ = 10.0f;
+	float mMaxVelocityY = 10.0f;
+	float mFriction = 0.01f;
 
 	Camera* mCamera = nullptr;
 };

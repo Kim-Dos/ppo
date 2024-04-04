@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2024, assimp team
 
 All rights reserved.
 
@@ -98,7 +98,7 @@ struct aiVectorKey {
     bool operator<(const aiVectorKey &rhs) const {
         return mTime < rhs.mTime;
     }
-    
+
     bool operator>(const aiVectorKey &rhs) const {
         return mTime > rhs.mTime;
     }
@@ -132,7 +132,7 @@ struct aiQuatKey {
     bool operator==(const aiQuatKey &rhs) const {
         return rhs.mValue == this->mValue;
     }
-    
+
     bool operator!=(const aiQuatKey &rhs) const {
         return rhs.mValue != this->mValue;
     }
@@ -141,7 +141,7 @@ struct aiQuatKey {
     bool operator<(const aiQuatKey &rhs) const {
         return mTime < rhs.mTime;
     }
-    
+
     bool operator>(const aiQuatKey &rhs) const {
         return mTime > rhs.mTime;
     }
@@ -198,7 +198,10 @@ struct aiMeshMorphKey {
     /** The time of this key */
     double mTime;
 
-    /** The values and weights at the time of this key */
+    /** The values and weights at the time of this key
+     *   - mValues: index of attachment mesh to apply weight at the same position in mWeights
+     *   - mWeights: weight to apply to the blend shape index at the same position in mValues
+     */
     unsigned int *mValues;
     double *mWeights;
 
@@ -248,10 +251,10 @@ enum aiAnimBehaviour {
     _aiAnimBehaviour_Force32Bit = INT_MAX
 #endif
 };
+
 // ---------------------------------------------------------------------------
 /** Describes the animation of a single node. The name specifies the
- *  bone/nod
-// e which is affected by this animation channel. The keyframes
+ *  bone/node which is affected by this animation channel. The keyframes
  *  are given in three separate series of values, one each for position,
  *  rotation and scaling. The transformation matrix computed from these
  *  values replaces the node's original transformation matrix at a

@@ -8,16 +8,28 @@ Mesh::~Mesh()
 {
 }
 
+Submesh Mesh::GetSubmesh(string name)
+{
+	for (int i = 0; i < mSubmeshes.size(); i++)
+	{
+		if (mSubmeshes[i].name == name)
+			return mSubmeshes[i];
+	}
+
+	return Submesh();
+}
+
 void Mesh::AddSubmesh(const string name, UINT numIndices, UINT baseVertex, UINT baseIndex, UINT materialIndex)
 {
 	Submesh submesh;
 	
+	submesh.name = name;
 	submesh.numIndices = numIndices;
 	submesh.baseVertex = baseVertex;
 	submesh.baseIndex = baseIndex;
 	submesh.materialIndex = materialIndex;
-
-	mSubmeshes[name] = submesh;
+	
+	mSubmeshes.push_back(submesh);
 }
 
 void Mesh::UploadBuffer(Microsoft::WRL::ComPtr<ID3D12Device> d3dDevice,

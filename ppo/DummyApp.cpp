@@ -36,7 +36,6 @@ bool DummyApp::Initialize()
 	LoadSkinnedModel();
 	LoadTerrain();
 	BuildMaterials();
-	//BuildRenderItems();
 	BuildGameObjects();
 	BuildFrameResources();
 	BuildPSOs();
@@ -58,8 +57,10 @@ void DummyApp::OnResize()
 
 	// 창의 크기가 변경되었기 때문에 종횡비를 갱신하고
 	// 투영행렬을 다시 계산한다.
-	if (!mCamera)
+	if (!mCamera) {
 		mCamera = new Camera;
+	}
+		
 	
 	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 }
@@ -67,6 +68,8 @@ void DummyApp::OnResize()
 void DummyApp::Update(const GameTimer& gt)
 {
 	OnKeyboardInput(gt);
+
+	mPlayer->Update(gt);
 
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
@@ -155,15 +158,12 @@ void DummyApp::Draw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootDescriptorTable(5, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::Opaque]);
-	//DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
 	mCommandList->SetPipelineState(mPSOs["skinnedOpaque"].Get());
 	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::SkinnedOpaque]);
-	//DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::SkinnedOpaque]);
 
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::Sky]);
-	//DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 
 
 	// 자원 용도에 관련된 상태 전이를 D3D에 통지한다.
@@ -249,27 +249,9 @@ void DummyApp::OnKeyboardInput(const GameTimer& gt)
 {
 	const float dt = gt.DeltaTime();
 
-	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera->Walk(50.0f * dt);
-
-	if (GetAsyncKeyState('S') & 0x8000)
-		mCamera->Walk(-50.0f * dt);
-
-	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera->Strafe(-50.0f * dt);
-
-	if (GetAsyncKeyState('D') & 0x8000)
-		mCamera->Strafe(50.0f * dt);
-
-	if (GetAsyncKeyState(VK_SPACE) & 0x8000)
-		mCamera->Up(50.0f * dt);
-
-	if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
-		mCamera->Up(-50.0f * dt);
-
 	mPlayer->KeyInput(dt);
 
-	mCamera->UpdateViewMatrix();
+	//mCamera->UpdateViewMatrix();
 }
 
 void DummyApp::AnimateMaterials(const GameTimer& gt)
@@ -316,17 +298,18 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
 	}
 	// 최소한 4개의 행렬을 초기화함
-	if (boneTransforms.size() < 4) {
+	if (numBones < 4) {
 		for (int i = numBones; i < 4; i++)
 			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
 	}
-	/*
+	
 	for (int i = 0; i < 96; i++)
 	{
-		skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+		//skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
 	}
-	*/
+
 	currSkinnedCB->CopyData(0, skinnedConstants);
+	currSkinnedCB->CopyData(1, skinnedConstants);
 }
 
 void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
@@ -644,21 +627,25 @@ void DummyApp::BuildShapeGeometry()
 	UINT cylinderIndexOffset = sphereIndexOffset + (UINT)sphere.Indices32.size();
 
 	Submesh boxSubmesh;
+	boxSubmesh.name = string("box");
 	boxSubmesh.numIndices = (UINT)box.Indices32.size();
 	boxSubmesh.baseIndex = boxIndexOffset;
 	boxSubmesh.baseVertex = boxVertexOffset;
 
 	Submesh gridSubmesh;
+	gridSubmesh.name = string("grid");
 	gridSubmesh.numIndices = (UINT)grid.Indices32.size();
 	gridSubmesh.baseIndex = gridIndexOffset;
 	gridSubmesh.baseVertex = gridVertexOffset;
 
 	Submesh sphereSubmesh;
+	sphereSubmesh.name = string("sphere");
 	sphereSubmesh.numIndices = (UINT)sphere.Indices32.size();
 	sphereSubmesh.baseIndex = sphereIndexOffset;
 	sphereSubmesh.baseVertex = sphereVertexOffset;
 
 	Submesh cylinderSubmesh;
+	cylinderSubmesh.name = string("cylinder");
 	cylinderSubmesh.numIndices = (UINT)cylinder.Indices32.size();
 	cylinderSubmesh.baseIndex = cylinderIndexOffset;
 	cylinderSubmesh.baseVertex = cylinderVertexOffset;
@@ -734,23 +721,23 @@ void DummyApp::BuildShapeGeometry()
 	geo->mIndexFormat = DXGI_FORMAT_R16_UINT;
 	geo->mIndexBufferByteSize = ibByteSize;
 
-	geo->mSubmeshes["box"] = boxSubmesh;
-	geo->mSubmeshes["grid"] = gridSubmesh;
-	geo->mSubmeshes["sphere"] = sphereSubmesh;
-	geo->mSubmeshes["cylinder"] = cylinderSubmesh;
+	geo->mSubmeshes.resize(4);
+	geo->mSubmeshes[0] = boxSubmesh;
+	geo->mSubmeshes[1] = gridSubmesh;
+	geo->mSubmeshes[2] = sphereSubmesh;
+	geo->mSubmeshes[3] = cylinderSubmesh;
 
 	mMeshes[geo->mName] = std::move(geo);
 }
 
 void DummyApp::LoadSkinnedModel()
 {
-	//mSkinnedMesh.LoadMesh("Models/example4.fbx");
-	//mSkinnedMesh.LoadMesh("Models/animation_with_skeleton.fbx");
-	mSkinnedMesh.LoadMesh("Models/model.dae");
+	//mSkinnedMesh.LoadMesh("Models/model.dae");
+	mSkinnedMesh.LoadMesh("Models/SKM_Quinn_Simple.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
 
 	UINT vcount = 0;
 	UINT tcount = 0;
-	std::string ignore;
 	std::vector<SkinnedVertex> vertices;
 	std::vector<std::uint32_t> indices;
 	uint32_t index;
@@ -867,12 +854,11 @@ void DummyApp::LoadSkinnedModel()
 	geo->mIndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->mIndexBufferByteSize = ibByteSize;
 
-	Submesh submesh;
-	submesh.numIndices = (UINT)indices.size();
-	submesh.baseIndex = 0;
-	submesh.baseVertex = 0;
+	Submesh submesh1 = mSkinnedMesh.mSubmeshes[0];
+	Submesh submesh2 = mSkinnedMesh.mSubmeshes[1];
 
-	geo->mSubmeshes["skull"] = submesh;
+	geo->mSubmeshes.push_back(submesh1);
+	geo->mSubmeshes.push_back(submesh2);
 
 	mMeshes[geo->mName] = std::move(geo);
 }
@@ -1005,8 +991,8 @@ void DummyApp::BuildFrameResources()
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
 			1, 
-			(UINT)mAllGameObjects.size(), 
-			1, // skinned obj
+			(UINT)mAllGameObjects.size(),
+			(UINT)mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].size(), // skinned obj
 			(UINT)mMaterials.size()));
 	}
 }
@@ -1269,7 +1255,7 @@ void DummyApp::BuildGameObjects()
 	skyGameObject->SetCBIndex(objCBIndex++);
 	skyGameObject->SetMesh(mMeshes["shapeGeo"].get());
 	skyGameObject->SetMaterial(mMaterials["sky"].get());
-	submesh = skyGameObject->GetMesh()->mSubmeshes["sphere"];
+	submesh = skyGameObject->GetMesh()->GetSubmesh("sphere");
 	skyGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
 
 	mGameObjectLayer[(int)RenderLayer::Sky].push_back(skyGameObject.get());
@@ -1278,7 +1264,7 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// terrain
 	// ------------------------------------------
-	auto terrainGameObject = std::make_unique<GameObject>("terrain", XMMatrixTranslation(0.0f, -500.0f, 0.0f), XMMatrixIdentity());
+	/*auto terrainGameObject = std::make_unique<GameObject>("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
 	terrainGameObject->SetCBIndex(objCBIndex++);
 	terrainGameObject->SetMesh(mMeshes["terrain"].get());
 	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
@@ -1286,7 +1272,7 @@ void DummyApp::BuildGameObjects()
 	terrainGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject.get());
-	mAllGameObjects.push_back(std::move(terrainGameObject));
+	mAllGameObjects.push_back(std::move(terrainGameObject));*/
 
 	// ------------------------------------------
 	// Opaque objects - player
@@ -1295,10 +1281,11 @@ void DummyApp::BuildGameObjects()
 	player->SetCBIndex(objCBIndex++);
 	player->SetMesh(mMeshes["shapeGeo"].get());
 	player->SetMaterial(mMaterials["bricks0"].get());
-	submesh = player->GetMesh()->mSubmeshes["box"];
+	submesh = player->GetMesh()->GetSubmesh("box");
 	player->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
 
 	mPlayer = player.get();
+	mCamera = mPlayer->GetCamera();
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(player.get());
 	mAllGameObjects.push_back(std::move(player));
@@ -1312,7 +1299,7 @@ void DummyApp::BuildGameObjects()
 	gridGameObject->SetCBIndex(objCBIndex++);
 	gridGameObject->SetMesh(mMeshes["shapeGeo"].get());
 	gridGameObject->SetMaterial(mMaterials["tile0"].get());
-	submesh = gridGameObject->GetMesh()->mSubmeshes["grid"];
+	submesh = gridGameObject->GetMesh()->GetSubmesh("grid");
 	gridGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gridGameObject.get());
@@ -1321,15 +1308,26 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Skinned objects
 	// ------------------------------------------
-	auto SkinnedGameObject = std::make_unique<GameObject>("skinned", XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	SkinnedGameObject->SetCBIndex(objCBIndex++, skinnedCBIndex++);
-	SkinnedGameObject->SetMesh(mMeshes["skullGeo"].get());
-	SkinnedGameObject->SetMaterial(mMaterials["missing"].get());
-	submesh = SkinnedGameObject->GetMesh()->mSubmeshes["skull"];
-	SkinnedGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	auto SkinnedGameObject1 = std::make_unique<GameObject>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	SkinnedGameObject1->SetCBIndex(objCBIndex++, skinnedCBIndex++);
+	SkinnedGameObject1->SetMesh(mMeshes["skullGeo"].get());
+	SkinnedGameObject1->SetMaterial(mMaterials["bricks0"].get());
+	submesh = SkinnedGameObject1->GetMesh()->mSubmeshes[0];
+	SkinnedGameObject1->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
 
-	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject.get());
-	mAllGameObjects.push_back(std::move(SkinnedGameObject));
+	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject1.get());
+	mAllGameObjects.push_back(std::move(SkinnedGameObject1));
+
+
+	auto SkinnedGameObject2 = std::make_unique<GameObject>("skinned2", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	SkinnedGameObject2->SetCBIndex(objCBIndex++, skinnedCBIndex++);
+	SkinnedGameObject2->SetMesh(mMeshes["skullGeo"].get());
+	SkinnedGameObject2->SetMaterial(mMaterials["tile0"].get());
+	submesh = SkinnedGameObject2->GetMesh()->mSubmeshes[1];
+	SkinnedGameObject2->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+
+	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject2.get());
+	mAllGameObjects.push_back(std::move(SkinnedGameObject2));
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)

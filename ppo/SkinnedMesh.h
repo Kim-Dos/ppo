@@ -26,8 +26,6 @@ struct Keyframe
 // 시간값을 이용해 2개의 keyframe을 보간한 행렬값을 구함.
 struct BoneAnimation
 {   
-    string boneName;
-
     vector<Keyframe<XMFLOAT3>> translation;
     vector<Keyframe<XMFLOAT3>> scale;
     vector<Keyframe<XMFLOAT4>> rotationQuat;
@@ -41,7 +39,7 @@ struct AnimationClip
     float tickPerSecond = 0.0f;
     float duration = 0.0f;
 
-    std::vector<BoneAnimation> boneAnimations;
+    std::map<string, BoneAnimation> boneAnimations;
 };
 
 // 각 정점이 뼈 애니메이션에 얼마나 영향을 받는지 가중치를 저장
@@ -101,11 +99,9 @@ public:
     ~SkinnedMesh();
 
     bool LoadMesh(const std::string& Filename);
+    bool LoadAnimations(const std::string& Filename);
 
-    int NumBones() const
-    {
-        return (int)mBoneNameToIndexMap.size();
-    }
+    int NumBones() const { return (int)mBoneNameToIndexMap.size(); }
 
     //const Material& GetMaterial();
 
@@ -113,8 +109,11 @@ public:
 
     vector<VertexBoneData> mBones;
 
+    string rootNodeName;
     map<string, int> mBoneNameToIndexMap;
-    vector<vector<int>> mBoneHierarchy;         // 부모는 자식의 인덱스를 가지고 있다. 루트는 0
+    map<string, int> mNodeNameToIndexMap;
+    vector<pair<string, vector<int>>> mBoneHierarchy;   // 부모는 자식의 인덱스를 가지고 있다. 루트는 0
+    vector<pair<string, vector<string>>> mNodeHierarchy;   // 부모는 자식의 인덱스를 가지고 있다. 루트는 0
     vector<BoneInfo> mBoneInfo;
 
     vector<AnimationClip> mAnimations;
@@ -125,7 +124,7 @@ private:
 
     void InitAllMeshes(const aiScene* pScene);
     void InitAllAnimations(const aiScene* pScene);
-    void InitSingleMesh(int MeshIndex, const aiMesh* paiMesh);
+    void InitSingleMesh(int MeshIndex, const aiMesh* paiMesh, int baseVertex, int baseIndex);
     bool InitMaterials(const aiScene* pScene, const std::string& Filename);
 
     void LoadTextures(const string& Dir, const aiMaterial* pMaterial, int index);
@@ -133,11 +132,14 @@ private:
     void LoadSpecularTexture(const string& Dir, const aiMaterial* pMaterial, int index);
     void LoadColors(const aiMaterial* pMaterial, int index);
 
-    void LoadMeshBones(string meshName, const aiMesh* pMesh);
-    void LoadSingleBone(string meshName, const aiBone* pBone);
+    void LoadMeshBones(UINT meshID, const aiMesh* pMesh);
+    void LoadSingleBone(UINT meshID, const aiBone* pBone);
+    void LoadNodeHierarchy(const aiNode* pNode);
     void LoadBoneHierarchy(const aiNode* pNode);
-    int GetBoneId(const aiBone* pBone);     // 기존에 없는 값이 오면 새로운 index를 추가함.
-    int GetBoneId(const string boneName);   // 기존에 없는 값이 오면 -1 반환
+    void LoadChildren(vector<int>& children, const aiNode* pNode);
+    int GetBoneId(const aiBone* pBone);     // 없는 값이 오면 새로운 index를 추가함.
+    int GetBoneId(const string boneName);   // 없는 값이 오면 -1 반환
+    int GetNodeId(const string nodeName);   // 없는 값이 오면 -1 반환
     //string GetBoneName(const int boneId);
 
     void CalcInterpolatedScaling(aiVector3D& Out, float AnimationTime, const aiNodeAnim* pNodeAnim);
@@ -159,6 +161,7 @@ private:
 
     //void ReadNodeHierarchy(float AnimationTimeTicks, const aiNode* pNode, const XMMATRIX& ParentTransform);
     void ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const int animationId, const XMMATRIX& ParentTransform);
+    void ReadBoneHierarchy(float AnimationTimeTicks, const string boneName, const int animationId, const XMMATRIX& ParentTransform);
     
     XMFLOAT4X4 m_GlobalInverseTransform;
 };
