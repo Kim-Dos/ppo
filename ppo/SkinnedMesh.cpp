@@ -89,6 +89,8 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationIndex, Identity);
     transforms.resize(mBoneInfo.size());
 
+    //mBoneInfo[GetBoneId("root")].FinalTransformation = Matrix4x4::Identity();
+
     for (int i = 0; i < mBoneInfo.size(); i++) {
         transforms[i] = mBoneInfo[i].FinalTransformation;
     }
@@ -835,11 +837,17 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const string name,
     int nodeId = GetNodeId(nodeName);
     int numChildren = mNodeHierarchy[nodeId].second.size();
 
+    // 루트 모션을 사용하지 않을 경우
+    if (!mAnimations[animationId].enableRootMotion && nodeName == "root") {
+        for (int i = 0; i < numChildren; i++)
+            ReadBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationId, ParentTransform);
+        return;
+    }
+
     // 애니메이션에 등록되지 않은 노드일 경우
     if (mAnimations[animationId].boneAnimations.find(nodeName) == mAnimations[animationId].boneAnimations.end()) {
-        for (int i = 0; i < numChildren; i++) {
+        for (int i = 0; i < numChildren; i++)
             ReadBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationId, ParentTransform);
-        }
         return;
     }
 

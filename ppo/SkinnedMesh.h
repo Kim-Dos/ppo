@@ -38,6 +38,7 @@ struct AnimationClip
     string name;
     float tickPerSecond = 0.0f;
     float duration = 0.0f;
+    bool enableRootMotion = false;
 
     std::map<string, BoneAnimation> boneAnimations;
 };

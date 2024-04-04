@@ -61,7 +61,6 @@ void DummyApp::OnResize()
 		mCamera = new Camera;
 	}
 		
-	
 	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 }
 
@@ -289,7 +288,7 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 
 	std::vector<XMFLOAT4X4> boneTransforms;
-	mSkinnedMesh.GetBoneTransforms(gt.TotalTime(), boneTransforms, 0);
+	mSkinnedMesh.GetBoneTransforms(gt.TotalTime(), boneTransforms, 2);
 	SkinnedConstants skinnedConstants;
 
 	int numBones = boneTransforms.size();
@@ -735,6 +734,11 @@ void DummyApp::LoadSkinnedModel()
 	//mSkinnedMesh.LoadMesh("Models/model.dae");
 	mSkinnedMesh.LoadMesh("Models/SKM_Quinn_Simple.FBX");
 	mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MF_Walk_Fwd.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MF_Run_Fwd.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MM_Jump.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MM_Fall_Loop.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MM_Land.FBX");
 
 	UINT vcount = 0;
 	UINT tcount = 0;
@@ -1286,6 +1290,7 @@ void DummyApp::BuildGameObjects()
 
 	mPlayer = player.get();
 	mCamera = mPlayer->GetCamera();
+	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(player.get());
 	mAllGameObjects.push_back(std::move(player));
