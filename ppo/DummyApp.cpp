@@ -210,8 +210,10 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-		mCamera->Pitch(dy);
-		mCamera->RotateY(dx);
+		mPlayer->MouseInput(dx, dy);
+
+		//mCamera->Pitch(dy);
+		//mCamera->RotateY(dx);
 	}
 
 	mLastMousePos.x = x;
@@ -273,9 +275,12 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-			objConstants.MaterialIndex = e->GetMeterial()->MatCBIndex;
 
-			currObjectCB->CopyData(e->GetObjCBIndex(), objConstants);
+			for (int i = 0; i < e->GetNumSubmeshes(); i++)
+			{
+				objConstants.MaterialIndex = e->GetMeterial(i)->MatCBIndex; 
+				currObjectCB->CopyData(e->GetObjCBIndex(i), objConstants);
+			}
 
 			// 다음 프레임 자원으로 넘어간다.
 			e->DecreaseFrameDirty();
@@ -288,7 +293,7 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 
 	std::vector<XMFLOAT4X4> boneTransforms;
-	mSkinnedMesh.GetBoneTransforms(gt.TotalTime(), boneTransforms, 2);
+	mSkinnedMesh.GetBoneTransforms(gt.TotalTime(), boneTransforms, mPlayer->GetAnimationIndex());
 	SkinnedConstants skinnedConstants;
 
 	int numBones = boneTransforms.size();
@@ -301,14 +306,8 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 		for (int i = numBones; i < 4; i++)
 			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
 	}
-	
-	for (int i = 0; i < 96; i++)
-	{
-		//skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-	}
 
 	currSkinnedCB->CopyData(0, skinnedConstants);
-	currSkinnedCB->CopyData(1, skinnedConstants);
 }
 
 void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
@@ -732,12 +731,14 @@ void DummyApp::BuildShapeGeometry()
 void DummyApp::LoadSkinnedModel()
 {
 	//mSkinnedMesh.LoadMesh("Models/model.dae");
+	
+	mSkinnedMesh.SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f, XMFLOAT3(1.0f, 0.0f, 0.0f), -90.f);
 	mSkinnedMesh.LoadMesh("Models/SKM_Quinn_Simple.FBX");
 	mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MF_Walk_Fwd.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MF_Run_Fwd.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MF_Walk.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MF_Run.FBX");
 	mSkinnedMesh.LoadAnimations("Models/MM_Jump.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MM_Fall_Loop.FBX");
+	mSkinnedMesh.LoadAnimations("Models/MM_Fall.FBX");
 	mSkinnedMesh.LoadAnimations("Models/MM_Land.FBX");
 
 	UINT vcount = 0;
@@ -785,53 +786,6 @@ void DummyApp::LoadSkinnedModel()
 		indices.push_back(mSkinnedMesh.mIndices[i]);
 	}
 
-	/*
-	std::ifstream fin("Models/skinnedMeshData.txt");
-
-	if (!fin)
-	{
-		MessageBox(0, L"Models/skull.txt not found.", 0, 0);
-		return;
-	}
-
-	for (int k = 0; k < 5; k++)
-	{
-		fin >> ignore >> vcount;
-		fin >> ignore >> tcount;
-		fin >> ignore >> ignore >> ignore >> ignore >> ignore;
-
-
-		for (UINT i = 0; i < vcount; ++i)
-		{
-			Vertex vertex;
-			fin >> vertex.Pos.x >> vertex.Pos.y >> vertex.Pos.z;
-			fin >> vertex.Normal.x >> vertex.Normal.y >> vertex.Normal.z;
-			fin >> vertex.TexC.x >> vertex.TexC.y;
-
-			vertices.push_back(vertex);
-		}
-
-		fin >> ignore;
-		fin >> ignore;
-		fin >> ignore;
-
-		for (UINT i = 0; i < tcount; ++i)
-		{
-			fin >> index;
-			indices.push_back(index + dindex);
-			fin >> index;
-			indices.push_back(index + dindex);
-			fin >> index;
-			indices.push_back(index + dindex);
-			//fin >> indices[i * 3 + 0] >> indices[i * 3 + 1] >> indices[i * 3 + 2];
-		}
-		fin >> ignore;
-
-		dindex += vcount;
-	}
-	
-	fin.close();
-	*/
 	//
 	// Pack the indices of all the meshes into one index buffer.
 	//
@@ -990,12 +944,16 @@ void DummyApp::BuildPSOs()
 
 void DummyApp::BuildFrameResources()
 {
+	UINT numObjCBs = 0;
+	for (auto& gameObj : mAllGameObjects)
+		numObjCBs += gameObj.get()->GetNumSubmeshes();
+
 	// gNumFrameResources개의 FrameResources를 담는 mFrameResources 벡터를 생성한다.
 	for (int i = 0; i < gNumFrameResources; ++i)
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
 			1, 
-			(UINT)mAllGameObjects.size(),
+			numObjCBs,
 			(UINT)mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].size(), // skinned obj
 			(UINT)mMaterials.size()));
 	}
@@ -1070,183 +1028,6 @@ void DummyApp::BuildMaterials()
 	mMaterials["sky"] = std::move(sky);
 }
 
-//void DummyApp::BuildRenderItems()
-//{
-//	UINT objCBIndex = 0;
-//
-//	auto skyRitem = std::make_unique<RenderItem>();
-//	skyRitem->TexTransform = MathHelper::Identity4x4();
-//	skyRitem->ObjCBIndex = objCBIndex++;
-//	skyRitem->Mat = mMaterials["sky"].get();
-//	skyRitem->Geo = mMeshes["shapeGeo"].get();
-//	skyRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	skyRitem->IndexCount = skyRitem->Geo->mSubmeshes["sphere"].numIndices;
-//	skyRitem->StartIndexLocation = skyRitem->Geo->mSubmeshes["sphere"].baseIndex;
-//	skyRitem->BaseVertexLocation = skyRitem->Geo->mSubmeshes["sphere"].baseVertex;
-//
-//	mRitemLayer[(int)RenderLayer::Sky].push_back(skyRitem.get());
-//	mAllRitems.push_back(std::move(skyRitem));
-//
-//	/*
-//	auto boxRitem = std::make_unique<RenderItem>();
-//	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
-//	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-//	boxRitem->ObjCBIndex = objCBIndex++;
-//	boxRitem->Mat = mMaterials["bricks0"].get();
-//	boxRitem->Geo = mMeshes["shapeGeo"].get();
-//	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	boxRitem->IndexCount = boxRitem->Geo->mSubmeshes["box"].IndexCount;
-//	boxRitem->StartIndexLocation = boxRitem->Geo->mSubmeshes["box"].StartIndexLocation;
-//	boxRitem->BaseVertexLocation = boxRitem->Geo->mSubmeshes["box"].BaseVertexLocation;
-//
-//	mRitemLayer[(int)RenderLayer::Opaque].push_back(boxRitem.get());
-//	mAllRitems.push_back(std::move(boxRitem));
-//	*/
-//	auto gridRitem = std::make_unique<RenderItem>();
-//	XMStoreFloat4x4(&gridRitem->World, XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, -10.0f, 0.0f));
-//	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(3.0f, 4.0f, 1.0f));
-//	gridRitem->ObjCBIndex = objCBIndex++;
-//	gridRitem->Mat = mMaterials["tile0"].get();
-//	gridRitem->Geo = mMeshes["shapeGeo"].get();
-//	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	gridRitem->IndexCount = gridRitem->Geo->mSubmeshes["grid"].numIndices;
-//	gridRitem->StartIndexLocation = gridRitem->Geo->mSubmeshes["grid"].baseIndex;
-//	gridRitem->BaseVertexLocation = gridRitem->Geo->mSubmeshes["grid"].baseVertex;
-//	
-//	mRitemLayer[(int)RenderLayer::Opaque].push_back(gridRitem.get());
-//	mAllRitems.push_back(std::move(gridRitem));
-//	/*
-//	auto skullRitem = std::make_unique<RenderItem>();
-//	XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, -10.0f, 0.0f));
-//	skullRitem->TexTransform = MathHelper::Identity4x4();
-//	skullRitem->ObjCBIndex = objCBIndex++;
-//	skullRitem->Mat = mMaterials["bricks0"].get();
-//	skullRitem->Geo = mGeometries["skullGeo"].get();
-//	skullRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	skullRitem->IndexCount = skullRitem->Geo->mSubmeshes["skull"].numIndices;
-//	skullRitem->StartIndexLocation = skullRitem->Geo->mSubmeshes["skull"].baseIndex;
-//	skullRitem->BaseVertexLocation = skullRitem->Geo->mSubmeshes["skull"].baseVertex;
-//
-//	mRitemLayer[(int)RenderLayer::Opaque].push_back(skullRitem.get());
-//	mAllRitems.push_back(std::move(skullRitem));
-//	*/
-//	/*
-//	auto testRitem = std::make_unique<RenderItem>();
-//	XMStoreFloat4x4(&testRitem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, 20.0f, 0.0f));
-//	testRitem->TexTransform = MathHelper::Identity4x4();
-//	testRitem->ObjCBIndex = objCBIndex++;
-//	testRitem->Mat = mMaterials["bricks0"].get();
-//	testRitem->Geo = mGeometries["test"].get();
-//	testRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	testRitem->IndexCount = testRitem->Geo->mSubmeshes["subMeshName"].IndexCount;
-//	testRitem->StartIndexLocation = testRitem->Geo->mSubmeshes["subMeshName"].StartIndexLocation;
-//	testRitem->BaseVertexLocation = testRitem->Geo->mSubmeshes["subMeshName"].BaseVertexLocation;
-//
-//	mRitemLayer[(int)RenderLayer::Opaque].push_back(testRitem.get());
-//	mAllRitems.push_back(std::move(testRitem));
-//	*/
-//	auto terrainRitem = std::make_unique<RenderItem>();
-//	XMStoreFloat4x4(&terrainRitem->World, XMMatrixTranslation(0.0f, -500.0f, 0.0f));
-//	terrainRitem->TexTransform = MathHelper::Identity4x4();
-//	terrainRitem->ObjCBIndex = objCBIndex++;
-//	terrainRitem->Mat = mMaterials["terrainMat"].get();
-//	terrainRitem->Geo = mMeshes["terrain"].get();
-//	terrainRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	terrainRitem->IndexCount = terrainRitem->Geo->mSubmeshes["terrain"].numIndices;
-//	terrainRitem->StartIndexLocation = terrainRitem->Geo->mSubmeshes["terrain"].baseIndex;
-//	terrainRitem->BaseVertexLocation = terrainRitem->Geo->mSubmeshes["terrain"].baseVertex;
-//
-//	mRitemLayer[(int)RenderLayer::Opaque].push_back(terrainRitem.get());
-//	mAllRitems.push_back(std::move(terrainRitem));
-//	/*
-//	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
-//	for (int i = 0; i < 5; ++i)
-//	{
-//		auto leftCylRitem = std::make_unique<RenderItem>();
-//		auto rightCylRitem = std::make_unique<RenderItem>();
-//		auto leftSphereRitem = std::make_unique<RenderItem>();
-//		auto rightSphereRitem = std::make_unique<RenderItem>();
-//
-//		XMMATRIX leftCylWorld = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
-//		XMMATRIX rightCylWorld = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
-//
-//		XMMATRIX leftSphereWorld = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
-//		XMMATRIX rightSphereWorld = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
-//
-//		XMStoreFloat4x4(&leftCylRitem->World, rightCylWorld);
-//		XMStoreFloat4x4(&leftCylRitem->TexTransform, brickTexTransform);
-//		leftCylRitem->ObjCBIndex = objCBIndex++;
-//		leftCylRitem->Mat = mMaterials["bricks0"].get();
-//		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
-//		leftCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//		leftCylRitem->IndexCount = leftCylRitem->Geo->mSubmeshes["cylinder"].IndexCount;
-//		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->mSubmeshes["cylinder"].StartIndexLocation;
-//		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->mSubmeshes["cylinder"].BaseVertexLocation;
-//
-//		XMStoreFloat4x4(&rightCylRitem->World, leftCylWorld);
-//		XMStoreFloat4x4(&rightCylRitem->TexTransform, brickTexTransform);
-//		rightCylRitem->ObjCBIndex = objCBIndex++;
-//		rightCylRitem->Mat = mMaterials["bricks0"].get();
-//		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
-//		rightCylRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//		rightCylRitem->IndexCount = rightCylRitem->Geo->mSubmeshes["cylinder"].IndexCount;
-//		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->mSubmeshes["cylinder"].StartIndexLocation;
-//		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->mSubmeshes["cylinder"].BaseVertexLocation;
-//
-//		XMStoreFloat4x4(&leftSphereRitem->World, leftSphereWorld);
-//		leftSphereRitem->TexTransform = MathHelper::Identity4x4();
-//		leftSphereRitem->ObjCBIndex = objCBIndex++;
-//		leftSphereRitem->Mat = mMaterials["stone0"].get();
-//		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
-//		leftSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//		leftSphereRitem->IndexCount = leftSphereRitem->Geo->mSubmeshes["sphere"].IndexCount;
-//		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->mSubmeshes["sphere"].StartIndexLocation;
-//		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->mSubmeshes["sphere"].BaseVertexLocation;
-//
-//		XMStoreFloat4x4(&rightSphereRitem->World, rightSphereWorld);
-//		rightSphereRitem->TexTransform = MathHelper::Identity4x4();
-//		rightSphereRitem->ObjCBIndex = objCBIndex++;
-//		rightSphereRitem->Mat = mMaterials["stone0"].get();
-//		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
-//		rightSphereRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//		rightSphereRitem->IndexCount = rightSphereRitem->Geo->mSubmeshes["sphere"].IndexCount;
-//		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->mSubmeshes["sphere"].StartIndexLocation;
-//		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->mSubmeshes["sphere"].BaseVertexLocation;
-//
-//		mRitemLayer[(int)RenderLayer::Opaque].push_back(leftCylRitem.get());
-//		mRitemLayer[(int)RenderLayer::Opaque].push_back(rightCylRitem.get());
-//		mRitemLayer[(int)RenderLayer::Opaque].push_back(leftSphereRitem.get());
-//		mRitemLayer[(int)RenderLayer::Opaque].push_back(rightSphereRitem.get());
-//
-//		mAllRitems.push_back(std::move(leftCylRitem));
-//		mAllRitems.push_back(std::move(rightCylRitem));
-//		mAllRitems.push_back(std::move(leftSphereRitem));
-//		mAllRitems.push_back(std::move(rightSphereRitem));
-//	}
-//	*/
-//
-//	auto ritem = std::make_unique<RenderItem>();
-//
-//	// Reflect to change coordinate system from the RHS the data was exported out as.
-//	XMStoreFloat4x4(&ritem->World, XMMatrixScaling(5.0f, 5.0f, 5.0f) * XMMatrixTranslation(0.0f, -10.0f, 0.0f));
-//
-//	ritem->TexTransform = MathHelper::Identity4x4();
-//	ritem->ObjCBIndex = objCBIndex++;
-//	ritem->Mat = mMaterials["missing"].get();
-//	ritem->Geo = mMeshes["skullGeo"].get();
-//	ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-//	ritem->IndexCount = ritem->Geo->mSubmeshes["skull"].numIndices;
-//	ritem->StartIndexLocation = ritem->Geo->mSubmeshes["skull"].baseIndex;
-//	ritem->BaseVertexLocation = ritem->Geo->mSubmeshes["skull"].baseVertex;
-//
-//	// the same skinned model instance.
-//	ritem->SkinnedCBIndex = 0;
-//	//ritem->SkinnedModelInst = mSkinnedModelInst.get();
-//
-//	mRitemLayer[(int)RenderLayer::SkinnedOpaque].push_back(ritem.get());
-//	mAllRitems.push_back(std::move(ritem));
-//}
-
 void DummyApp::BuildGameObjects()
 {
 	int objCBIndex = 0, skinnedCBIndex = 0;
@@ -1256,11 +1037,10 @@ void DummyApp::BuildGameObjects()
 	// sky sphere
 	// ------------------------------------------
 	auto skyGameObject = std::make_unique<GameObject>("sky", XMMatrixIdentity(), XMMatrixIdentity());
-	skyGameObject->SetCBIndex(objCBIndex++);
+	skyGameObject->SetCBIndex(objCBIndex);
 	skyGameObject->SetMesh(mMeshes["shapeGeo"].get());
 	skyGameObject->SetMaterial(mMaterials["sky"].get());
-	submesh = skyGameObject->GetMesh()->GetSubmesh("sphere");
-	skyGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
 
 	mGameObjectLayer[(int)RenderLayer::Sky].push_back(skyGameObject.get());
 	mAllGameObjects.push_back(std::move(skyGameObject));
@@ -1268,44 +1048,39 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// terrain
 	// ------------------------------------------
-	/*auto terrainGameObject = std::make_unique<GameObject>("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
-	terrainGameObject->SetCBIndex(objCBIndex++);
+	auto terrainGameObject = std::make_unique<GameObject>("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
+	terrainGameObject->SetCBIndex(objCBIndex);
 	terrainGameObject->SetMesh(mMeshes["terrain"].get());
 	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
-	submesh = terrainGameObject->GetMesh()->mSubmeshes["terrain"];
-	terrainGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject.get());
-	mAllGameObjects.push_back(std::move(terrainGameObject));*/
+	mAllGameObjects.push_back(std::move(terrainGameObject));
 
 	// ------------------------------------------
 	// Opaque objects - player
 	// ------------------------------------------
-	auto player = std::make_unique<Player>("player", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, -100.0f), XMMatrixIdentity());
-	player->SetCBIndex(objCBIndex++);
+	/*auto player = std::make_unique<Player>("player", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, -100.0f), XMMatrixIdentity());
+	player->SetCBIndex(objCBIndex);
 	player->SetMesh(mMeshes["shapeGeo"].get());
 	player->SetMaterial(mMaterials["bricks0"].get());
-	submesh = player->GetMesh()->GetSubmesh("box");
-	player->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	player->AddSubmesh(player->GetMesh()->GetSubmesh("box"));
 
 	mPlayer = player.get();
 	mCamera = mPlayer->GetCamera();
 	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(player.get());
-	mAllGameObjects.push_back(std::move(player));
-
-	
+	mAllGameObjects.push_back(std::move(player));*/
 
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	auto gridGameObject = std::make_unique<GameObject>("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
-	gridGameObject->SetCBIndex(objCBIndex++);
+	auto gridGameObject = std::make_unique<GameObject>("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(100.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
+	gridGameObject->SetCBIndex(objCBIndex);
 	gridGameObject->SetMesh(mMeshes["shapeGeo"].get());
 	gridGameObject->SetMaterial(mMaterials["tile0"].get());
-	submesh = gridGameObject->GetMesh()->GetSubmesh("grid");
-	gridGameObject->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
 
 	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gridGameObject.get());
 	mAllGameObjects.push_back(std::move(gridGameObject));
@@ -1313,26 +1088,20 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Skinned objects
 	// ------------------------------------------
-	auto SkinnedGameObject1 = std::make_unique<GameObject>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	SkinnedGameObject1->SetCBIndex(objCBIndex++, skinnedCBIndex++);
-	SkinnedGameObject1->SetMesh(mMeshes["skullGeo"].get());
-	SkinnedGameObject1->SetMaterial(mMaterials["bricks0"].get());
-	submesh = SkinnedGameObject1->GetMesh()->mSubmeshes[0];
-	SkinnedGameObject1->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
+	//XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f);
+	auto SkinnedGameObject = std::make_unique<Player>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	SkinnedGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	SkinnedGameObject->SetMesh(mMeshes["skullGeo"].get());
+	SkinnedGameObject->SetMaterials(2, { mMaterials["bricks0"].get(),  mMaterials["tile0"].get() });
+	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[0]);
+	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[1]);
 
-	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject1.get());
-	mAllGameObjects.push_back(std::move(SkinnedGameObject1));
+	mPlayer = SkinnedGameObject.get();
+	mCamera = mPlayer->GetCamera();
+	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 
-
-	auto SkinnedGameObject2 = std::make_unique<GameObject>("skinned2", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	SkinnedGameObject2->SetCBIndex(objCBIndex++, skinnedCBIndex++);
-	SkinnedGameObject2->SetMesh(mMeshes["skullGeo"].get());
-	SkinnedGameObject2->SetMaterial(mMaterials["tile0"].get());
-	submesh = SkinnedGameObject2->GetMesh()->mSubmeshes[1];
-	SkinnedGameObject2->SetDrawIndexedInstanced(submesh.numIndices, submesh.baseIndex, submesh.baseVertex);
-
-	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject2.get());
-	mAllGameObjects.push_back(std::move(SkinnedGameObject2));
+	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject.get());
+	mAllGameObjects.push_back(std::move(SkinnedGameObject));
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
@@ -1352,20 +1121,22 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 		cmdList->IASetIndexBuffer(&gameObj->GetMesh()->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(gameObj->GetPrimitiveType());
 
-		// 현재 프레임 자원에 대한 이 물체를 위한 CBV의 오프셋을 구한다.
-		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObj->GetObjCBIndex() * objCBByteSize;
-
-		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-
 		if (gameObj->GetSkinnedCBIndex() != -1) {
-			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
+			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + 0/*gameObj->GetSkinnedCBIndex()*/ * skinnedCBByteSize;
 			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
 		}
 		else {
 			cmdList->SetGraphicsRootConstantBufferView(1, 0);
 		}
 
-		cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(), 1, gameObj->GetBaseIndex(), gameObj->GetBaseVertex(), 0);
+		for (UINT j = 0; j < gameObj->GetNumSubmeshes(); j++)
+		{
+			// 현재 프레임 자원에 대한 이 물체를 위한 CBV의 오프셋을 구한다.
+			D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObj->GetObjCBIndex(j) * objCBByteSize;
+			cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+			cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(j), 1, gameObj->GetBaseIndex(j), gameObj->GetBaseVertex(j), 0);
+		}
 	}
 }
 

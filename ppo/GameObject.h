@@ -3,6 +3,8 @@
 #include "Mesh.h"
 #include "GameTimer.h"
 
+#define MAX_NUM_SUBMESHES 4
+
 // 하나의 물체를 그리는 데 필요한 매개변수들을 담는 가벼운 구조체
 struct RenderItem
 {
@@ -43,6 +45,13 @@ struct RenderItem
 	//SkinnedModelInstance* SkinnedModelInst = nullptr;
 };
 
+struct DrawIndex
+{
+	UINT mNumIndices = 0;
+	UINT mBaseIndex = 0;
+	UINT mBaseVertex = 0;
+};
+
 class GameObject
 {
 public:
@@ -56,24 +65,28 @@ public:
 	void SetName(const string name) { mName = name; }
 
 	void SetMesh(Mesh* mesh) { mMesh = mesh; }
-	void SetMaterial(Material* material) { mMaterial = material; }
-	void SetCBIndex(int objCBIndex, int skinnedCBIndex = -1);
+	void SetMaterial(Material* material);
+	void SetMaterials(UINT numMaterial, const vector<Material*>& materials);
+	void SetCBIndex(int& objCBIndex);
+	void SetCBIndex(int& objCBIndex, int& skinnedCBIndex);
+	void SetCBIndex(int numObjCBs, int& objCBIndices, int& skinnedCBIndex);
 	void SetPrimitiveType(D3D12_PRIMITIVE_TOPOLOGY primitiveType) { mPrimitiveType = primitiveType; }
-	void SetDrawIndexedInstanced(UINT numIndex, UINT baseIndex, UINT baseVertex);
 	void SetFrameDirty() { mNumFramesDirty = gNumFrameResources; }
 	void DecreaseFrameDirty() { mNumFramesDirty--; }
 
 	// renderItem
 	Mesh* GetMesh() { return mMesh; };
-	Material* GetMeterial() { return mMaterial; };
+	Material* GetMeterial(UINT index) { return mMaterials[index]; };
 	D3D12_PRIMITIVE_TOPOLOGY GetPrimitiveType() { return mPrimitiveType; };
-	int GetObjCBIndex() { return mObjCBIndex; };
+	int GetObjCBIndex(UINT index) { return mObjCBIndex[index]; };
 	int GetSkinnedCBIndex() { return mSkinnedCBIndex; };
-	UINT GetNumIndices() { return mNumIndices; };
-	UINT GetBaseIndex() { return mBaseIndex; };
-	UINT GetBaseVertex() { return mBaseVertex; };
+	UINT GetNumIndices(UINT index) { return mDrawIndex[index].mNumIndices; };
+	UINT GetBaseIndex(UINT index) { return mDrawIndex[index].mBaseIndex; };
+	UINT GetBaseVertex(UINT index) { return mDrawIndex[index].mBaseVertex; };
 	UINT GetFramesDirty() { return mNumFramesDirty; }
+	UINT GetNumSubmeshes() { return mNumSubmeshes; }
 
+	void AddSubmesh(const Submesh& submesh);
 	void SetPosition(float x, float y, float z);
 	void SetPosition(XMFLOAT3 position);
 	void SetScale(float x, float y, float z);
@@ -114,17 +127,16 @@ private:
 
 	// 이 렌더 항목의 물체 상수 버퍼에 해당하는 
 	// GPU 상수 버퍼의 색인
-	int mObjCBIndex = -1;
+	int mObjCBIndex[MAX_NUM_SUBMESHES] = { -1, };
 	int mSkinnedCBIndex = -1;
-
-	Material* mMaterial = nullptr;
+	
+	Material* mMaterials[MAX_NUM_SUBMESHES] = { nullptr, };
 	Mesh* mMesh = nullptr;
 
 	D3D12_PRIMITIVE_TOPOLOGY mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	// DrawIndexedInstanced 매개변수
-	UINT mNumIndices = 0;
-	UINT mBaseIndex = 0;
-	UINT mBaseVertex = 0;
+	UINT mNumSubmeshes = 0;
+	DrawIndex mDrawIndex[MAX_NUM_SUBMESHES];
 };
 

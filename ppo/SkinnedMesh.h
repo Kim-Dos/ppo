@@ -101,6 +101,8 @@ public:
 
     bool LoadMesh(const std::string& Filename);
     bool LoadAnimations(const std::string& Filename);
+    void SetOffsetMatrix(XMFLOAT4X4 offsetMatrix) { mOffsetMatrix = offsetMatrix; }
+    void SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2);
 
     int NumBones() const { return (int)mBoneNameToIndexMap.size(); }
 
@@ -164,6 +166,6 @@ private:
     void ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const int animationId, const XMMATRIX& ParentTransform);
     void ReadBoneHierarchy(float AnimationTimeTicks, const string boneName, const int animationId, const XMMATRIX& ParentTransform);
     
-    XMFLOAT4X4 m_GlobalInverseTransform;
+    XMFLOAT4X4 mOffsetMatrix = Matrix4x4::Identity();
 };
 

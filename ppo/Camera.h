@@ -23,6 +23,7 @@ public:
 	XMFLOAT3 GetUp3f()const { return mUp; };
 	XMVECTOR GetLook()const { return XMLoadFloat3(&mLook); };
 	XMFLOAT3 GetLook3f()const { return mLook; };
+	XMFLOAT3 GetOffsetPosition()const { return mOffsetPosition; }
 
 	// 절두체 속성 조회
 	float GetNearZ()const { return mNearZ; };

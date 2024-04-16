@@ -20,6 +20,23 @@ XMFLOAT3 Camera::GetPosition3f() const
 	return mPosition;
 }
 
+//XMFLOAT3 Camera::GetRotatePosition3f() const
+//{
+//	XMMATRIX rotationMatrix(
+//		mRight.x, mRight.y, mRight.z, 0.0f,
+//		mUp.x, mUp.y, mUp.z, 0.0f,
+//		mLook.x, mLook.y, mLook.z, 0.0f,
+//		0.0f, 0.0f, 0.0f, 1.0f
+//	);
+//	XMFLOAT3 rotatePosition;
+//	XMStoreFloat3(&rotatePosition, XMVector3TransformCoord(XMLoadFloat3(&mOffsetPosition), rotationMatrix));
+//	rotatePosition.x += mPosition.x;
+//	rotatePosition.y += mPosition.y;
+//	rotatePosition.z += mPosition.z;
+//
+//	return rotatePosition;
+//}
+
 void Camera::SetPosition(float x, float y, float z)
 {
 	mPosition = XMFLOAT3(x, y, z);
@@ -207,25 +224,12 @@ void Camera::UpdateViewMatrix()
 		XMStoreFloat3(&mUp, U);
 		XMStoreFloat3(&mLook, L);
 
-		mView(0, 0) = mRight.x;
-		mView(1, 0) = mRight.y;
-		mView(2, 0) = mRight.z;
-		mView(3, 0) = x;
-
-		mView(0, 1) = mUp.x;
-		mView(1, 1) = mUp.y;
-		mView(2, 1) = mUp.z;
-		mView(3, 1) = y;
-
-		mView(0, 2) = mLook.x;
-		mView(1, 2) = mLook.y;
-		mView(2, 2) = mLook.z;
-		mView(3, 2) = z;
-
-		mView(0, 3) = 0.0f;
-		mView(1, 3) = 0.0f;
-		mView(2, 3) = 0.0f;
-		mView(3, 3) = 1.0f;
+		mView = XMFLOAT4X4(
+			mRight.x, mUp.x, mLook.x, 0.0f,
+			mRight.y, mUp.y, mLook.y, 0.0f,
+			mRight.z, mUp.z, mLook.z, 0.0f,
+			x, y, z, 1.0f
+		);
 
 		mViewDirty = false;
 	}

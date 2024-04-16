@@ -33,9 +33,6 @@ bool SkinnedMesh::LoadMesh(const std::string& Filename)
         aiProcess_ConvertToLeftHanded);
 
     if (pScene) {
-        XMStoreFloat4x4(&m_GlobalInverseTransform, XMMatrixTranspose(XMMATRIX(&pScene->mRootNode->mTransformation.a1)));
-        //m_GlobalInverseTransform = Matrix4x4::Inverse(m_GlobalInverseTransform);
-
         bool be = InitFromScene(pScene, Filename);
         importer.FreeScene();
         return be;
@@ -60,9 +57,6 @@ bool SkinnedMesh::LoadAnimations(const std::string& Filename)
         aiProcess_ConvertToLeftHanded);
 
     if (pScene) {
-        XMStoreFloat4x4(&m_GlobalInverseTransform, XMMatrixTranspose(XMMATRIX(&pScene->mRootNode->mTransformation.a1)));
-        //m_GlobalInverseTransform = Matrix4x4::Inverse(m_GlobalInverseTransform);
-
         InitAllAnimations(pScene);
         importer.FreeScene();
         return true;
@@ -72,6 +66,11 @@ bool SkinnedMesh::LoadAnimations(const std::string& Filename)
     }
 
     return false;
+}
+
+void SkinnedMesh::SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2)
+{
+    XMStoreFloat4x4(&mOffsetMatrix, XMMatrixRotationAxis(XMLoadFloat3(&axis1), XMConvertToRadians(degree1)) * XMMatrixRotationAxis(XMLoadFloat3(&axis2), XMConvertToRadians(degree2)));
 }
 
 void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& transforms, int animationIndex)
@@ -84,9 +83,8 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     float ticksPerSecond = mAnimations[animationIndex].tickPerSecond;
     float timeInTicks = timeInSeconds * ticksPerSecond;
     float animationTimeTicks = fmod(timeInTicks, mAnimations[animationIndex].duration);
-
-    //ReadBoneHierarchy(animationTimeTicks, 0, animationIndex, Identity);
-    ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationIndex, Identity);
+    
+    ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationIndex, XMLoadFloat4x4(&mOffsetMatrix));
     transforms.resize(mBoneInfo.size());
 
     //mBoneInfo[GetBoneId("root")].FinalTransformation = Matrix4x4::Identity();
@@ -138,7 +136,7 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
     mBones.resize(NumVertices);
 
     InitAllMeshes(pScene);
-    InitAllAnimations(pScene);
+    //InitAllAnimations(pScene);
 
     LoadNodeHierarchy(pScene->mRootNode);
     mBoneHierarchy.resize(NumBones());
@@ -193,8 +191,16 @@ void SkinnedMesh::InitAllAnimations(const aiScene* pScene)
             for (int k = 0; k < numPositionKeys; k++)
             {
                 Keyframe<XMFLOAT3> translation;
-                translation.timePos = pChannel->mPositionKeys[k].mTime;
-                translation.value = XMFLOAT3(pChannel->mPositionKeys[k].mValue.x, pChannel->mPositionKeys[k].mValue.y, pChannel->mPositionKeys[k].mValue.z);
+                aiVectorKey positionKey = pChannel->mPositionKeys[k];
+                translation.timePos = positionKey.mTime;
+
+                //XMVECTOR positionKeyVector = XMVectorSet(positionKey.mValue.x, positionKey.mValue.y, positionKey.mValue.z, 1.f);
+                //XMFLOAT3 finalposition;
+                //XMStoreFloat3(&finalposition, XMVector3Rotate(positionKeyVector, offsetQuat));
+
+                //translation.value = XMFLOAT3(finalposition.x, finalposition.y, finalposition.z);
+                translation.value = XMFLOAT3(positionKey.mValue.x, positionKey.mValue.y, positionKey.mValue.z);
+
                 boneAnimation.translation[k] = translation;
             }
 
@@ -204,9 +210,16 @@ void SkinnedMesh::InitAllAnimations(const aiScene* pScene)
             for (int k = 0; k < numRotationKeys; k++)
             {
                 Keyframe<XMFLOAT4> rotationQuat;
-                rotationQuat.timePos = pChannel->mRotationKeys[k].mTime;
-                rotationQuat.value = XMFLOAT4(pChannel->mRotationKeys[k].mValue.x, pChannel->mRotationKeys[k].mValue.y,
-                    pChannel->mRotationKeys[k].mValue.z, pChannel->mRotationKeys[k].mValue.w);
+                aiQuatKey rotateKey = pChannel->mRotationKeys[k];
+                rotationQuat.timePos = rotateKey.mTime;
+
+                //XMVECTOR rotateKeyVector = XMVectorSet(rotateKey.mValue.x, rotateKey.mValue.y, rotateKey.mValue.z, rotateKey.mValue.w);
+                //XMFLOAT4 finalRotate;
+                //XMStoreFloat4(&finalRotate, XMQuaternionMultiply(rotateKeyVector, offsetQuat));
+
+                //rotationQuat.value = XMFLOAT4(finalRotate.x, finalRotate.y, finalRotate.z, finalRotate.w);
+                rotationQuat.value = XMFLOAT4(rotateKey.mValue.x, rotateKey.mValue.y, rotateKey.mValue.z, rotateKey.mValue.w);
+
                 boneAnimation.rotationQuat[k] = rotationQuat;
             }
 
@@ -216,8 +229,9 @@ void SkinnedMesh::InitAllAnimations(const aiScene* pScene)
             for (int k = 0; k < numScaleKeys; k++)
             {
                 Keyframe<XMFLOAT3> scale;
-                scale.timePos = pChannel->mScalingKeys[k].mTime;
-                scale.value = XMFLOAT3(pChannel->mScalingKeys[k].mValue.x, pChannel->mScalingKeys[k].mValue.y, pChannel->mScalingKeys[k].mValue.z);
+                aiVectorKey scaleKey = pChannel->mScalingKeys[k];
+                scale.timePos = scaleKey.mTime;
+                scale.value = XMFLOAT3(scaleKey.mValue.x, scaleKey.mValue.y, scaleKey.mValue.z);
                 boneAnimation.scale[k] = scale;
             }
 
@@ -820,7 +834,7 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, 
 
     if (mBoneNameToIndexMap.find(boneName) != mBoneNameToIndexMap.end()) {
         int BoneIndex = mBoneNameToIndexMap[boneName];
-        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation * XMLoadFloat4x4(&m_GlobalInverseTransform);
+        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
         XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
     }
 
@@ -869,7 +883,7 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const string name,
     // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
     if (GetBoneId(nodeName) != -1) {
         int BoneIndex = mBoneNameToIndexMap[nodeName];
-        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation * XMLoadFloat4x4(&m_GlobalInverseTransform);
+        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
         XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
     }
 

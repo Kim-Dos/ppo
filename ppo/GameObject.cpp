@@ -26,17 +26,53 @@ void GameObject::Update(const GameTimer& gt)
 {
 }
 
-void GameObject::SetCBIndex(int objCBIndex, int skinnedCBIndex)
+void GameObject::SetMaterial(Material* material)
 {
-    mObjCBIndex = objCBIndex;
-    mSkinnedCBIndex = skinnedCBIndex;
+    mMaterials[0] = material;
 }
 
-void GameObject::SetDrawIndexedInstanced(UINT numindices, UINT baseIndex, UINT baseVertex)
+void GameObject::SetMaterials(UINT numMaterials, const vector<Material*>& materials)
 {
-    mNumIndices = numindices;
-    mBaseIndex = baseIndex;
-    mBaseVertex = baseVertex;
+    for (int i = 0; i < numMaterials; i++)
+    {
+        mMaterials[i] = materials[i];
+    }
+}
+
+void GameObject::SetCBIndex(int& objCBIndex)
+{
+    mObjCBIndex[0] = objCBIndex;
+    mSkinnedCBIndex = -1;
+    objCBIndex++;
+}
+
+void GameObject::SetCBIndex(int& objCBIndex, int& skinnedCBIndex)
+{
+    mObjCBIndex[0] = objCBIndex;
+    mSkinnedCBIndex = skinnedCBIndex;
+    objCBIndex++;
+    skinnedCBIndex++;
+}
+
+void GameObject::SetCBIndex(int numObjCBs, int& objCBIndices, int& skinnedCBIndex)
+{
+    for (int i = 0; i < numObjCBs; i++)
+    {
+        mObjCBIndex[i] = objCBIndices;
+        objCBIndices++;
+    }
+
+    mSkinnedCBIndex = skinnedCBIndex;
+    skinnedCBIndex++;
+}
+
+void GameObject::AddSubmesh(const Submesh& submesh)
+{
+    mDrawIndex[mNumSubmeshes].mNumIndices = submesh.numIndices;
+    mDrawIndex[mNumSubmeshes].mBaseVertex = submesh.baseVertex;
+    mDrawIndex[mNumSubmeshes].mBaseIndex = submesh.baseIndex;
+
+    ++mNumSubmeshes;
 }
 
 void GameObject::SetPosition(float x, float y, float z)
@@ -142,8 +178,7 @@ void GameObject::Rotate(float pitch, float yaw, float roll)
 
 void GameObject::Rotate(XMFLOAT3* axis, float angle)
 {
-    XMMATRIX rotateMat = XMMatrixRotationAxis(
-        XMLoadFloat3(axis), XMConvertToRadians(angle));
+    XMMATRIX rotateMat = XMMatrixRotationAxis(XMLoadFloat3(axis), XMConvertToRadians(angle));
     mWorld = Matrix4x4::Multiply(rotateMat, mWorld);
 }
 
