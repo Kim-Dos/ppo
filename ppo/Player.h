@@ -19,84 +19,19 @@ enum class StateId : UINT
 	Count
 };
 
-class BaseState
+class PlayerState
 {
 public:
-	BaseState() { mPlayer = nullptr; }
-	BaseState(GameObject* player) { mPlayer = player; }
-	~BaseState() {}
+	PlayerState() {}
+	~PlayerState() {}
 
 	StateId ID() { return mId; }
 
-	virtual void Enter() {};
-	virtual void Update(const GameTimer& gt) {};
-	virtual void Exit() {};
+	virtual void Enter(Player& player) {};
+	virtual void Update(Player& player, const float deltaTime) {};
+	virtual void Exit(Player& player) {};
 protected:
 	StateId mId = StateId::Defalut;
-	GameObject* mPlayer;
-};
-
-class FSM
-{
-public:
-	FSM() : mCurrentState(BaseState()) {}
-	FSM(BaseState initState)
-	{
-		mCurrentState = initState;
-	}
-	~FSM() {}
-	BaseState GetState() { return mCurrentState; }
-
-	void ChangeState(BaseState nextState)
-	{
-		if (nextState.ID() == mCurrentState.ID())
-			return;
-
-		if ((UINT)nextState.ID() < 0 || (UINT)nextState.ID() >= (UINT)StateId::Count)
-			return;
-
-		mCurrentState.Exit();
-		mCurrentState = nextState;
-		mCurrentState.Enter();
-	}
-
-	void UpdateState(const GameTimer& gt)
-	{
-		mCurrentState.Update(gt);
-	}
-
-private:
-	BaseState mCurrentState;
-};
-
-class PlayerIdleState : public BaseState
-{
-public:
-	PlayerIdleState(GameObject* player) : BaseState(player) { mId = StateId::Idle; }
-
-	void Enter() override {}
-	void Update(const GameTimer& gt) override {}
-	void Exit() override {}
-};
-
-class PlayerWalkState : public BaseState
-{
-public:
-	PlayerWalkState(GameObject* player) : BaseState(player) { mId = StateId::Walk; }
-
-	void Enter() override {}
-	void Update(const GameTimer& gt) override {}
-	void Exit() override {}
-};
-
-class PlayerRunState : public BaseState
-{
-public:
-	PlayerRunState(GameObject* player) : BaseState(player) { mId = StateId::Run; }
-
-	void Enter() override {}
-	void Update(const GameTimer& gt) override {}
-	void Exit() override {}
 };
 
 class Player : public GameObject
@@ -109,26 +44,36 @@ public:
 
 	virtual void Update(const GameTimer& gt);
 	void UpdateCamera();
-	void UpdateState(const GameTimer& gt);		// PlayerState 변환
+	void UpdateState(const float deltaTime);		// PlayerState 변환
 
-	void KeyInput(float dt);
+	void KeyboardInput(float dt);
+	void OnKeyboardMessage(UINT nMessageID, WPARAM wParam);
 	void MouseInput(float dx, float dy);
 
 	Camera* GetCamera() { return mCamera; }
 
-	UINT GetAnimationTime() { return mAnimationTime; }
-	UINT GetStateId() { return (UINT)mFSM.GetState().ID(); }
+	void ChangeState(PlayerState* nextState);
+	UINT GetStateId() { return (UINT)mCurrentState->ID(); }
+
+	void SetAnimationTime() { mAnimationTime = 0.0f; }
+	float GetAnimationTime() { return mAnimationTime; }
 	UINT GetAnimationIndex() { return mAnimationIndex[GetStateId()]; }
+
+	bool IsFalling() { return mIsFalling; }
 private:
 	void InitPlayer();
 
 	float mPitch = 0.0f;
 	
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	XMFLOAT3 mAcceleration = XMFLOAT3(30.0f, 10.0f, 30.0f);
+	XMFLOAT3 mAcceleration = XMFLOAT3(30.0f, 0.0f, 30.0f);
 
+	float mJumpForce = 10.0f;
+	float mGravity = 10.0f;
 	float mMaxWalkVelocityXZ = 3.0f;
 	float mMaxRunVelocityXZ = 6.0f;
+	bool mIsRun = false;
+	bool mIsFalling = false;
 	float mMaxVelocityY = 10.0f;
 	float mFriction = 10.0f;
 	
@@ -137,8 +82,90 @@ private:
 
 	float mAnimationTime = 0.0f;
 
-	FSM mFSM;
+	PlayerState* mCurrentState = nullptr;
 	UINT mAnimationIndex[(UINT)StateId::Count];
 };
 
+class PlayerStateIdle : public PlayerState
+{
+public:
+	PlayerStateIdle() { mId = StateId::Idle; }
 
+	void Enter(Player& player) override {}
+	void Update(Player& player, const float deltaTime) override {}
+	void Exit(Player& player) override {}
+};
+
+class PlayerStateWalk : public PlayerState
+{
+public:
+	PlayerStateWalk() { mId = StateId::Walk; }
+
+	void Enter(Player& player) override {}
+	void Update(Player& player, const float deltaTime) override {}
+	void Exit(Player& player) override {}
+};
+
+class PlayerStateRun : public PlayerState
+{
+public:
+	PlayerStateRun() { mId = StateId::Run; }
+
+	void Enter(Player& player) override {}
+	void Update(Player& player, const float deltaTime) override {}
+	void Exit(Player& player) override {}
+};
+
+class PlayerStateLand : public PlayerState
+{
+public:
+	PlayerStateLand() { mId = StateId::Land; }
+
+	void Enter(Player& player) override
+	{
+		player.SetAnimationTime();
+	}
+	void Update(Player& player, const float deltaTime) override
+	{
+		if (player.GetAnimationTime() > 0.85f) {
+			player.SetAnimationTime();
+			player.ChangeState(new PlayerStateIdle);
+		}
+	}
+	void Exit(Player& player) override {}
+};
+
+class PlayerStateFall : public PlayerState
+{
+public:
+	PlayerStateFall() { mId = StateId::Fall; }
+
+	void Enter(Player& player) override {}
+	void Update(Player& player, const float deltaTime) override
+	{
+		if (!player.IsFalling()) {
+			player.SetAnimationTime();
+			player.ChangeState(new PlayerStateLand);
+		}
+	}
+	void Exit(Player& player) override {}
+};
+
+class PlayerStateJump : public PlayerState
+{
+public:
+	PlayerStateJump() { mId = StateId::Jump; }
+
+	virtual void Enter(Player& player) override
+	{
+		player.SetAnimationTime();
+	}
+	virtual void Update(Player& player, const float deltaTime) override
+	{
+		if (player.GetAnimationTime() > 0.85f) {
+			player.SetAnimationTime();
+			player.ChangeState(new PlayerStateFall);
+		}
+	}
+	virtual void Exit(Player& player) override {}
+};

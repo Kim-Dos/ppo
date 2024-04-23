@@ -11,6 +11,20 @@ Player::Player() :
 	InitPlayer();
 }
 
+void Player::ChangeState(PlayerState* nextState)
+{
+	if (nextState->ID() == mCurrentState->ID())
+		return;
+
+	if ((UINT)nextState->ID() < 0 || (UINT)nextState->ID() >= (UINT)StateId::Count)
+		return;
+
+	mCurrentState->Exit(*this);
+	delete mCurrentState;
+	mCurrentState = nextState;
+	mCurrentState->Enter(*this);
+}
+
 Player::Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : 
     GameObject(name, world, texTransform)
 {
@@ -31,28 +45,42 @@ Player::~Player()
 
 void Player::Update(const GameTimer& gt)
 {
-	// 최대 속도 제한
-	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
-	if (groundSpeed > mMaxWalkVelocityXZ) {
-		mVelocity.x *= mMaxWalkVelocityXZ / groundSpeed;
-		mVelocity.z *= mMaxWalkVelocityXZ / groundSpeed;
-	}
+	float deltaTime = gt.DeltaTime();
+
+	// 추락
+	mVelocity.y -= mGravity * deltaTime;
 	float fallSpeed = sqrt(mVelocity.y * mVelocity.y);
 	if ((mVelocity.y * mVelocity.y) > (mMaxVelocityY * mMaxVelocityY) && mVelocity.y < 0) {
 		mVelocity.y = -mMaxVelocityY;
 	}
 
+	// 최대 속도 제한
+	float maxVelocityXZ = mIsRun ? mMaxRunVelocityXZ : mMaxWalkVelocityXZ;
+	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
+	if (groundSpeed > maxVelocityXZ) {
+		mVelocity.x *= maxVelocityXZ / groundSpeed;
+		mVelocity.z *= maxVelocityXZ / groundSpeed;
+	}
+
 	// 마찰
 	XMFLOAT3 friction;
-	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * gt.DeltaTime());
+	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltaTime);
 	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
 	SetPosition(Vector3::Add(GetPosition(), mVelocity));
 
+	if (GetPosition().y < 0) {
+		SetPosition(GetPosition().x, 0.0f, GetPosition().z);
+		mVelocity.y = 0.0f;
+		mIsFalling = false;
+	}
+
 	// 카메라 이동
 	UpdateCamera();
-	UpdateState(gt);
+	UpdateState(deltaTime);
+
+	mAnimationTime += deltaTime;
 
 	SetFrameDirty();
 }
@@ -70,27 +98,44 @@ void Player::UpdateCamera()
 	mCamera->UpdateViewMatrix();
 }
 
-void Player::UpdateState(const GameTimer& gt)
+void Player::UpdateState(const float deltaTime)
 {
-	/*
-	if (GetPosition().y > 0)
-		if (GetStateId() != (UINT)StateId::Jump)
-			mState = (UINT)PlayerState::Fall;
-	*/
-	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
-	if (groundSpeed <= 0.1f) {
-		mFSM.ChangeState(PlayerIdleState(this));
-	}
-	else {
-		mFSM.ChangeState(PlayerWalkState(this));
+	if (GetPosition().y > 0 && !mIsFalling) {
+		mIsFalling = true;
+		ChangeState(new PlayerStateFall);
 	}
 
-	mFSM.UpdateState(gt);
+	if (!mIsFalling) {
+		float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
+		if (groundSpeed <= 0.1f) {
+			if (GetStateId() != (UINT)StateId::Land && GetStateId() != (UINT)StateId::Fall)
+				ChangeState(new PlayerStateIdle);
+		}
+		else if (groundSpeed > mMaxWalkVelocityXZ) {
+			ChangeState(new PlayerStateRun);
+		}
+		else {
+			ChangeState(new PlayerStateWalk);
+		}
+	}
+
+	mCurrentState->Update(*this, deltaTime);
 }
 
-void Player::KeyInput(float dt)
+void Player::KeyboardInput(float dt)
 {
-	XMFLOAT3 velocity = Vector3::ScalarProduct(mAcceleration, dt, false);
+	mIsRun = false;
+	if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+		mIsRun = true;
+
+	XMFLOAT3 velocity;
+
+	if (mIsFalling)
+		velocity = Vector3::ScalarProduct(mAcceleration, dt / 2, false);
+	else if (mIsRun)
+		velocity = Vector3::ScalarProduct(mAcceleration, dt * 2, false);
+	else
+		velocity = Vector3::ScalarProduct(mAcceleration, dt, false);
 
 	if (GetAsyncKeyState('W') & 0x8000)
 		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(GetLook(), velocity));
@@ -103,10 +148,25 @@ void Player::KeyInput(float dt)
 
 	if (GetAsyncKeyState('A') & 0x8000)
 		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(Vector3::ScalarProduct(GetRight(), -1), velocity));
+}
 
-	if (GetAsyncKeyState(VK_SPACE) & 0x8000)
-		;
-
+void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
+{
+	switch (nMessageID)
+	{
+	case WM_KEYDOWN:
+		switch (wParam)
+		{
+		case VK_SPACE:
+			if (!mIsFalling) {
+				mVelocity.y += mJumpForce;
+				mIsFalling = true;
+				ChangeState(new PlayerStateJump);
+			}
+			break;
+		}
+		break;
+	}
 }
 
 void Player::MouseInput(float dx, float dy)
@@ -126,9 +186,14 @@ void Player::InitPlayer()
 	mCameraOffsetPosition = XMFLOAT3(0.0f, 100.0f, 0.0f);
 	UpdateCamera();
 
-	for (int i = 0; i < 6; i++)
-		mAnimationIndex[i] = i - 1;
+	mAnimationIndex[0] = 0;
+	mAnimationIndex[1] = 0;
+	mAnimationIndex[2] = 1;
+	mAnimationIndex[3] = 2;
+	mAnimationIndex[4] = 3;
+	mAnimationIndex[5] = 4;
+	mAnimationIndex[6] = 5;
 
-	mFSM = FSM(PlayerIdleState(this));
+	mCurrentState = new PlayerStateIdle;
+	mCurrentState->Enter(*this);
 }
-

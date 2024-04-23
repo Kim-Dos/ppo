@@ -222,6 +222,8 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
+	mPlayer->OnKeyboardMessage(nMessageID, wParam);
+
 	switch (nMessageID)
 	{
 	case WM_KEYDOWN:
@@ -250,7 +252,7 @@ void DummyApp::OnKeyboardInput(const GameTimer& gt)
 {
 	const float dt = gt.DeltaTime();
 
-	mPlayer->KeyInput(dt);
+	mPlayer->KeyboardInput(dt);
 
 	//mCamera->UpdateViewMatrix();
 }
@@ -293,7 +295,7 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 
 	std::vector<XMFLOAT4X4> boneTransforms;
-	mSkinnedMesh.GetBoneTransforms(gt.TotalTime(), boneTransforms, mPlayer->GetAnimationIndex());
+	mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationIndex());
 	SkinnedConstants skinnedConstants;
 
 	int numBones = boneTransforms.size();
