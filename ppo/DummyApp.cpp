@@ -26,8 +26,6 @@ bool DummyApp::Initialize()
 	mCbvSrvDescriptorSize = md3dDevice->
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	mCamera->SetPosition(0.0f, 20.0f, -200.0f);
-
 	LoadTextures();
 	BuildRootSignature();
 	BuildDescriptorHeaps();
@@ -241,6 +239,71 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 			mIsWireframe = false;
 			mIsToonShading = true;
 			return(false);
+		case 'F':
+			int a = 5;
+			XMFLOAT3 position;
+			XMStoreFloat3(&position, XMLoadFloat3(&mPlayer->GetPosition()) + XMLoadFloat3(&mPlayer->GetLook()) * 100.f);
+			auto gameObject = std::make_unique<GameObject>("box", XMMatrixScaling(50.f, 50.f, 50.f) * XMMatrixTranslation(position.x, position.y + 130.f, position.z), XMMatrixIdentity());
+			gameObject->SetCBIndex(a);
+			gameObject->SetMesh(mMeshes["shapeGeo"].get());
+			gameObject->SetMaterial(mMaterials["tile0"].get());
+			gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
+
+			gameObject->SetFrameDirty();
+
+			mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gameObject.get());
+			mAllGameObjects.push_back(std::move(gameObject));
+
+
+			vector<vector<Vertex>> vertices;
+			vector<vector<UINT>> indices;
+			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"].get(), mMeshes["shapeGeo"].get()->mSubmeshes[0], XMFLOAT4(-0.2f, 0.7f, 0.3f, 0.1f), vertices, indices);
+
+			// 초기화 명령을 위해 명령목록을 재설정하다.
+			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+			for (int i = 0; i < numMeshes; i++)
+			{
+				const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
+				const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
+
+				auto geo = std::make_unique<Mesh>();
+				geo->mName = "slicingMesh" + to_string(i);
+
+				geo->CreateBlob(vertices[i], indices[i]);
+				geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
+
+				Submesh submesh;
+				submesh.name = "box";
+				submesh.baseVertex = 0;
+				submesh.baseIndex = 0;
+				submesh.numIndices = indices[i].size();
+				geo->mSubmeshes.push_back(submesh);
+
+				mMeshes[geo->mName] = std::move(geo);
+			}
+			// 초기화 명령 실행
+			ThrowIfFailed(mCommandList->Close());
+			ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+			mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+			// 초기화 명령들이 모두 처리되기 기다린다.
+			FlushCommandQueue();
+
+			for (int i = 0; i < 2; i++)
+			{
+				auto gameObject = std::make_unique<GameObject>("box", XMMatrixScaling(50.f, 50.f, 50.f) * XMMatrixTranslation(position.x + (i + 1) * 150.f, position.y + 130.f, position.z), XMMatrixIdentity());
+				gameObject->SetCBIndex(a);
+				string meshName = "slicingMesh" + to_string(i);
+				gameObject->SetMesh(mMeshes[meshName].get());
+				gameObject->SetMaterial(mMaterials["tile0"].get());
+				gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
+
+				gameObject->SetFrameDirty();
+
+				mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gameObject.get());
+				mAllGameObjects.push_back(std::move(gameObject));
+			}
+			break;
 		}
 		return(false);
 	}
@@ -278,7 +341,7 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
 
-			for (int i = 0; i < e->GetNumSubmeshes(); i++)
+			for (UINT i = 0; i < e->GetNumSubmeshes(); i++)
 			{
 				objConstants.MaterialIndex = e->GetMeterial(i)->MatCBIndex; 
 				currObjectCB->CopyData(e->GetObjCBIndex(i), objConstants);
@@ -604,7 +667,7 @@ void DummyApp::BuildShadersAndInputLayout()
 void DummyApp::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
-	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
 	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
 	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
 	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
@@ -692,14 +755,14 @@ void DummyApp::BuildShapeGeometry()
 		vertices[k].TexC = cylinder.Vertices[i].TexC;
 	}
 
-	std::vector<std::uint16_t> indices;
+	std::vector<UINT> indices;
 	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
 	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
 	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
 
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
 
 	auto geo = std::make_unique<Mesh>();
 	geo->mName = "shapeGeo";
@@ -718,7 +781,7 @@ void DummyApp::BuildShapeGeometry()
 
 	geo->mVertexByteStride = sizeof(Vertex);
 	geo->mVertexBufferByteSize = vbByteSize;
-	geo->mIndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->mIndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->mIndexBufferByteSize = ibByteSize;
 
 	geo->mSubmeshes.resize(4);
@@ -746,9 +809,9 @@ void DummyApp::LoadSkinnedModel()
 	UINT vcount = 0;
 	UINT tcount = 0;
 	std::vector<SkinnedVertex> vertices;
-	std::vector<std::uint32_t> indices;
-	uint32_t index;
-	uint32_t dindex = 0;
+	std::vector<UINT> indices;
+	UINT index;
+	UINT dindex = 0;
 
 	UINT numVertices = mSkinnedMesh.mPositions.size();
 	for (int j = 0; j < numVertices; j++)
@@ -790,29 +853,12 @@ void DummyApp::LoadSkinnedModel()
 
 	//
 	// Pack the indices of all the meshes into one index buffer.
-	//
-	const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(uint32_t);
 
-	auto geo = std::make_unique<Mesh>();
+	auto geo = std::make_unique<SkinnedMesh>();
 	geo->mName = "skullGeo";
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->mVertexBufferCPU));
-	CopyMemory(geo->mVertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->mIndexBufferCPU));
-	CopyMemory(geo->mIndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-	geo->mVertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->mVertexBufferUploader);
-
-	geo->mIndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->mIndexBufferUploader);
-
-	geo->mVertexByteStride = sizeof(SkinnedVertex);
-	geo->mVertexBufferByteSize = vbByteSize;
-	geo->mIndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->mIndexBufferByteSize = ibByteSize;
+	geo->CreateBlob(vertices, indices);
+	geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
 	Submesh submesh1 = mSkinnedMesh.mSubmeshes[0];
 	Submesh submesh2 = mSkinnedMesh.mSubmeshes[1];
@@ -842,7 +888,8 @@ void DummyApp::LoadTerrain()
 	auto geo = std::make_unique<Mesh>();
 	geo->mName = "terrain";
 
-	geo->UploadBuffer(md3dDevice, mCommandList, vertices, indices);
+	geo->CreateBlob(vertices, indices);
+	geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
 	geo->AddSubmesh("terrain", indices.size());
 	
@@ -950,12 +997,11 @@ void DummyApp::BuildFrameResources()
 	for (auto& gameObj : mAllGameObjects)
 		numObjCBs += gameObj.get()->GetNumSubmeshes();
 
-	// gNumFrameResources개의 FrameResources를 담는 mFrameResources 벡터를 생성한다.
 	for (int i = 0; i < gNumFrameResources; ++i)
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
 			1, 
-			numObjCBs,
+			numObjCBs + 10,
 			(UINT)mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].size(), // skinned obj
 			(UINT)mMaterials.size()));
 	}
@@ -1088,9 +1134,8 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(std::move(gridGameObject));
 
 	// ------------------------------------------
-	// Skinned objects
+	// Skinned objects - player
 	// ------------------------------------------
-	//XMMatrixRotationRollPitchYaw(3.1415f / 2, 0.0f, 0.0f);
 	auto SkinnedGameObject = std::make_unique<Player>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
 	SkinnedGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	SkinnedGameObject->SetMesh(mMeshes["skullGeo"].get());

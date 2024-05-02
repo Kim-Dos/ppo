@@ -1,6 +1,5 @@
 #pragma once
 
-#include "d3dUtil.h"
 #include "GameObject.h"
 #include "GameTimer.h"
 #include "Camera.h"

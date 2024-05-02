@@ -78,6 +78,9 @@
     <ClInclude Include="SkinnedMesh.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="MeshSlice.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -134,7 +137,7 @@
     <ClCompile Include="SkinnedMesh.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="test.cpp">
+    <ClCompile Include="MeshSlice.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>

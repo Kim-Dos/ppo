@@ -65,6 +65,51 @@ struct Vertex
     DirectX::XMFLOAT3 Pos;
     DirectX::XMFLOAT3 Normal;
     DirectX::XMFLOAT2 TexC;
+
+    // std::hash 템플릿 특수화
+    struct Hash
+    {
+        size_t operator()(const Vertex& v) const
+        {
+            size_t hash = 0;
+
+            // Pos 해시값 계산
+            hash_combine(hash, std::hash<float>()(v.Pos.x));
+            hash_combine(hash, std::hash<float>()(v.Pos.y));
+            hash_combine(hash, std::hash<float>()(v.Pos.z));
+
+            // Normal 해시값 계산
+            /*hash_combine(hash, std::hash<float>()(v.Normal.x));
+            hash_combine(hash, std::hash<float>()(v.Normal.y));
+            hash_combine(hash, std::hash<float>()(v.Normal.z));*/
+
+            // TexC 해시값 계산
+            /*hash_combine(hash, std::hash<float>()(v.TexC.x));
+            hash_combine(hash, std::hash<float>()(v.TexC.y));*/
+
+            return hash;
+        }
+
+    private:
+        // 해시 결합 함수
+        template <typename T>
+        static void hash_combine(size_t& seed, const T& val)
+        {
+            seed ^= std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+    };
+
+    bool operator==(const Vertex& other) const
+    {
+        return Pos.x == other.Pos.x &&
+            Pos.y == other.Pos.y &&
+            Pos.z == other.Pos.z &&
+            Normal.x == other.Normal.x &&
+            Normal.y == other.Normal.y &&
+            Normal.z == other.Normal.z &&
+            TexC.x == other.TexC.x &&
+            TexC.y == other.TexC.y;
+    }
 };
 
 struct SkinnedVertex

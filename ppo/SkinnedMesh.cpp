@@ -94,6 +94,35 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     }
 }
 
+void SkinnedMesh::CreateBlob(const vector<SkinnedVertex>& vertices, const vector<UINT>& indices)
+{
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &mVertexBufferCPU));
+    CopyMemory(mVertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &mIndexBufferCPU));
+    CopyMemory(mIndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+}
+
+void SkinnedMesh::UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, vector<SkinnedVertex> vertices, vector<UINT> indices)
+{
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
+
+    mVertexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        vertices.data(), vbByteSize, mVertexBufferUploader);
+
+    mIndexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        indices.data(), ibByteSize, mIndexBufferUploader);
+
+    mVertexByteStride = sizeof(SkinnedVertex);
+    mVertexBufferByteSize = vbByteSize;
+    mIndexFormat = DXGI_FORMAT_R32_UINT;
+    mIndexBufferByteSize = ibByteSize;
+}
+
 void SkinnedMesh::Clear()
 {
 }

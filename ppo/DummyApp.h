@@ -11,6 +11,7 @@
 #include "GameObject.h"
 #include "SkinnedMesh.h"
 #include "Player.h"
+#include "MeshSlice.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;

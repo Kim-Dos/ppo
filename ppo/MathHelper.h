@@ -216,6 +216,15 @@ namespace Vector3
 	{
 		return(TransformCoord(xmf3Vector, XMLoadFloat4x4(&xmmtx4x4Matrix)));
 	}
+
+	inline float DistanceBetweenPoints(const XMFLOAT3& point1, const XMFLOAT3& point2)
+	{
+		XMVECTOR vec1 = XMLoadFloat3(&point1);
+		XMVECTOR vec2 = XMLoadFloat3(&point2);
+		XMVECTOR diff = XMVectorSubtract(vec2, vec1);
+
+		return XMVectorGetX(XMVector3Length(diff));
+	}
 }
 
 namespace Vector4

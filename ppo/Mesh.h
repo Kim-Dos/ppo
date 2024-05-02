@@ -85,9 +85,9 @@ public:
 	void AddSubmesh(const string name, UINT numIndices,
 		UINT baseVertex = 0, UINT baseIndex = 0, UINT materialIndex = 0);
 
-	void UploadBuffer(Microsoft::WRL::ComPtr<ID3D12Device> d3dDevice, 
-		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList, 
-		vector<Vertex> vertices, vector<UINT> indices);
+	void CreateBlob(const vector<Vertex>& vertices, const vector<UINT>& indices);
+	void UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, vector<Vertex> vertices, vector<UINT> indices);
+
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const;
 	D3D12_INDEX_BUFFER_VIEW IndexBufferView()const;
 

@@ -110,6 +110,9 @@ public:
 
     void GetBoneTransforms(float animationTimeSec, vector<XMFLOAT4X4>& transforms, int animationIndex);
 
+    void CreateBlob(const vector<SkinnedVertex>& vertices, const vector<UINT>& indices);
+    void UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, const vector<SkinnedVertex> vertices, const vector<UINT> indices);
+
     vector<VertexBoneData> mBones;
 
     string rootNodeName;
