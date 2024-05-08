@@ -224,6 +224,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 	// 키보드 처리
 	case WM_KEYDOWN:
+	case WM_KEYUP:
 		OnKeyboardMessage(hwnd, msg, wParam, lParam);
 		if (wParam == VK_ESCAPE)
 		{

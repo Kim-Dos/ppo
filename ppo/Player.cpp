@@ -13,11 +13,19 @@ Player::Player() :
 
 void Player::ChangeState(PlayerState* nextState)
 {
-	if (nextState->ID() == mCurrentState->ID())
+	// nextState가 현재 상태와 동일할 경우 상태를 변경하지 않는다.
+	if (nextState->GetId() == mCurrentState->GetId()) {
+		if (nextState != nullptr)
+			delete nextState;
 		return;
+	}
 
-	if ((UINT)nextState->ID() < 0 || (UINT)nextState->ID() >= (UINT)StateId::Count)
+	// nextState의 id가 범위를 벗어날 경우 현재 상태를 유지한다.
+	if ((UINT)nextState->GetId() < 0 || (UINT)nextState->GetId() >= (UINT)StateId::Count) {
+		if (nextState != nullptr)
+			delete nextState;
 		return;
+	}
 
 	mCurrentState->Exit(*this);
 	delete mCurrentState;
@@ -41,21 +49,40 @@ Player::~Player()
 {
 	if (mCamera)
 		delete mCamera;
+
+	if (mCurrentState)
+		delete mCurrentState;
 }
 
 void Player::Update(const GameTimer& gt)
 {
 	float deltaTime = gt.DeltaTime();
 
+	mCurrentState->HandleInput(*this, mKeyInput);
+
+	mCurrentState->Update(*this, deltaTime);
+
+	Move(deltaTime);
+
+	// 카메라 이동
+	UpdateCamera();
+
+	mAnimationTime += deltaTime;
+
+	SetFrameDirty();
+}
+
+void Player::Move(const float deltaTime)
+{
 	// 추락
 	mVelocity.y -= mGravity * deltaTime;
 	float fallSpeed = sqrt(mVelocity.y * mVelocity.y);
-	if ((mVelocity.y * mVelocity.y) > (mMaxVelocityY * mMaxVelocityY) && mVelocity.y < 0) {
-		mVelocity.y = -mMaxVelocityY;
+	if ((mVelocity.y * mVelocity.y) > (mMaxVelocityFalling * mMaxVelocityFalling) && mVelocity.y < 0) {
+		mVelocity.y = -mMaxVelocityFalling;
 	}
 
 	// 최대 속도 제한
-	float maxVelocityXZ = mIsRun ? mMaxRunVelocityXZ : mMaxWalkVelocityXZ;
+	float maxVelocityXZ = (GetStateId() == StateId::Run) ? mMaxVelocityRun : mMaxVelocityWalk;
 	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
 	if (groundSpeed > maxVelocityXZ) {
 		mVelocity.x *= maxVelocityXZ / groundSpeed;
@@ -68,6 +95,7 @@ void Player::Update(const GameTimer& gt)
 	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
+	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition(), mVelocity));
 
 	if (GetPosition().y < 0) {
@@ -75,14 +103,11 @@ void Player::Update(const GameTimer& gt)
 		mVelocity.y = 0.0f;
 		mIsFalling = false;
 	}
+}
 
-	// 카메라 이동
-	UpdateCamera();
-	UpdateState(deltaTime);
-
-	mAnimationTime += deltaTime;
-
-	SetFrameDirty();
+void Player::HandleInput()
+{
+	mCurrentState->HandleInput(*this, mKeyInput);
 }
 
 void Player::UpdateCamera()
@@ -98,32 +123,9 @@ void Player::UpdateCamera()
 	mCamera->UpdateViewMatrix();
 }
 
-void Player::UpdateState(const float deltaTime)
-{
-	if (GetPosition().y > 0 && !mIsFalling) {
-		mIsFalling = true;
-		ChangeState(new PlayerStateFall);
-	}
-
-	if (!mIsFalling) {
-		float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
-		if (groundSpeed <= 0.1f) {
-			if (GetStateId() != (UINT)StateId::Land && GetStateId() != (UINT)StateId::Fall)
-				ChangeState(new PlayerStateIdle);
-		}
-		else if (groundSpeed > mMaxWalkVelocityXZ) {
-			ChangeState(new PlayerStateRun);
-		}
-		else {
-			ChangeState(new PlayerStateWalk);
-		}
-	}
-
-	mCurrentState->Update(*this, deltaTime);
-}
-
 void Player::KeyboardInput(float dt)
 {
+	/*
 	mIsRun = false;
 	if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
 		mIsRun = true;
@@ -136,6 +138,7 @@ void Player::KeyboardInput(float dt)
 		velocity = Vector3::ScalarProduct(mAcceleration, dt * 2, false);
 	else
 		velocity = Vector3::ScalarProduct(mAcceleration, dt, false);
+	
 
 	if (GetAsyncKeyState('W') & 0x8000)
 		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(GetLook(), velocity));
@@ -148,21 +151,62 @@ void Player::KeyboardInput(float dt)
 
 	if (GetAsyncKeyState('A') & 0x8000)
 		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(Vector3::ScalarProduct(GetRight(), -1), velocity));
+	*/
 }
 
-void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
+void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam) 
 {
 	switch (nMessageID)
 	{
 	case WM_KEYDOWN:
 		switch (wParam)
 		{
+		case 'W':
+			mKeyInput.isPressedW = true;
+			break;
+		case 'A':
+			mKeyInput.isPressedA = true;
+			break;
+		case 'S':
+			mKeyInput.isPressedS = true;
+			break;
+		case 'D':
+			mKeyInput.isPressedD = true;
+			break;
+		case 'F':
+			mKeyInput.isPressedF = true;
+			break;
+		case VK_SHIFT:
+			mKeyInput.isPressedShift = true;
+			break;
 		case VK_SPACE:
-			if (!mIsFalling) {
-				mVelocity.y += mJumpForce;
-				mIsFalling = true;
-				ChangeState(new PlayerStateJump);
-			}
+			mKeyInput.isPressedSpaceBar = true;
+			break;
+		}
+		break;
+	case WM_KEYUP:
+		switch (wParam)
+		{
+		case 'W':
+			mKeyInput.isPressedW = false;
+			break;
+		case 'A':
+			mKeyInput.isPressedA = false;
+			break;
+		case 'S':
+			mKeyInput.isPressedS = false;
+			break;
+		case 'D':
+			mKeyInput.isPressedD = false;
+			break;
+		case 'F':
+			mKeyInput.isPressedF = false;
+			break;
+		case VK_SHIFT:
+			mKeyInput.isPressedShift = false;
+			break;
+		case VK_SPACE:
+			mKeyInput.isPressedSpaceBar = false;
 			break;
 		}
 		break;
@@ -186,14 +230,61 @@ void Player::InitPlayer()
 	mCameraOffsetPosition = XMFLOAT3(0.0f, 100.0f, 0.0f);
 	UpdateCamera();
 
-	mAnimationIndex[0] = 0;
-	mAnimationIndex[1] = 0;
-	mAnimationIndex[2] = 1;
-	mAnimationIndex[3] = 2;
-	mAnimationIndex[4] = 3;
-	mAnimationIndex[5] = 4;
-	mAnimationIndex[6] = 5;
-
-	mCurrentState = new PlayerStateIdle;
+	mCurrentState = new IdlePlayerState;
 	mCurrentState->Enter(*this);
 }
+
+void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
+{
+	moveX = 0, moveY = 0;
+	// 이동 처리
+	if (keyInput.isPressedW) {
+		moveY++;
+	}
+	if (keyInput.isPressedS) {
+		moveY--;
+	}
+	if (keyInput.isPressedA) {
+		moveX--;
+	}
+	if (keyInput.isPressedD) {
+		moveX++;
+	}
+
+	if (moveX != 0 || moveY != 0) {
+		if (moveY == 1 && keyInput.isPressedShift) {
+			if (player.GetStateId() != StateId::Run) {
+				player.SetAnimationTime();
+				player.ChangeState(new RunPlayerState);
+			}
+		}
+		else {
+			if (player.GetStateId() != StateId::Walk) {
+				player.SetAnimationTime();
+				player.ChangeState(new WalkPlayerState);
+			}
+		}
+	}
+	else {
+		if (player.GetStateId() != StateId::Idle)
+			player.ChangeState(new IdlePlayerState);
+	}
+}
+
+void OnGroundPlayerState::Update(Player& player, const float deltaTime)
+{
+	float velocity;
+	if (player.GetStateId() == StateId::Run) {
+		velocity = 2 * player.GetAcc() * deltaTime;
+	}
+	else {
+		velocity = player.GetAcc() * deltaTime;
+	}
+
+	XMFLOAT3 movementDir;
+	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&player.GetLook()) * moveY) + (XMLoadFloat3(&player.GetRight()) * moveX)));
+
+	XMFLOAT3 newVelocity = Vector3::Add(player.GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
+	player.SetVelocity(newVelocity);
+}
+

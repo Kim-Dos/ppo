@@ -100,15 +100,17 @@ public:
     ~SkinnedMesh();
 
     bool LoadMesh(const std::string& Filename);
-    bool LoadAnimations(const std::string& Filename);
+    bool LoadAnimation(const std::string& Filename, const string animationName);
     void SetOffsetMatrix(XMFLOAT4X4 offsetMatrix) { mOffsetMatrix = offsetMatrix; }
+    void SetOffsetMatrix(XMFLOAT3 axis1, float degree1);
     void SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2);
 
     int NumBones() const { return (int)mBoneNameToIndexMap.size(); }
 
     //const Material& GetMaterial();
 
-    void GetBoneTransforms(float animationTimeSec, vector<XMFLOAT4X4>& transforms, int animationIndex);
+    void GetBoneTransforms(float animationTimeSec, vector<XMFLOAT4X4>& transforms, string animationName);
+    void GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& transforms, const vector<string> animationNames, float animationWeight, bool durationInterpolation);
 
     void CreateBlob(const vector<SkinnedVertex>& vertices, const vector<UINT>& indices);
     void UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, const vector<SkinnedVertex> vertices, const vector<UINT> indices);
@@ -122,14 +124,16 @@ public:
     vector<pair<string, vector<string>>> mNodeHierarchy;   // 부모는 자식의 인덱스를 가지고 있다. 루트는 0
     vector<BoneInfo> mBoneInfo;
 
-    vector<AnimationClip> mAnimations;
+    map<string, AnimationClip> mAnimations;
+    //vector<AnimationClip> mAnimations;
 private:
     void Clear();
 
     bool InitFromScene(const aiScene* pScene, const std::string& Filename);
 
     void InitAllMeshes(const aiScene* pScene);
-    void InitAllAnimations(const aiScene* pScene);
+    //void InitAllAnimations(const aiScene* pScene);
+    void InitAnimation(const aiScene* pScene, const string animationName);
     void InitSingleMesh(int MeshIndex, const aiMesh* paiMesh, int baseVertex, int baseIndex);
     bool InitMaterials(const aiScene* pScene, const std::string& Filename);
 
@@ -166,8 +170,9 @@ private:
     const aiNodeAnim* FindNodeAnim(const aiAnimation* pAnimation, const string& NodeName);
 
     //void ReadNodeHierarchy(float AnimationTimeTicks, const aiNode* pNode, const XMMATRIX& ParentTransform);
-    void ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const int animationId, const XMMATRIX& ParentTransform);
-    void ReadBoneHierarchy(float AnimationTimeTicks, const string boneName, const int animationId, const XMMATRIX& ParentTransform);
+    void ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const string animationName, const XMMATRIX& ParentTransform);
+    void ReadBoneHierarchy(float AnimationTimeTicks, const string boneName, const string animationName, const XMMATRIX& ParentTransform);
+    void ReadBoneHierarchy(float AnimationTimeTicks[2], const string name, const vector<string> animationNames, float animationWeight, const XMMATRIX& ParentTransform);
     
     XMFLOAT4X4 mOffsetMatrix = Matrix4x4::Identity();
 };

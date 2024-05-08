@@ -257,7 +257,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 
 			vector<vector<Vertex>> vertices;
 			vector<vector<UINT>> indices;
-			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"].get(), mMeshes["shapeGeo"].get()->mSubmeshes[0], XMFLOAT4(-0.2f, 0.7f, 0.3f, 0.1f), vertices, indices);
+			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"].get(), mMeshes["shapeGeo"].get()->mSubmeshes[0], XMFLOAT4(0.0f, 1.0f, 0.0f, 0.0f), vertices, indices);
 
 			// 초기화 명령을 위해 명령목록을 재설정하다.
 			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -305,7 +305,9 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 			}
 			break;
 		}
-		return(false);
+		break;
+	case WM_KEYUP:
+		break;
 	}
 
 	return(false);
@@ -358,7 +360,8 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 
 	std::vector<XMFLOAT4X4> boneTransforms;
-	mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationIndex());
+	//mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName());
+	mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName(), 0.5f, true);
 	SkinnedConstants skinnedConstants;
 
 	int numBones = boneTransforms.size();
@@ -366,12 +369,19 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	{
 		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
 	}
+
 	// 최소한 4개의 행렬을 초기화함
 	if (numBones < 4) {
 		for (int i = numBones; i < 4; i++)
 			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
 	}
 
+	/*
+	for (int i = 0; i < 96; i++)
+	{
+		skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+	}
+	*/
 	currSkinnedCB->CopyData(0, skinnedConstants);
 }
 
@@ -463,6 +473,7 @@ void DummyApp::LoadTextures()
 	std::vector<std::string> texNames =
 	{
 		"missing",
+		"vanguardDiffuse",
 		"bricksDiffuseMap",
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
@@ -473,6 +484,7 @@ void DummyApp::LoadTextures()
 	std::vector<std::wstring> texFilenames =
 	{
 		L"Textures/Character Texture.dds",
+		L"Textures/Vanguard/VanguardDiffuse.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
@@ -508,7 +520,7 @@ void DummyApp::BuildRootSignature()
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
-	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 1, 0);
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 6, 1, 0);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
@@ -553,7 +565,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 6;
+	srvHeapDesc.NumDescriptors = 7;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -564,6 +576,7 @@ void DummyApp::BuildDescriptorHeaps()
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	auto missingTex = mTextures["missing"]->Resource;
+	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
@@ -579,6 +592,13 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = missingTex->GetDesc().MipLevels;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
+
+	// 다음 서술자로 넘어간다.
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = vanguardTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = vanguardTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(vanguardTex.Get(), &srvDesc, hDescriptor);
 
 	// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
@@ -618,7 +638,7 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = skyTex->GetDesc().Format;
 	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
 
-	mSkyTexHeapIndex = 5;
+	mSkyTexHeapIndex = 6;
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -795,16 +815,28 @@ void DummyApp::BuildShapeGeometry()
 
 void DummyApp::LoadSkinnedModel()
 {
-	//mSkinnedMesh.LoadMesh("Models/model.dae");
+	mSkinnedMesh.SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+	mSkinnedMesh.LoadMesh("Models/Vanguard/Vanguard.fbx");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Idle.fbx", "Idle");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/WalkForward.fbx", "WalkForward");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/WalkBack.fbx", "WalkBack");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeRight1.fbx", "WalkRight1");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeRight2.fbx", "WalkRight2");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeLeft1.fbx", "WalkLeft1");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeLeft2.fbx", "WalkLeft2");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/RunForward.fbx", "RunForward");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Jump.fbx", "Jump");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Falling.fbx", "Falling");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Landing.fbx", "Landing");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 	
-	mSkinnedMesh.SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f, XMFLOAT3(1.0f, 0.0f, 0.0f), -90.f);
-	mSkinnedMesh.LoadMesh("Models/SKM_Quinn_Simple.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MF_Walk.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MF_Run.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MM_Jump.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MM_Fall.FBX");
-	mSkinnedMesh.LoadAnimations("Models/MM_Land.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MF_Walk.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MF_Run.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MM_Jump.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MM_Fall.FBX");
+	//mSkinnedMesh.LoadAnimations("Models/MM_Land.FBX");
 
 	UINT vcount = 0;
 	UINT tcount = 0;
@@ -883,7 +915,7 @@ void DummyApp::LoadTerrain()
 	std::vector<Vertex> vertices(vcount);
 	std::vector<uint32_t> indices(tcount);
 
-	mTerrain.CreateTerrain(4000.0f, 4000.f, vertices, indices);
+	mTerrain.CreateTerrain(10000.0f, 10000.f, vertices, indices);
 
 	auto geo = std::make_unique<Mesh>();
 	geo->mName = "terrain";
@@ -1018,11 +1050,19 @@ void DummyApp::BuildMaterials()
 	missing->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	missing->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	missing->Roughness = 1.0f;
+	
+	auto vanguard = std::make_unique<Material>();
+	vanguard->Name = "vanguardDiffuse";
+	vanguard->MatCBIndex = matCBIndex++;
+	vanguard->DiffuseSrvHeapIndex = 1;
+	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	vanguard->Roughness = 0.1f;
 
 	auto bricks0 = std::make_unique<Material>();
 	bricks0->Name = "bricks0";
 	bricks0->MatCBIndex = matCBIndex++;
-	bricks0->DiffuseSrvHeapIndex = 1;
+	bricks0->DiffuseSrvHeapIndex = 2;
 	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
@@ -1030,7 +1070,7 @@ void DummyApp::BuildMaterials()
 	auto stone0 = std::make_unique<Material>();
 	stone0->Name = "stone0";
 	stone0->MatCBIndex = matCBIndex++;
-	stone0->DiffuseSrvHeapIndex = 2;
+	stone0->DiffuseSrvHeapIndex = 3;
 	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
@@ -1038,7 +1078,7 @@ void DummyApp::BuildMaterials()
 	auto tile0 = std::make_unique<Material>();
 	tile0->Name = "tile0";
 	tile0->MatCBIndex = matCBIndex++;
-	tile0->DiffuseSrvHeapIndex = 3;
+	tile0->DiffuseSrvHeapIndex = 4;
 	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	tile0->Roughness = 0.3f;
@@ -1054,7 +1094,7 @@ void DummyApp::BuildMaterials()
 	auto terrainMat = std::make_unique<Material>();
 	terrainMat->Name = "terrainMat";
 	terrainMat->MatCBIndex = matCBIndex++;
-	terrainMat->DiffuseSrvHeapIndex = 4;
+	terrainMat->DiffuseSrvHeapIndex = 5;
 	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
 	terrainMat->Roughness = 0.05f;
@@ -1068,6 +1108,7 @@ void DummyApp::BuildMaterials()
 	sky->Roughness = 1.0f;
 
 	mMaterials["missing"] = std::move(missing);
+	mMaterials["vanguard"] = std::move(vanguard);
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
 	mMaterials["tile0"] = std::move(tile0);
@@ -1139,13 +1180,13 @@ void DummyApp::BuildGameObjects()
 	auto SkinnedGameObject = std::make_unique<Player>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
 	SkinnedGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	SkinnedGameObject->SetMesh(mMeshes["skullGeo"].get());
-	SkinnedGameObject->SetMaterials(2, { mMaterials["bricks0"].get(),  mMaterials["tile0"].get() });
+	SkinnedGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
 	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[0]);
 	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[1]);
 
 	mPlayer = SkinnedGameObject.get();
 	mCamera = mPlayer->GetCamera();
-	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
+	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 10000.f);
 
 	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject.get());
 	mAllGameObjects.push_back(std::move(SkinnedGameObject));
