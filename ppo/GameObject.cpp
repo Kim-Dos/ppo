@@ -75,6 +75,12 @@ void GameObject::AddSubmesh(const Submesh& submesh)
     ++mNumSubmeshes;
 }
 
+void GameObject::SetWorldMat(XMFLOAT4X4 world)
+{
+    mWorld = world;
+    SetFrameDirty();
+}
+
 void GameObject::SetPosition(float x, float y, float z)
 {
     mWorld._41 = x;

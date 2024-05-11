@@ -11,10 +11,10 @@ Player::Player() :
 	InitPlayer();
 }
 
-void Player::ChangeState(PlayerState* nextState)
+void Player::ChangeLowerState(PlayerState* nextState)
 {
 	// nextState가 현재 상태와 동일할 경우 상태를 변경하지 않는다.
-	if (nextState->GetId() == mCurrentState->GetId()) {
+	if (nextState->GetId() == mCurrentLowerState->GetId()) {
 		if (nextState != nullptr)
 			delete nextState;
 		return;
@@ -27,10 +27,32 @@ void Player::ChangeState(PlayerState* nextState)
 		return;
 	}
 
-	mCurrentState->Exit(*this);
-	delete mCurrentState;
-	mCurrentState = nextState;
-	mCurrentState->Enter(*this);
+	mCurrentLowerState->Exit(*this);
+	delete mCurrentLowerState;
+	mCurrentLowerState = nextState;
+	mCurrentLowerState->Enter(*this);
+}
+
+void Player::ChangeUpperState(PlayerState* nextState)
+{
+	// nextState가 현재 상태와 동일할 경우 상태를 변경하지 않는다.
+	if (nextState->GetId() == mCurrentUpperState->GetId()) {
+		if (nextState != nullptr)
+			delete nextState;
+		return;
+	}
+
+	// nextState의 id가 범위를 벗어날 경우 현재 상태를 유지한다.
+	if ((UINT)nextState->GetId() < 0 || (UINT)nextState->GetId() >= (UINT)StateId::Count) {
+		if (nextState != nullptr)
+			delete nextState;
+		return;
+	}
+
+	mCurrentUpperState->Exit(*this);
+	delete mCurrentUpperState;
+	mCurrentUpperState = nextState;
+	mCurrentUpperState->Enter(*this);
 }
 
 Player::Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : 
@@ -47,27 +69,42 @@ Player::Player(const string name, XMMATRIX world, XMMATRIX texTransform) :
 
 Player::~Player()
 {
-	if (mCamera)
+	if (mCamera) {
 		delete mCamera;
+		mCamera = nullptr;
+	}
 
-	if (mCurrentState)
-		delete mCurrentState;
+	if (mCurrentLowerState) {
+		delete mCurrentLowerState;
+		mCurrentLowerState = nullptr;
+	}
+		
+	if (mCurrentUpperState) {
+		delete mCurrentUpperState;
+		mCurrentUpperState = nullptr;
+	}
 }
 
 void Player::Update(const GameTimer& gt)
 {
 	float deltaTime = gt.DeltaTime();
 
-	mCurrentState->HandleInput(*this, mKeyInput);
+	HandleInput();
 
-	mCurrentState->Update(*this, deltaTime);
+	mCurrentLowerState->Update(*this, deltaTime);
+	mCurrentUpperState->Update(*this, deltaTime);
 
 	Move(deltaTime);
 
 	// 카메라 이동
 	UpdateCamera();
 
-	mAnimationTime += deltaTime;
+	if (mWeapon) {
+		XMFLOAT4X4 rightHandMat = dynamic_cast<SkinnedMesh*>(GetMesh())->GetRightHandMatrix();
+		XMFLOAT4X4 swordMat;
+		XMStoreFloat4x4(&swordMat, XMLoadFloat4x4(&mWeaponOffsetMat) * XMLoadFloat4x4(&rightHandMat) * XMLoadFloat4x4(&GetWorld()));
+		mWeapon->SetWorldMat(swordMat);
+	}
 
 	SetFrameDirty();
 }
@@ -81,14 +118,14 @@ void Player::Move(const float deltaTime)
 		mVelocity.y = -mMaxVelocityFalling;
 	}
 
-	// 최대 속도 제한
-	float maxVelocityXZ = (GetStateId() == StateId::Run) ? mMaxVelocityRun : mMaxVelocityWalk;
+	float maxVelocityXZ = (GetLowerStateId() == StateId::Run) ? mMaxVelocityRun : mMaxVelocityWalk;
 	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
 	if (groundSpeed > maxVelocityXZ) {
 		mVelocity.x *= maxVelocityXZ / groundSpeed;
 		mVelocity.z *= maxVelocityXZ / groundSpeed;
 	}
 
+	// 최대 속도 제한
 	// 마찰
 	XMFLOAT3 friction;
 	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltaTime);
@@ -96,7 +133,7 @@ void Player::Move(const float deltaTime)
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
 	// 위치 변환
-	SetPosition(Vector3::Add(GetPosition(), mVelocity));
+	SetPosition(Vector3::Add(GetPosition(), Vector3::ScalarProduct(mVelocity, deltaTime, false)));
 
 	if (GetPosition().y < 0) {
 		SetPosition(GetPosition().x, 0.0f, GetPosition().z);
@@ -105,9 +142,16 @@ void Player::Move(const float deltaTime)
 	}
 }
 
+void Player::Jump()
+{
+	mIsFalling = true;
+	mVelocity.y += mJumpForce;
+}
+
 void Player::HandleInput()
 {
-	mCurrentState->HandleInput(*this, mKeyInput);
+	mCurrentLowerState->HandleInput(*this, mKeyInput);
+	mCurrentUpperState->HandleInput(*this, mKeyInput);
 }
 
 void Player::UpdateCamera()
@@ -222,16 +266,35 @@ void Player::MouseInput(float dx, float dy)
 	mPitch = (mPitch < -maxPitchRaidan) ? -maxPitchRaidan : (maxPitchRaidan < mPitch) ? maxPitchRaidan : mPitch;
 }
 
+vector<string> Player::GetAnimationName()
+{
+	vector<string> lowerAnimationName = mCurrentLowerState->GetAnimationName();
+	vector<string> upperAnimationName = mCurrentUpperState->GetAnimationName();
+
+	if (upperAnimationName[0] == "Idle") {
+		return lowerAnimationName;
+	}
+	else {
+		return upperAnimationName;
+	}
+
+	return mCurrentLowerState->GetAnimationName();
+}
+
 void Player::InitPlayer()
 {
 	// Set Camera
 	mCamera = new Camera();
 
-	mCameraOffsetPosition = XMFLOAT3(0.0f, 100.0f, 0.0f);
+	mCameraOffsetPosition = XMFLOAT3(0.0f, 100.0f, 20.0f);
 	UpdateCamera();
 
-	mCurrentState = new IdlePlayerState;
-	mCurrentState->Enter(*this);
+	mCurrentLowerState = new IdlePlayerState;
+	mCurrentLowerState->Enter(*this);
+	mCurrentUpperState = new IdleAttackPlayerState;
+	mCurrentUpperState->Enter(*this);
+
+	XMStoreFloat4x4(&mWeaponOffsetMat, XMMatrixRotationRollPitchYaw(XMConvertToRadians(-10.0f), XMConvertToRadians(90.0f), XMConvertToRadians(0.0f)) * XMMatrixTranslation(-10.0f, 10.0f, -2.0f));
 }
 
 void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
@@ -251,30 +314,37 @@ void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
 		moveX++;
 	}
 
-	if (moveX != 0 || moveY != 0) {
+	if (keyInput.isPressedSpaceBar) {
+		if (!player.IsFalling() && player.GetLowerStateId() != StateId::Jump) {
+			player.ChangeLowerState(new JumpPlayerState);
+		}
+	}
+	else if (moveX != 0 || moveY != 0) {
 		if (moveY == 1 && keyInput.isPressedShift) {
-			if (player.GetStateId() != StateId::Run) {
-				player.SetAnimationTime();
-				player.ChangeState(new RunPlayerState);
+			if (player.GetLowerStateId() != StateId::Run) {
+				animationTime = 0.0f;
+				player.ChangeLowerState(new RunPlayerState);
 			}
 		}
 		else {
-			if (player.GetStateId() != StateId::Walk) {
-				player.SetAnimationTime();
-				player.ChangeState(new WalkPlayerState);
+			if (player.GetLowerStateId() != StateId::Walk) {
+				animationTime = 0.0f;
+				player.ChangeLowerState(new WalkPlayerState);
 			}
 		}
 	}
 	else {
-		if (player.GetStateId() != StateId::Idle)
-			player.ChangeState(new IdlePlayerState);
+		if (player.GetLowerStateId() != StateId::Idle && player.GetLowerStateId() != StateId::Land)
+			player.ChangeLowerState(new IdlePlayerState);
 	}
 }
 
 void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 {
+	PlayerState::Update(player, deltaTime);
+
 	float velocity;
-	if (player.GetStateId() == StateId::Run) {
+	if (player.GetLowerStateId() == StateId::Run) {
 		velocity = 2 * player.GetAcc() * deltaTime;
 	}
 	else {
@@ -288,3 +358,114 @@ void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 	player.SetVelocity(newVelocity);
 }
 
+void OnAirPlayerState::HandleInput(Player& player, KeyInput keyInput)
+{
+	moveX = 0, moveY = 0;
+	if (keyInput.isPressedW) {
+		moveY++;
+	}
+	if (keyInput.isPressedS) {
+		moveY--;
+	}
+	if (keyInput.isPressedA) {
+		moveX--;
+	}
+	if (keyInput.isPressedD) {
+		moveX++;
+	}
+}
+
+void OnAirPlayerState::Update(Player& player, const float deltaTime)
+{
+	PlayerState::Update(player, deltaTime);
+
+	float velocity = player.GetAcc() * deltaTime;
+
+	XMFLOAT3 movementDir;
+	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&player.GetLook()) * moveY) + (XMLoadFloat3(&player.GetRight()) * moveX)));
+
+	XMFLOAT3 newVelocity = Vector3::Add(player.GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
+	player.SetVelocity(newVelocity);
+
+	if (!player.IsFalling()) {
+		player.ChangeLowerState(new LandingPlayerState);
+	}
+}
+
+void JumpPlayerState::Update(Player& player, const float deltaTime)
+{
+	OnAirPlayerState::Update(player, deltaTime);
+
+	float animationDuration;
+	Mesh* mesh = dynamic_cast<SkinnedMesh*>(player.GetMesh());
+	if (mesh) {
+		animationDuration = mesh->GetAnimationDuration("Jump");
+	}
+	else {
+		animationDuration = 0.0f;
+	}
+
+	if (animationTime > animationDuration) {
+		animationTime = 0.0f;
+		player.ChangeLowerState(new FallingPlayerState);
+	}
+}
+
+void JumpPlayerState::Enter(Player& player)
+{
+	animationTime = 0.0f;
+	player.Jump();
+}
+
+void LandingPlayerState::Update(Player& player, const float deltaTime)
+{
+	OnGroundPlayerState::Update(player, deltaTime);
+
+	float animationDuration;
+	Mesh* mesh = dynamic_cast<SkinnedMesh*>(player.GetMesh());
+	if (mesh) {
+		animationDuration = mesh->GetAnimationDuration("Landing");
+	}
+	else {
+		animationDuration = 0.0f;
+	}
+
+	if (animationTime > animationDuration - 0.1f) {
+		animationTime = 0.0f;
+		player.ChangeLowerState(new IdlePlayerState);
+	}
+}
+
+void AttackPlayerState::HandleInput(Player& player, KeyInput keyInput)
+{
+	if (keyInput.isPressedF) {
+		if (player.GetUpperStateId() != StateId::MeleeAttack) {
+			animationTime = 0.0f;
+			player.ChangeUpperState(new MeleeAttackPlayerState);
+		}
+	}
+}
+
+void AttackPlayerState::Update(Player& player, const float deltaTime)
+{
+	PlayerState::Update(player, deltaTime);
+}
+
+void MeleeAttackPlayerState::Update(Player& player, const float deltaTime)
+{
+	AttackPlayerState::Update(player, deltaTime);
+
+	float animationDuration;
+	Mesh* mesh = dynamic_cast<SkinnedMesh*>(player.GetMesh());
+	if (mesh) {
+		animationDuration = mesh->GetAnimationDuration("MeleeAttack1");
+	}
+	else {
+		animationDuration = 0.0f;
+	}
+
+	if (animationTime > animationDuration - 0.1f) {
+		animationTime = 0.f;
+		player.ChangeUpperState(new IdleAttackPlayerState);
+	}
+}

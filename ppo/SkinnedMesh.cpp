@@ -68,16 +68,6 @@ bool SkinnedMesh::LoadAnimation(const std::string& Filename, const string animat
     return false;
 }
 
-void SkinnedMesh::SetOffsetMatrix(XMFLOAT3 axis1, float degree1)
-{
-    XMStoreFloat4x4(&mOffsetMatrix, XMMatrixRotationAxis(XMLoadFloat3(&axis1), XMConvertToRadians(degree1)));
-}
-
-void SkinnedMesh::SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2)
-{
-    XMStoreFloat4x4(&mOffsetMatrix, XMMatrixRotationAxis(XMLoadFloat3(&axis1), XMConvertToRadians(degree1)) * XMMatrixRotationAxis(XMLoadFloat3(&axis2), XMConvertToRadians(degree2)));
-}
-
 void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& transforms, string animationName)
 {
     if (mAnimations.empty())
@@ -89,7 +79,7 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     float timeInTicks = timeInSeconds * ticksPerSecond;
     float animationTimeTicks = fmod(timeInTicks, mAnimations[animationName].duration);
     
-    ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationName, XMLoadFloat4x4(&mOffsetMatrix));
+    ReadBoneHierarchy(animationTimeTicks, mRootNodeName, animationName, XMLoadFloat4x4(&mOffsetMatrix));
     transforms.resize(mBoneInfo.size());
 
     //mBoneInfo[GetBoneId("root")].FinalTransformation = Matrix4x4::Identity();
@@ -132,10 +122,82 @@ void SkinnedMesh::GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& tra
     }
     
 
-    ReadBoneHierarchy(animationTimeTicks, rootNodeName, animationNames, animationWeight, XMLoadFloat4x4(&mOffsetMatrix));
+    ReadBoneHierarchy(animationTimeTicks, mRootNodeName, animationNames, animationWeight, XMLoadFloat4x4(&mOffsetMatrix));
     transforms.resize(mBoneInfo.size());
 
     //mBoneInfo[GetBoneId("root")].FinalTransformation = Matrix4x4::Identity();
+
+    for (int i = 0; i < mBoneInfo.size(); i++) {
+        transforms[i] = mBoneInfo[i].FinalTransformation;
+    }
+}
+
+void SkinnedMesh::GetCombinationBoneTransforms(const float upperTimeInSeconds, const float lowerTimeInSeconds, vector<XMFLOAT4X4>& transforms,
+    const vector<string> upperAnimationNames, const vector<string> lowerAnimationNames)
+{
+    if (mAnimations.empty())
+        return;
+
+    int numUpperAnimations = upperAnimationNames.size();
+    int numLowerAnimations = lowerAnimationNames.size();
+
+    // 상체 애니매이션이 없다면?
+    if (numUpperAnimations == 0 || upperAnimationNames[0] == "Idle") {
+        if (numLowerAnimations == 0) {
+            return;
+        }
+        else if (numLowerAnimations == 1) {
+            GetBoneTransforms(lowerTimeInSeconds, transforms, lowerAnimationNames[0]);
+            return;
+        }
+        else {
+            GetBoneTransforms(lowerTimeInSeconds, transforms, lowerAnimationNames, 0.5f, true);
+            return;
+        }
+    }
+
+    XMMATRIX Identity = XMMatrixIdentity();
+
+    // Read LowerBoneAnimation
+    if (numLowerAnimations == 0) {
+        GetBoneTransforms(upperTimeInSeconds, transforms, upperAnimationNames[0]);
+        return;
+    }
+    else if (numLowerAnimations == 1) {
+        string animationName = lowerAnimationNames[0];
+        float ticksPerSecond = mAnimations[animationName].tickPerSecond;
+        float timeInTicks = lowerTimeInSeconds * ticksPerSecond;
+        float animationTimeTick = fmod(timeInTicks, mAnimations[animationName].duration);
+
+        ReadCombinedBoneHierarchy(animationTimeTick, mRootNodeName, animationName, XMLoadFloat4x4(&mOffsetMatrix), false);
+    }
+    else {
+        float dAnimationDuration = mAnimations[lowerAnimationNames[1]].duration / mAnimations[lowerAnimationNames[0]].duration;
+        float ticksPerSecond = mAnimations[lowerAnimationNames[0]].tickPerSecond;
+        float timeInTicks = lowerTimeInSeconds * ticksPerSecond;
+        float animationTimeTicks[2];
+        animationTimeTicks[0] = fmod(timeInTicks, mAnimations[lowerAnimationNames[0]].duration);
+        animationTimeTicks[1] = animationTimeTicks[0] * dAnimationDuration;
+
+        ReadCombinedBoneHierarchy(animationTimeTicks, mRootNodeName, lowerAnimationNames, 0.5, XMLoadFloat4x4(&mOffsetMatrix), false);
+    }
+
+    // Read UpperBoneAnimation
+    string animationName = upperAnimationNames[0];
+    float ticksPerSecond = mAnimations[animationName].tickPerSecond;
+    float timeInTicks = upperTimeInSeconds * ticksPerSecond;
+    float animationTimeTick = fmod(timeInTicks, mAnimations[animationName].duration);
+    /*
+    int nodeId = GetNodeId("mixamorig:Hips");
+    int numChildren = mNodeHierarchy[nodeId].second.size();
+    for (int i = 0; i < numChildren; i++)
+        if (mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") != string::npos)
+            ReadBoneHierarchy(animationTimeTick, mNodeHierarchy[nodeId].second[i], animationName, XMLoadFloat4x4(&mHipsMatrix));
+    */
+    ReadCombinedBoneHierarchy(animationTimeTick, mRootNodeName, animationName, XMLoadFloat4x4(&mOffsetMatrix), true);
+
+    // 애니메이션 적재
+    transforms.resize(mBoneInfo.size());
 
     for (int i = 0; i < mBoneInfo.size(); i++) {
         transforms[i] = mBoneInfo[i].FinalTransformation;
@@ -171,8 +233,20 @@ void SkinnedMesh::UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandLis
     mIndexBufferByteSize = ibByteSize;
 }
 
+float SkinnedMesh::GetAnimationDuration(const string animationName)
+{
+    if (mAnimations.find(animationName) == mAnimations.end()) {
+        return 0.f;
+    }
+
+    float duration = mAnimations[animationName].duration / mAnimations[animationName].tickPerSecond;
+
+    return duration;
+}
+
 void SkinnedMesh::Clear()
 {
+
 }
 
 bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filename)
@@ -181,7 +255,7 @@ bool SkinnedMesh::InitFromScene(const aiScene* pScene, const std::string& Filena
     //mSubmeshes.resize(numSubmeshes);
     //m_Materials.resize(pScene->mNumMaterials);
 
-    rootNodeName = pScene->mRootNode->mName.C_Str();
+    mRootNodeName = pScene->mRootNode->mName.C_Str();
 
     // 모든 정점과 인덱스 개수 구하기
     unsigned int NumVertices = 0;
@@ -990,6 +1064,8 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const string name,
     // 애니메이션에 등록되지 않은 노드일 경우
     if (mAnimations[animationName].boneAnimations.find(nodeName) == mAnimations[animationName].boneAnimations.end()) {
         // 캐릭터에 본은 존재하지만 애니메이션에 해당 본의 위치가 저장되지 않는 경우 부모 노드를 따라간다.
+        if (nodeName == "mixamorig:RightHand")
+            XMStoreFloat4x4(&mRightHandMatrix, ParentTransform);
         if (GetBoneId(nodeName) != -1) {
             int BoneIndex = mBoneNameToIndexMap[nodeName];
             XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * ParentTransform;
@@ -1016,6 +1092,8 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks, const string name,
     GlobalTransformation = NodeTransformation * ParentTransform;
 
     // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
+    if (nodeName == "mixamorig:RightHand")
+        XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
     if (GetBoneId(nodeName) != -1) {
         int BoneIndex = mBoneNameToIndexMap[nodeName];
         XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
@@ -1044,6 +1122,8 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks[2], const string na
     // 애니메이션에 등록되지 않은 노드일 경우
     if (mAnimations[animationNames[0]].boneAnimations.find(nodeName) == mAnimations[animationNames[0]].boneAnimations.end()) {
         // 캐릭터에 본은 존재하지만 애니메이션에 해당 본의 위치가 저장되지 않는 경우 부모 노드를 따라간다.
+        if (nodeName == "mixamorig:RightHand")
+            XMStoreFloat4x4(&mRightHandMatrix, ParentTransform);
         if (GetBoneId(nodeName) != -1) {
             int BoneIndex = mBoneNameToIndexMap[nodeName];
             XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * ParentTransform;
@@ -1080,6 +1160,8 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks[2], const string na
     GlobalTransformation = NodeTransformation * ParentTransform;
 
     // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
+    if (nodeName == "mixamorig:RightHand")
+        XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
     if (GetBoneId(nodeName) != -1) {
         int BoneIndex = mBoneNameToIndexMap[nodeName];
         XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
@@ -1091,3 +1173,189 @@ void SkinnedMesh::ReadBoneHierarchy(float AnimationTimeTicks[2], const string na
         ReadBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation);
     }
 }
+
+void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks, const string name, const string animationName, const XMMATRIX& ParentTransform, bool isUpper)
+{
+    string nodeName = name;
+    bool isTargetNode = false;
+    if (nodeName == "mixamorig:Hips")
+        isTargetNode = true;
+    int nodeId = GetNodeId(nodeName);
+    int numChildren = mNodeHierarchy[nodeId].second.size();
+
+    // 루트 모션을 사용하지 않을 경우
+    if (!mAnimations[animationName].enableRootMotion && nodeName == "root") {
+        for (int i = 0; i < numChildren; i++)
+            ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, ParentTransform, isUpper);
+        return;
+    }
+
+    // 애니메이션에 등록되지 않은 노드일 경우
+    if (mAnimations[animationName].boneAnimations.find(nodeName) == mAnimations[animationName].boneAnimations.end()) {
+        // 캐릭터에 본은 존재하지만 애니메이션에 해당 본의 위치가 저장되지 않는 경우 부모 노드를 따라간다.
+        if (GetBoneId(nodeName) != -1) {
+            int BoneIndex = mBoneNameToIndexMap[nodeName];
+            XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * ParentTransform;
+            XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
+        }
+        if (nodeName == "mixamorig:RightHand") 
+            XMStoreFloat4x4(&mRightHandMatrix, ParentTransform);
+
+        if (isTargetNode) {
+            XMStoreFloat4x4(&mHipsMatrix, ParentTransform);
+            for (int i = 0; i < numChildren; i++)
+            {
+                if (isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") != string::npos)
+                    ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, ParentTransform, isUpper);
+                else if (!isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") == string::npos)
+                    ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, ParentTransform, isUpper);
+            }
+        }
+        else {
+            for (int i = 0; i < numChildren; i++)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, ParentTransform, isUpper);
+        }
+        return;
+    }
+
+    XMMATRIX GlobalTransformation = XMMatrixIdentity();
+    XMMATRIX NodeTransformation = XMMatrixIdentity();
+
+    BoneAnimation boneAnimation = mAnimations[animationName].boneAnimations[nodeName];
+
+    // 애니매이션 시간을 이용해 변환을 보간한다
+    XMVECTOR scaling = CalcInterpolatedScaling(AnimationTimeTicks, boneAnimation);
+    XMVECTOR rotationQuat = CalcInterpolatedRotation(AnimationTimeTicks, boneAnimation);
+    XMVECTOR translation = CalcInterpolatedPosition(AnimationTimeTicks, boneAnimation);
+
+    // Combine the above transformations
+    NodeTransformation = XMMatrixAffineTransformation(scaling, XMQuaternionIdentity(), rotationQuat, translation);
+
+    GlobalTransformation = NodeTransformation * ParentTransform;
+
+    // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
+    if (GetBoneId(nodeName) != -1) {
+        int BoneIndex = mBoneNameToIndexMap[nodeName];
+        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
+        XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
+    }
+
+    // 모든 자식 노드에 대해 재귀 호출
+    if (nodeName == "mixamorig:RightHand") 
+        XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
+    if (isTargetNode) {
+        XMStoreFloat4x4(&mHipsMatrix, GlobalTransformation);
+        for (int i = 0; i < numChildren; i++)
+        {
+            if (isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") != string::npos)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, GlobalTransformation, isUpper);
+            else if (!isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") == string::npos)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, GlobalTransformation, isUpper);
+        }
+    }
+    else {
+        for (int i = 0; i < numChildren; i++)
+            ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationName, GlobalTransformation, isUpper);
+    }
+}
+
+void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks[2], const string name, const vector<string> animationNames, float animationWeight, const XMMATRIX& ParentTransform, bool isUpper)
+{
+    string nodeName = name;
+    bool isTargetNode = false;
+    if (nodeName == "mixamorig:Hips")
+        isTargetNode = true;
+
+    int nodeId = GetNodeId(nodeName);
+    int numChildren = mNodeHierarchy[nodeId].second.size();
+
+    // 루트 모션을 사용하지 않을 경우
+    if (mAnimations[animationNames[0]].enableRootMotion && nodeName == "root") {
+        for (int i = 0; i < numChildren; i++)
+            ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, ParentTransform, isUpper);
+        return;
+    }
+
+    // 애니메이션에 등록되지 않은 노드일 경우
+    if (mAnimations[animationNames[0]].boneAnimations.find(nodeName) == mAnimations[animationNames[0]].boneAnimations.end()) {
+        // 캐릭터에 본은 존재하지만 애니메이션에 해당 본의 위치가 저장되지 않는 경우 부모 노드를 따라간다.
+        if (GetBoneId(nodeName) != -1) {
+            int BoneIndex = mBoneNameToIndexMap[nodeName];
+            XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * ParentTransform;
+            XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
+        }
+        if (nodeName == "mixamorig:RightHand") XMStoreFloat4x4(&mRightHandMatrix, ParentTransform);
+        if (isTargetNode) {
+            XMStoreFloat4x4(&mHipsMatrix, ParentTransform);
+            for (int i = 0; i < numChildren; i++)
+            {
+                if (isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") != string::npos)
+                    ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, ParentTransform, isUpper);
+                else if (!isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") == string::npos)
+                    ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, ParentTransform, isUpper);
+            }
+        }
+        else {
+            for (int i = 0; i < numChildren; i++)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, ParentTransform, isUpper);
+        }
+        return;
+    }
+
+    XMMATRIX GlobalTransformation = XMMatrixIdentity();
+    XMMATRIX NodeTransformation = XMMatrixIdentity();
+
+    XMVECTOR scaling[2];
+    XMVECTOR rotationQuat[2];
+    XMVECTOR translation[2];
+    for (int i = 0; i < 2; i++)
+    {
+        BoneAnimation boneAnimation = mAnimations[animationNames[i]].boneAnimations[nodeName];
+
+        // 애니매이션 시간을 이용해 변환을 보간한다
+        scaling[i] = CalcInterpolatedScaling(AnimationTimeTicks[i], boneAnimation);
+        rotationQuat[i] = CalcInterpolatedRotation(AnimationTimeTicks[i], boneAnimation);
+        translation[i] = CalcInterpolatedPosition(AnimationTimeTicks[i], boneAnimation);
+    }
+
+    // 2개의 애니메이션 보간
+    XMVECTOR finalScaling = XMVectorLerp(scaling[0], scaling[1], animationWeight);
+    XMVECTOR finalRotationQuat = XMQuaternionSlerp(rotationQuat[0], rotationQuat[1], animationWeight);
+    XMVECTOR finalTranslation = XMVectorLerp(translation[0], translation[1], animationWeight);
+
+    NodeTransformation = XMMatrixAffineTransformation(finalScaling, XMQuaternionIdentity(), finalRotationQuat, finalTranslation);
+
+    GlobalTransformation = NodeTransformation * ParentTransform;
+
+    // node가 bone에 저장되어있다면 finalTransformation을 저장한다.
+    if (GetBoneId(nodeName) != -1) {
+        int BoneIndex = mBoneNameToIndexMap[nodeName];
+        XMMATRIX finalTransformation = XMLoadFloat4x4(&mBoneInfo[BoneIndex].OffsetMatrix) * GlobalTransformation;
+        XMStoreFloat4x4(&mBoneInfo[BoneIndex].FinalTransformation, XMMatrixTranspose(finalTransformation));
+    }
+
+    if (nodeName == "mixamorig:RightHand") XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
+    // 모든 자식 노드에 대해 재귀 호출
+    if (isTargetNode) {
+        XMStoreFloat4x4(&mHipsMatrix, GlobalTransformation);
+        for (int i = 0; i < numChildren; i++)
+        {
+            if (isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") != string::npos)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation, isUpper);
+            else if (!isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") == string::npos)
+                ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation, isUpper);
+        }
+           
+    }
+    else {
+        for (int i = 0; i < numChildren; i++)
+            ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation, isUpper);
+    }
+}
+
+/*
+mixamorig:RightUpLeg
+mixamorig:LeftUpLeg
+mixamorig:Hips
+
+*/

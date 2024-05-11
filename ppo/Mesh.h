@@ -1,4 +1,8 @@
 #pragma once
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <assimp\cimport.h>
 #include "d3dUtil.h"
 #include "FrameResource.h"
 
@@ -37,7 +41,10 @@ class Mesh
 {
 public:
 	Mesh();
-	~Mesh();
+	virtual ~Mesh();
+
+	virtual bool LoadMesh(const std::string& Filename);
+	virtual void Clear();
 
 	// 메시를 이름으로 조회
 	string mName;
@@ -79,7 +86,9 @@ public:
 	// 한 Mesh 인스터스의 한 정점/색인 버퍼에 여러개의 기하구조를 담을 수 있다.
 	// 부분 메시들을 개별적으로 그릴 수 있도록, submesh를 컨테이너에 담아둔다.
 	vector<Submesh> mSubmeshes;
-public:
+
+	virtual float GetAnimationDuration(const string animationName) { return 0.0f; }
+
 	Submesh GetSubmesh(string name);
 
 	void AddSubmesh(const string name, UINT numIndices,
@@ -93,5 +102,16 @@ public:
 
 	void DisposeUploaders();
 
-	//void LoadMeshFromFile(ID3D12Device* device, ID3D12GraphicsCommandList* commandList, FILE* file);
+	string mRootNodeName;
+
+	void SetOffsetMatrix(XMFLOAT4X4 offsetMatrix) { mOffsetMatrix = offsetMatrix; }
+	void SetOffsetMatrix(XMFLOAT3 axis1, float degree1);
+	void SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2);
+	XMFLOAT4X4 GetOffsetMatrix() { return mOffsetMatrix; }
+protected:
+	virtual bool InitFromScene(const aiScene* pScene, const std::string& Filename);
+	virtual void InitAllMeshes(const aiScene* pScene);
+	virtual void InitSingleMesh(int MeshIndex, const aiMesh* paiMesh, int baseVertex, int baseIndex);
+
+	XMFLOAT4X4 mOffsetMatrix;
 };

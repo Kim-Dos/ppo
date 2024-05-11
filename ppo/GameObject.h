@@ -87,6 +87,7 @@ public:
 	UINT GetNumSubmeshes() { return mNumSubmeshes; }
 
 	void AddSubmesh(const Submesh& submesh);
+	void SetWorldMat(XMFLOAT4X4 world);
 	void SetPosition(float x, float y, float z);
 	void SetPosition(XMFLOAT3 position);
 	void SetScale(float x, float y, float z);

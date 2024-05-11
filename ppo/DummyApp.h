@@ -62,13 +62,16 @@ private:
 	void BuildDescriptorHeaps();
 	void BuildShadersAndInputLayout();
 	void BuildShapeGeometry();
-	void LoadSkinnedModel();
+	void LoadSkinnedMesh();
+	void LoadMeshes();
 	void LoadTerrain();
 	void BuildPSOs();
 	void BuildFrameResources();
 	void BuildMaterials();
 	void BuildGameObjects();
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
+
+	void ReleseMemory();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -85,7 +88,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
 	Terrain mTerrain;
-	std::unordered_map<std::string, std::unique_ptr<Mesh>> mMeshes;
+	std::unordered_map<std::string, Mesh*> mMeshes;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
@@ -96,7 +99,7 @@ private:
 
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	std::vector<std::unique_ptr<GameObject>> mAllGameObjects;
+	std::vector<GameObject*> mAllGameObjects;
 
 	//std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 	std::vector<GameObject*> mGameObjectLayer[(int)RenderLayer::Count];
@@ -106,7 +109,7 @@ private:
 	bool mIsWireframe = false;
 	bool mIsToonShading = false;
 
-	SkinnedMesh mSkinnedMesh;
+	SkinnedMesh* mSkinnedMesh;
 
 	Player* mPlayer = nullptr;
 

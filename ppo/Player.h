@@ -2,6 +2,7 @@
 
 #include "Camera.h"
 #include "GameObject.h"
+#include "SkinnedMesh.h"
 #include <map>
 
 #define MAX_PLAYER_CAMERA_PITCH 85.0f
@@ -35,8 +36,7 @@ enum class StateId : UINT
 	Jump,
 	Fall,
 	Land,
-	Attack1,
-	Attack2,
+	MeleeAttack,
 	Count
 };
 
@@ -48,13 +48,15 @@ public:
 
 	virtual void HandleInput(Player& player, KeyInput input) {}
 	virtual void Enter(Player& player) {}
-	virtual void Update(Player& player, const float deltaTime) {}
+	virtual void Update(Player& player, const float deltaTime) { animationTime += deltaTime; }
 	virtual void Exit(Player& player) {}
 	virtual vector<string> GetAnimationName() = 0;
 
 	StateId GetId() { return id; }
+	float GetAnimationTime() { return animationTime; }
 protected:
 	StateId id;
+	float animationTime = 0.f;
 };
 
 class Player : public GameObject
@@ -68,6 +70,7 @@ public:
 	virtual void Update(const GameTimer& gt);
 	void HandleInput();
 	void Move(const float deltaTime);
+	void Jump();
 	void UpdateCamera();
 
 	void KeyboardInput(float dt);
@@ -76,47 +79,63 @@ public:
 
 	Camera* GetCamera() { return mCamera; }
 
-	void ChangeState(PlayerState* nextState);
-	StateId GetStateId() { return mCurrentState->GetId(); }
+	void ChangeUpperState(PlayerState* nextState);
+	void ChangeLowerState(PlayerState* nextState);
+	StateId GetLowerStateId() { return mCurrentLowerState->GetId(); }
+	StateId GetUpperStateId() { return mCurrentUpperState->GetId(); }
 
-	void SetAnimationTime() { mAnimationTime = 0.0f; }
-	float GetAnimationTime() { return mAnimationTime; }
-	vector<string> GetAnimationName() { return mCurrentState->GetAnimationName(); }
-
+	float GetUpperAnimationTime() { return mCurrentUpperState->GetAnimationTime(); }
+	float GetLowerAnimationTime() { return mCurrentLowerState->GetAnimationTime(); }
+	vector<string> GetAnimationName();
+	vector<string> GetUpperAnimationName() { return mCurrentUpperState->GetAnimationName(); }
+	vector<string> GetLowerAnimationName() { return mCurrentLowerState->GetAnimationName(); }
 	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
 	XMFLOAT3 GetVelocity() { return mVelocity; }
 	float GetAcc() { return mAcceleration; }
 
 	bool IsFalling() { return mIsFalling; }
 
-	const float mMaxVelocityWalk = 1.8f;
-	const float mMaxVelocityRun = 6.0f;
-	const float mMaxVelocityFalling = 10.0f;
+	void SetWeapon(GameObject* weapon) { mWeapon = weapon; }
+	GameObject* GetWeapon() { return mWeapon; }
+
+	const float mMaxVelocityWalk = 120.0f;
+	const float mMaxVelocityRun = 300.0f;
+	const float mMaxVelocityFalling = 100.0f;
 private:
 	void InitPlayer();
 
 	float mPitch = 0.0f;
 	
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	float mAcceleration = 30.0f;
+	float mAcceleration = 1000.0f;
 
-	float mJumpForce = 10.0f;
-	float mGravity = 10.0f;
+	float mJumpForce = 38.0f;
+	float mGravity = 98.0f;
 	bool mIsFalling = false;
 	bool mIsAttack = false;
-	float mFriction = 10.0f;
+	float mFriction = 450.0f;
 
 	Camera* mCamera = nullptr;
 	XMFLOAT3 mCameraOffsetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
 
-	float mAnimationTime = 0.0f;
-
 	KeyInput mKeyInput;
 
-	PlayerState* mCurrentState = nullptr;
+	PlayerState* mCurrentLowerState = nullptr;
+	PlayerState* mCurrentUpperState = nullptr;
+
+	GameObject* mWeapon = nullptr;
+	XMFLOAT4X4 mWeaponOffsetMat = Matrix4x4::Identity();
 };
 
 class OnGroundPlayerState : public PlayerState {
+public:
+	virtual void HandleInput(Player& player, KeyInput keyInput);
+	virtual void Update(Player& player, const float deltaTime);
+protected:
+	int moveX = 0, moveY = 0;
+};
+
+class OnAirPlayerState : public PlayerState {
 public:
 	virtual void HandleInput(Player& player, KeyInput keyInput);
 	virtual void Update(Player& player, const float deltaTime);
@@ -190,6 +209,55 @@ public:
 		return animationNames;
 	}
 };
+
+class JumpPlayerState : public OnAirPlayerState
+{
+public:
+	JumpPlayerState() { id = StateId::Jump; }
+	virtual void Enter(Player& player);
+	virtual vector<string> GetAnimationName() { return vector<string>{"Jump"}; }
+	virtual void Update(Player& player, const float deltaTime);
+};
+
+class FallingPlayerState : public OnAirPlayerState
+{
+public:
+	FallingPlayerState() { id = StateId::Fall; }
+	virtual void Enter(Player& player) { animationTime = 0.f; }
+	virtual vector<string> GetAnimationName() { return vector<string>{"Falling"}; }
+};
+
+class LandingPlayerState : public OnGroundPlayerState
+{
+public:
+	LandingPlayerState() { id = StateId::Land; }
+	virtual void Enter(Player& player) { animationTime = 0.f; }
+	virtual vector<string> GetAnimationName() { return vector<string>{"Landing"}; }
+	virtual void Update(Player& player, const float deltaTime);
+};
+
+class AttackPlayerState : public PlayerState
+{
+public:
+	virtual void HandleInput(Player& player, KeyInput keyInput);
+	virtual void Update(Player& player, const float deltaTime);
+};
+
+class IdleAttackPlayerState : public AttackPlayerState
+{
+public:
+	IdleAttackPlayerState() { id = StateId::Idle; }
+	virtual vector<string> GetAnimationName() { return vector<string>{"Idle"}; }
+};
+
+class MeleeAttackPlayerState : public AttackPlayerState
+{
+public:
+	MeleeAttackPlayerState() { id = StateId::MeleeAttack; }
+	virtual void Update(Player& player, const float deltaTime);
+	virtual vector<string> GetAnimationName() { return vector<string>{"MeleeAttack1"}; }
+};
+
 
 /*
 class PlayerStateIdle : public PlayerState

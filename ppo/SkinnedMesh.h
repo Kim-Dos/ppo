@@ -97,13 +97,10 @@ class SkinnedMesh : public Mesh
 {
 public:
     SkinnedMesh() {};
-    ~SkinnedMesh();
+    ~SkinnedMesh() override;
 
     bool LoadMesh(const std::string& Filename);
     bool LoadAnimation(const std::string& Filename, const string animationName);
-    void SetOffsetMatrix(XMFLOAT4X4 offsetMatrix) { mOffsetMatrix = offsetMatrix; }
-    void SetOffsetMatrix(XMFLOAT3 axis1, float degree1);
-    void SetOffsetMatrix(XMFLOAT3 axis1, float degree1, XMFLOAT3 axis2, float degree2);
 
     int NumBones() const { return (int)mBoneNameToIndexMap.size(); }
 
@@ -111,13 +108,14 @@ public:
 
     void GetBoneTransforms(float animationTimeSec, vector<XMFLOAT4X4>& transforms, string animationName);
     void GetBoneTransforms(float timeInSeconds, vector<XMFLOAT4X4>& transforms, const vector<string> animationNames, float animationWeight, bool durationInterpolation);
+    void GetCombinationBoneTransforms(const float upperTimeInSeconds, const float lowerTimeInSeconds, vector<XMFLOAT4X4>& transforms,
+        const vector<string> upperAnimationNames, const vector<string> lowerAnimationNames);
 
     void CreateBlob(const vector<SkinnedVertex>& vertices, const vector<UINT>& indices);
     void UploadBuffer(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, const vector<SkinnedVertex> vertices, const vector<UINT> indices);
 
     vector<VertexBoneData> mBones;
 
-    string rootNodeName;
     map<string, int> mBoneNameToIndexMap;
     map<string, int> mNodeNameToIndexMap;
     vector<pair<string, vector<int>>> mBoneHierarchy;   // 부모는 자식의 인덱스를 가지고 있다. 루트는 0
@@ -125,9 +123,12 @@ public:
     vector<BoneInfo> mBoneInfo;
 
     map<string, AnimationClip> mAnimations;
-    //vector<AnimationClip> mAnimations;
+
+    virtual float GetAnimationDuration(const string animationName) override;
+
+    XMFLOAT4X4 GetRightHandMatrix() { return mRightHandMatrix; }
 private:
-    void Clear();
+    virtual void Clear();
 
     bool InitFromScene(const aiScene* pScene, const std::string& Filename);
 
@@ -173,7 +174,11 @@ private:
     void ReadBoneHierarchy(float AnimationTimeTicks, const int boneId, const string animationName, const XMMATRIX& ParentTransform);
     void ReadBoneHierarchy(float AnimationTimeTicks, const string boneName, const string animationName, const XMMATRIX& ParentTransform);
     void ReadBoneHierarchy(float AnimationTimeTicks[2], const string name, const vector<string> animationNames, float animationWeight, const XMMATRIX& ParentTransform);
+    void ReadCombinedBoneHierarchy(float AnimationTimeTicks, const string name, const string animationName, const XMMATRIX& ParentTransform, bool isUpper);
+    void ReadCombinedBoneHierarchy(float AnimationTimeTicks[2], const string name, const vector<string> AnimationNames, float animationWeight, const XMMATRIX& ParentTransform, bool isUpper);
+
+    XMFLOAT4X4 mHipsMatrix = Matrix4x4::Identity();
+    XMFLOAT4X4 mRightHandMatrix = Matrix4x4::Identity();
     
-    XMFLOAT4X4 mOffsetMatrix = Matrix4x4::Identity();
 };
 

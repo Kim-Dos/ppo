@@ -12,6 +12,8 @@ DummyApp::~DummyApp()
 {
 	if (md3dDevice != nullptr)
 		FlushCommandQueue();
+
+	ReleseMemory();
 }
 
 bool DummyApp::Initialize()
@@ -31,7 +33,7 @@ bool DummyApp::Initialize()
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
-	LoadSkinnedModel();
+	LoadMeshes();
 	LoadTerrain();
 	BuildMaterials();
 	BuildGameObjects();
@@ -240,6 +242,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 			mIsToonShading = true;
 			return(false);
 		case 'F':
+			/*
 			int a = 5;
 			XMFLOAT3 position;
 			XMStoreFloat3(&position, XMLoadFloat3(&mPlayer->GetPosition()) + XMLoadFloat3(&mPlayer->GetLook()) * 100.f);
@@ -303,6 +306,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 				mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gameObject.get());
 				mAllGameObjects.push_back(std::move(gameObject));
 			}
+			*/
 			break;
 		}
 		break;
@@ -361,7 +365,9 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 
 	std::vector<XMFLOAT4X4> boneTransforms;
 	//mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName());
-	mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName(), 0.5f, true);
+	//mSkinnedMesh->GetBoneTransforms(mPlayer->GetLowerAnimationTime(), boneTransforms, mPlayer->GetAnimationName(), 0.5f, true);
+	mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(), 
+		boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
 	SkinnedConstants skinnedConstants;
 
 	int numBones = boneTransforms.size();
@@ -474,6 +480,7 @@ void DummyApp::LoadTextures()
 	{
 		"missing",
 		"vanguardDiffuse",
+		"swordDiffuse",
 		"bricksDiffuseMap",
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
@@ -485,6 +492,7 @@ void DummyApp::LoadTextures()
 	{
 		L"Textures/Character Texture.dds",
 		L"Textures/Vanguard/VanguardDiffuse.dds",
+		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
@@ -520,7 +528,7 @@ void DummyApp::BuildRootSignature()
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
-	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 6, 1, 0);
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 7, 1, 0);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
@@ -565,7 +573,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 7;
+	srvHeapDesc.NumDescriptors = 8;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -576,6 +584,7 @@ void DummyApp::BuildDescriptorHeaps()
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	auto missingTex = mTextures["missing"]->Resource;
+	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
@@ -592,6 +601,13 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = missingTex->GetDesc().MipLevels;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
+
+	// 다음 서술자로 넘어간다.
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = swordTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = swordTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(swordTex.Get(), &srvDesc, hDescriptor);
 
 	// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
@@ -638,7 +654,7 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = skyTex->GetDesc().Format;
 	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
 
-	mSkyTexHeapIndex = 6;
+	mSkyTexHeapIndex = 7;
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -784,59 +800,40 @@ void DummyApp::BuildShapeGeometry()
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
 
-	auto geo = std::make_unique<Mesh>();
-	geo->mName = "shapeGeo";
+	Mesh* ShapeGeometryMesh = new Mesh;
+	ShapeGeometryMesh->mName = "shapeGeo";
 	
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->mVertexBufferCPU));
-	CopyMemory(geo->mVertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+	ShapeGeometryMesh->CreateBlob(vertices, indices);
+	ShapeGeometryMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->mIndexBufferCPU));
-	CopyMemory(geo->mIndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+	ShapeGeometryMesh->mSubmeshes.resize(4);
+	ShapeGeometryMesh->mSubmeshes[0] = boxSubmesh;
+	ShapeGeometryMesh->mSubmeshes[1] = gridSubmesh;
+	ShapeGeometryMesh->mSubmeshes[2] = sphereSubmesh;
+	ShapeGeometryMesh->mSubmeshes[3] = cylinderSubmesh;
 
-	geo->mVertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->mVertexBufferUploader);
-
-	geo->mIndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->mIndexBufferUploader);
-
-	geo->mVertexByteStride = sizeof(Vertex);
-	geo->mVertexBufferByteSize = vbByteSize;
-	geo->mIndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->mIndexBufferByteSize = ibByteSize;
-
-	geo->mSubmeshes.resize(4);
-	geo->mSubmeshes[0] = boxSubmesh;
-	geo->mSubmeshes[1] = gridSubmesh;
-	geo->mSubmeshes[2] = sphereSubmesh;
-	geo->mSubmeshes[3] = cylinderSubmesh;
-
-	mMeshes[geo->mName] = std::move(geo);
+	mMeshes[ShapeGeometryMesh->mName] = ShapeGeometryMesh;
 }
 
-void DummyApp::LoadSkinnedModel()
+void DummyApp::LoadSkinnedMesh()
 {
-	mSkinnedMesh.SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-	mSkinnedMesh.LoadMesh("Models/Vanguard/Vanguard.fbx");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Idle.fbx", "Idle");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/WalkForward.fbx", "WalkForward");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/WalkBack.fbx", "WalkBack");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeRight1.fbx", "WalkRight1");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeRight2.fbx", "WalkRight2");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeLeft1.fbx", "WalkLeft1");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/StrafeLeft2.fbx", "WalkLeft2");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/RunForward.fbx", "RunForward");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Jump.fbx", "Jump");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Falling.fbx", "Falling");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/Landing.fbx", "Landing");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-	mSkinnedMesh.LoadAnimation("Models/Vanguard/Animations/MeleeAttack2.fbx", "MeleeAttack2");
-	
-	//mSkinnedMesh.LoadAnimations("Models/MF_Idle.FBX");
-	//mSkinnedMesh.LoadAnimations("Models/MF_Walk.FBX");
-	//mSkinnedMesh.LoadAnimations("Models/MF_Run.FBX");
-	//mSkinnedMesh.LoadAnimations("Models/MM_Jump.FBX");
-	//mSkinnedMesh.LoadAnimations("Models/MM_Fall.FBX");
-	//mSkinnedMesh.LoadAnimations("Models/MM_Land.FBX");
+	mSkinnedMesh = new SkinnedMesh;
+
+	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+	mSkinnedMesh->LoadMesh("Models/Vanguard/Vanguard.fbx");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Idle.fbx", "Idle");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/WalkForward.fbx", "WalkForward");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/WalkBack.fbx", "WalkBack");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeRight1.fbx", "WalkRight1");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeRight2.fbx", "WalkRight2");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeLeft1.fbx", "WalkLeft1");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeLeft2.fbx", "WalkLeft2");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/RunForward.fbx", "RunForward");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Jump.fbx", "Jump");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Falling.fbx", "Falling");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Landing.fbx", "Landing");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
 	UINT vcount = 0;
 	UINT tcount = 0;
@@ -845,60 +842,109 @@ void DummyApp::LoadSkinnedModel()
 	UINT index;
 	UINT dindex = 0;
 
-	UINT numVertices = mSkinnedMesh.mPositions.size();
+	UINT numVertices = mSkinnedMesh->mPositions.size();
 	for (int j = 0; j < numVertices; j++)
 	{
 		SkinnedVertex vertex;
-		vertex.Pos.x = mSkinnedMesh.mPositions[j].x;
-		vertex.Pos.y = mSkinnedMesh.mPositions[j].y;
-		vertex.Pos.z = mSkinnedMesh.mPositions[j].z;
+		vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+		vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+		vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
 
-		vertex.Normal.x = mSkinnedMesh.mNormals[j].x;
-		vertex.Normal.y = mSkinnedMesh.mNormals[j].y;
-		vertex.Normal.z = mSkinnedMesh.mNormals[j].z;
+		vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+		vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+		vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
 
-		vertex.TexC.x = mSkinnedMesh.mTexCoords[j].x;
-		vertex.TexC.y = mSkinnedMesh.mTexCoords[j].y;
+		vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+		vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
 
 		vertices.push_back(vertex);
 	}
 
 	for (int i = 0; i < numVertices; i++)
 	{
-		vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh.mBones[i].BoneIDs[0];
-		vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh.mBones[i].BoneIDs[1];
-		vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh.mBones[i].BoneIDs[2];
-		vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh.mBones[i].BoneIDs[3];
+		vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+		vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+		vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+		vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
 
-		float weights = mSkinnedMesh.mBones[i].Weights[0] + mSkinnedMesh.mBones[i].Weights[1] + mSkinnedMesh.mBones[i].Weights[2] + mSkinnedMesh.mBones[i].Weights[3];
+		float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
 
-		vertices[i].BoneWeights.x = mSkinnedMesh.mBones[i].Weights[0] / weights;
-		vertices[i].BoneWeights.y = mSkinnedMesh.mBones[i].Weights[1] / weights;
-		vertices[i].BoneWeights.z = mSkinnedMesh.mBones[i].Weights[2] / weights;
+		vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+		vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+		vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
 	}
 
-	UINT numIndices = mSkinnedMesh.mIndices.size();
+	UINT numIndices = mSkinnedMesh->mIndices.size();
 	for (UINT i = 0; i < numIndices; i++)
 	{
-		indices.push_back(mSkinnedMesh.mIndices[i]);
+		indices.push_back(mSkinnedMesh->mIndices[i]);
 	}
 
 	//
 	// Pack the indices of all the meshes into one index buffer.
+	mSkinnedMesh->mName = "Vanguard";
 
-	auto geo = std::make_unique<SkinnedMesh>();
-	geo->mName = "skullGeo";
+	mSkinnedMesh->CreateBlob(vertices, indices);
+	mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-	geo->CreateBlob(vertices, indices);
-	geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+	mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
+}
 
-	Submesh submesh1 = mSkinnedMesh.mSubmeshes[0];
-	Submesh submesh2 = mSkinnedMesh.mSubmeshes[1];
+void DummyApp::LoadMeshes()
+{
+	Mesh* swordMesh = new Mesh;
 
-	geo->mSubmeshes.push_back(submesh1);
-	geo->mSubmeshes.push_back(submesh2);
+	swordMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+	swordMesh->LoadMesh("Models/Weapon/Sword.fbx");
 
-	mMeshes[geo->mName] = std::move(geo);
+	UINT vcount = 0;
+	UINT tcount = 0;
+	std::vector<Vertex> vertices;
+	std::vector<UINT> indices;
+	UINT index;
+	UINT dindex = 0;
+
+	XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+	XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
+
+	UINT numVertices = swordMesh->mPositions.size();
+	for (int j = 0; j < numVertices; j++)
+	{
+		Vertex vertex;
+		vertex.Pos.x = swordMesh->mPositions[j].x;
+		vertex.Pos.y = swordMesh->mPositions[j].y;
+		vertex.Pos.z = swordMesh->mPositions[j].z;
+		XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+		vertex.Normal.x = swordMesh->mNormals[j].x;
+		vertex.Normal.y = swordMesh->mNormals[j].y;
+		vertex.Normal.z = swordMesh->mNormals[j].z;
+		XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+		vertex.TexC.x = swordMesh->mTexCoords[j].x;
+		vertex.TexC.y = swordMesh->mTexCoords[j].y;
+
+		vertices.push_back(vertex);
+	}
+
+	UINT numIndices = swordMesh->mIndices.size();
+	for (UINT i = 0; i < numIndices; i++)
+	{
+		indices.push_back(swordMesh->mIndices[i]);
+	}
+
+	//
+	// Pack the indices of all the meshes into one index buffer.
+	swordMesh->mName = "Sword";
+
+	swordMesh->CreateBlob(vertices, indices);
+	swordMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+	swordMesh->mSubmeshes[0].name = "sword";
+
+	mMeshes[swordMesh->mName] = swordMesh;
+
+	LoadSkinnedMesh();
 }
 
 void DummyApp::LoadTerrain()
@@ -917,15 +963,15 @@ void DummyApp::LoadTerrain()
 
 	mTerrain.CreateTerrain(10000.0f, 10000.f, vertices, indices);
 
-	auto geo = std::make_unique<Mesh>();
-	geo->mName = "terrain";
+	Mesh* terrainMesh = new Mesh;
+	terrainMesh->mName = "terrain";
 
-	geo->CreateBlob(vertices, indices);
-	geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+	terrainMesh->CreateBlob(vertices, indices);
+	terrainMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-	geo->AddSubmesh("terrain", indices.size());
+	terrainMesh->AddSubmesh("terrain", indices.size());
 	
-	mMeshes[geo->mName] = std::move(geo);
+	mMeshes[terrainMesh->mName] = terrainMesh;
 }
 
 void DummyApp::BuildPSOs()
@@ -1027,7 +1073,7 @@ void DummyApp::BuildFrameResources()
 {
 	UINT numObjCBs = 0;
 	for (auto& gameObj : mAllGameObjects)
-		numObjCBs += gameObj.get()->GetNumSubmeshes();
+		numObjCBs += gameObj->GetNumSubmeshes();
 
 	for (int i = 0; i < gNumFrameResources; ++i)
 	{
@@ -1051,10 +1097,18 @@ void DummyApp::BuildMaterials()
 	missing->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	missing->Roughness = 1.0f;
 	
+	auto sword = std::make_unique<Material>();
+	sword->Name = "sword";
+	sword->MatCBIndex = matCBIndex++;
+	sword->DiffuseSrvHeapIndex = 1;
+	sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	sword->Roughness = 0.1f;
+
 	auto vanguard = std::make_unique<Material>();
 	vanguard->Name = "vanguardDiffuse";
 	vanguard->MatCBIndex = matCBIndex++;
-	vanguard->DiffuseSrvHeapIndex = 1;
+	vanguard->DiffuseSrvHeapIndex = 2;
 	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	vanguard->Roughness = 0.1f;
@@ -1062,7 +1116,7 @@ void DummyApp::BuildMaterials()
 	auto bricks0 = std::make_unique<Material>();
 	bricks0->Name = "bricks0";
 	bricks0->MatCBIndex = matCBIndex++;
-	bricks0->DiffuseSrvHeapIndex = 2;
+	bricks0->DiffuseSrvHeapIndex = 3;
 	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
@@ -1070,7 +1124,7 @@ void DummyApp::BuildMaterials()
 	auto stone0 = std::make_unique<Material>();
 	stone0->Name = "stone0";
 	stone0->MatCBIndex = matCBIndex++;
-	stone0->DiffuseSrvHeapIndex = 3;
+	stone0->DiffuseSrvHeapIndex = 4;
 	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
@@ -1078,7 +1132,7 @@ void DummyApp::BuildMaterials()
 	auto tile0 = std::make_unique<Material>();
 	tile0->Name = "tile0";
 	tile0->MatCBIndex = matCBIndex++;
-	tile0->DiffuseSrvHeapIndex = 4;
+	tile0->DiffuseSrvHeapIndex = 5;
 	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	tile0->Roughness = 0.3f;
@@ -1086,7 +1140,7 @@ void DummyApp::BuildMaterials()
 	auto skullMat = std::make_unique<Material>();
 	skullMat->Name = "skullMat";
 	skullMat->MatCBIndex = matCBIndex++;
-	skullMat->DiffuseSrvHeapIndex = 4;
+	skullMat->DiffuseSrvHeapIndex = 5;
 	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	skullMat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	skullMat->Roughness = 0.3f;
@@ -1094,7 +1148,7 @@ void DummyApp::BuildMaterials()
 	auto terrainMat = std::make_unique<Material>();
 	terrainMat->Name = "terrainMat";
 	terrainMat->MatCBIndex = matCBIndex++;
-	terrainMat->DiffuseSrvHeapIndex = 5;
+	terrainMat->DiffuseSrvHeapIndex = 6;
 	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
 	terrainMat->Roughness = 0.05f;
@@ -1108,6 +1162,7 @@ void DummyApp::BuildMaterials()
 	sky->Roughness = 1.0f;
 
 	mMaterials["missing"] = std::move(missing);
+	mMaterials["sword"] = std::move(sword);
 	mMaterials["vanguard"] = std::move(vanguard);
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
@@ -1125,26 +1180,26 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// sky sphere
 	// ------------------------------------------
-	auto skyGameObject = std::make_unique<GameObject>("sky", XMMatrixIdentity(), XMMatrixIdentity());
+	GameObject* skyGameObject = new GameObject("sky", XMMatrixIdentity(), XMMatrixIdentity());
 	skyGameObject->SetCBIndex(objCBIndex);
-	skyGameObject->SetMesh(mMeshes["shapeGeo"].get());
+	skyGameObject->SetMesh(mMeshes["shapeGeo"]);
 	skyGameObject->SetMaterial(mMaterials["sky"].get());
 	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
 
-	mGameObjectLayer[(int)RenderLayer::Sky].push_back(skyGameObject.get());
-	mAllGameObjects.push_back(std::move(skyGameObject));
+	mGameObjectLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+	mAllGameObjects.push_back(skyGameObject);
 
 	// ------------------------------------------
 	// terrain
 	// ------------------------------------------
-	auto terrainGameObject = std::make_unique<GameObject>("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
+	GameObject* terrainGameObject = new GameObject("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
 	terrainGameObject->SetCBIndex(objCBIndex);
-	terrainGameObject->SetMesh(mMeshes["terrain"].get());
+	terrainGameObject->SetMesh(mMeshes["terrain"]);
 	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
 	terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
 
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject.get());
-	mAllGameObjects.push_back(std::move(terrainGameObject));
+	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
+	mAllGameObjects.push_back(terrainGameObject);
 
 	// ------------------------------------------
 	// Opaque objects - player
@@ -1165,31 +1220,41 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	auto gridGameObject = std::make_unique<GameObject>("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(100.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
+	GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(100.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
 	gridGameObject->SetCBIndex(objCBIndex);
-	gridGameObject->SetMesh(mMeshes["shapeGeo"].get());
+	gridGameObject->SetMesh(mMeshes["shapeGeo"]);
 	gridGameObject->SetMaterial(mMaterials["tile0"].get());
 	gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
 
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gridGameObject.get());
-	mAllGameObjects.push_back(std::move(gridGameObject));
+	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
+	mAllGameObjects.push_back(gridGameObject);
 
+	GameObject* swordGameObject = new GameObject("sword", XMMatrixIdentity(), XMMatrixIdentity());
+	swordGameObject->SetCBIndex(objCBIndex);
+	swordGameObject->SetMesh(mMeshes["Sword"]);
+	swordGameObject->SetMaterial(mMaterials["sword"].get());
+	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+
+	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+	mAllGameObjects.push_back(swordGameObject);
 	// ------------------------------------------
 	// Skinned objects - player
 	// ------------------------------------------
-	auto SkinnedGameObject = std::make_unique<Player>("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	SkinnedGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	SkinnedGameObject->SetMesh(mMeshes["skullGeo"].get());
-	SkinnedGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[0]);
-	SkinnedGameObject->AddSubmesh(SkinnedGameObject->GetMesh()->mSubmeshes[1]);
+	Player* playerGameObject = new Player("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject->SetMesh(mMeshes["Vanguard"]);
+	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
+	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
 
-	mPlayer = SkinnedGameObject.get();
+	mPlayer = playerGameObject;
 	mCamera = mPlayer->GetCamera();
 	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 10000.f);
 
-	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedGameObject.get());
-	mAllGameObjects.push_back(std::move(SkinnedGameObject));
+	mPlayer->SetWeapon(swordGameObject);
+
+	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
+	mAllGameObjects.push_back(playerGameObject);
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
@@ -1226,6 +1291,31 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 			cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(j), 1, gameObj->GetBaseIndex(j), gameObj->GetBaseVertex(j), 0);
 		}
 	}
+}
+
+void DummyApp::ReleseMemory()
+{
+	// clear mesh
+	for (auto& pair : mMeshes) {
+		Mesh* meshPtr = pair.second;
+		if (meshPtr != nullptr) {
+			delete meshPtr;
+			pair.second = nullptr;
+		}
+	}
+	mMeshes.clear();
+
+	// clear gameObj
+	for (auto& gameObj : mAllGameObjects)
+	{
+		GameObject* meshPtr = gameObj;
+		if (meshPtr != nullptr) {
+			delete meshPtr;
+			gameObj = nullptr;
+		}
+	}
+	mAllGameObjects.clear();
+
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DummyApp::GetStaticSamplers()
