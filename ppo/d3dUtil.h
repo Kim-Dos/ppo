@@ -32,6 +32,19 @@
 
 extern const int gNumFrameResources;
 
+inline void DebugPrint(const char* format, ...) {
+	va_list args;
+	va_start(args, format);
+
+	const int bufferSize = 1024;
+	char buffer[bufferSize];
+	vsnprintf_s(buffer, bufferSize, format, args);
+
+	OutputDebugStringA(buffer);
+
+	va_end(args);
+}
+
 inline void d3dSetDebugName(IDXGIObject* obj, const char* name)
 {
 	if (obj)

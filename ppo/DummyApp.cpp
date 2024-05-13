@@ -68,7 +68,114 @@ void DummyApp::Update(const GameTimer& gt)
 {
 	OnKeyboardInput(gt);
 
+	float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
+	//DebugPrint("height: %f\n", terrainY);
+	if (mPlayer->GetPosition().y < terrainY) {
+		mPlayer->SetPosition(mPlayer->GetPosition().x, terrainY, mPlayer->GetPosition().z);
+		mPlayer->SetVelocity(XMFLOAT3(mPlayer->GetVelocity().x, 0.0f, mPlayer->GetVelocity().z));
+		mPlayer->SetFalling(false);
+		mPlayer->SetFrameDirty();
+	}
+
 	mPlayer->Update(gt);
+
+	static float cooltime = 1.0f;
+	cooltime -= gt.DeltaTime();
+	static int b = 0;
+
+	if (mPlayer->IsAttacking()) {
+		if (PhysicsHelper::CheckTransformedBoundingBoxCollision(
+			mPlayer->GetWeapon()->GetBoundingBox(), XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), 
+			mBox->GetBoundingBox(), XMLoadFloat4x4(&mBox->GetWorld())) && cooltime <= 0.0f) {
+			// 충돌했다면?
+			cooltime = 1.0f;
+
+			if (mCutBox[0]) {
+				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+					mRenderLayer[(int)RenderLayer::Opaque].begin(), 
+					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[0]),
+					mRenderLayer[(int)RenderLayer::Opaque].end());
+				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[0]), mAllGameObjects.end());
+
+				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+					mRenderLayer[(int)RenderLayer::Opaque].begin(),
+					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[1]),
+					mRenderLayer[(int)RenderLayer::Opaque].end());
+				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[1]), mAllGameObjects.end());
+
+				delete mCutBox[0];
+				delete mCutBox[1];
+
+				mCutBox[0] = nullptr;
+				mCutBox[1] = nullptr;
+			}
+
+			b++;
+			XMFLOAT3 position;
+			XMStoreFloat3(&position, XMLoadFloat3(&mBox->GetPosition()));
+
+			vector<vector<Vertex>> vertices;
+			vector<vector<UINT>> indices;
+			
+			XMFLOAT3 normal = PhysicsHelper::GetCollisionNormal(XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), XMLoadFloat4x4(&mBox->GetWorld()));
+			// 메시 절단
+			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"], mMeshes["shapeGeo"]->mSubmeshes[0], XMFLOAT4(normal.x, normal.y, normal.z, 0.0f), vertices, indices);
+
+			// 초기화 명령을 위해 명령목록을 재설정하다.
+			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+			// 생성된 정점과 인덱스로 메시 생성
+			for (int i = 0; i < numMeshes; i++)
+			{
+				const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
+				const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
+
+				Mesh* geo = new Mesh;
+				geo->mName = "slicingMesh" + to_string(i);
+
+				geo->CreateBlob(vertices[i], indices[i]);
+				geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
+
+				Submesh submesh;
+				submesh.name = "box";
+				submesh.baseVertex = 0;
+				submesh.baseIndex = 0;
+				submesh.numIndices = indices[i].size();
+				geo->mSubmeshes.push_back(submesh);
+
+				mMeshes[geo->mName] = geo;
+				mCutBoxMesh[i] = geo;
+			}
+			// 초기화 명령 실행
+			ThrowIfFailed(mCommandList->Close());
+			ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+			mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+			// 초기화 명령들이 모두 처리되기 기다린다.
+			FlushCommandQueue();
+
+			int a = 7;
+
+			for (int i = 0; i < 2; i++)
+			{
+				XMFLOAT3 boxPostion;
+				XMStoreFloat3(&boxPostion, XMLoadFloat3(&position) + XMVector3Normalize(XMLoadFloat3(&normal)) * (i == 0 ? 100.0f : -100.0f));
+
+				GameObject* gameObject = new GameObject("box", XMMatrixScaling(100.f, 100.f, 100.f) * XMMatrixTranslation(boxPostion.x, boxPostion.y, boxPostion.z), XMMatrixIdentity());
+				gameObject->SetCBIndex(a);
+				string meshName = "slicingMesh" + to_string(i);
+				gameObject->SetMesh(mMeshes[meshName]);
+				gameObject->SetMaterial(mMaterials["bricks0"].get());
+				gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
+
+				gameObject->SetFrameDirty();
+				mCutBox[i] = gameObject;
+
+				mRenderLayer[(int)RenderLayer::Opaque].push_back(gameObject);
+				mAllGameObjects.push_back(gameObject);
+			}
+		}
+	}
 
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
@@ -103,18 +210,7 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 명령 목록을 ExecuteCommandList를 통해서 명령 대기열에
 	// 추가했다면 명령 목록을 재설정할 수 있다. 
 	// 명령 목록을 재성정하면 메모리가 재활용된다.
-	if (mIsWireframe)
-	{
-		ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque_wireframe"].Get()));
-	}
-	else if (mIsToonShading)
-	{
-		ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque_toonShading"].Get()));
-	}
-	else
-	{
-		ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
-	}
+	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
 
 	// 뷰포트와 가위 직사각형을 설정한다.
 	mCommandList->RSSetViewports(1, &mScreenViewport);
@@ -155,15 +251,18 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 테이블의 첫 서술자만 지정하면 된다.
 	// 테이블에 몇 개의 서술자가 있는지는 루트 서명에 설정되어 있다.
 	mCommandList->SetGraphicsRootDescriptorTable(5, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-
-	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::Opaque]);
+	
+	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Opaque]);
 
 	mCommandList->SetPipelineState(mPSOs["skinnedOpaque"].Get());
-	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::SkinnedOpaque]);
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::SkinnedOpaque]);
 
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
-	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::Sky]);
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Sky]);
 
+	if (mDebugMode)
+		DrawDebug();
 
 	// 자원 용도에 관련된 상태 전이를 D3D에 통지한다.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -187,6 +286,17 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 지금 우리는 GPU 시간선 상에 있으므로, 새울타리 지점은 GPU가 이 Signal() 
 	// 명령까지의 모든 명령을 처리하기 전까지는 설정되지 않는다.
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
+}
+
+void DummyApp::DrawDebug()
+{
+	DrawBoundingBox();
+}
+
+void DummyApp::DrawBoundingBox()
+{
+	mCommandList->SetPipelineState(mPSOs["debug"].Get());
+	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
 }
 
 void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
@@ -230,16 +340,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		switch (wParam)
 		{
 		case '1':
-			mIsWireframe = false;
-			mIsToonShading = false;
-			return(false);
-		case '2':
-			mIsWireframe = true;
-			mIsToonShading = false;
-			return(false);
-		case '3':
-			mIsWireframe = false;
-			mIsToonShading = true;
+			mDebugMode = !mDebugMode;
 			return(false);
 		case 'F':
 			/*
@@ -573,7 +674,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 8;
+	srvHeapDesc.NumDescriptors = mTextures.size();
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -671,20 +772,27 @@ void DummyApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
-	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\ToonLighting.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders/ToonLighting.hlsl", nullptr, "PS", "ps_5_1");
 
-	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", skinnedDefines, "VS", "vs_5_1");
+	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", skinnedDefines, "VS", "vs_5_1");
 
+	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders/Sky.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders/Sky.hlsl", nullptr, "PS", "ps_5_1");
 
-	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["colorVS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["colorPS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "PS", "ps_5_1");
 
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+	};
+
+	mColorInputLayout = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 	};
 
 	mSkinnedInputLayout = {
@@ -949,7 +1057,7 @@ void DummyApp::LoadMeshes()
 
 void DummyApp::LoadTerrain()
 {
-	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, 0.02f);
+	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, 0.2f);
 	
 	UINT vcount = 1025 * 1025;
 	UINT tcount = 1024 * 1024 * 2 * 3;
@@ -961,7 +1069,7 @@ void DummyApp::LoadTerrain()
 	std::vector<Vertex> vertices(vcount);
 	std::vector<uint32_t> indices(tcount);
 
-	mTerrain.CreateTerrain(10000.0f, 10000.f, vertices, indices);
+	mTerrain.CreateTerrain(50000.0f, 50000.f, vertices, indices);
 
 	Mesh* terrainMesh = new Mesh;
 	terrainMesh->mName = "terrain";
@@ -984,16 +1092,10 @@ void DummyApp::BuildPSOs()
 	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
 	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-		mShaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
-	};
+	opaquePsoDesc.VS = {
+		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()), mShaders["standardVS"]->GetBufferSize() };
+	opaquePsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -1020,16 +1122,10 @@ void DummyApp::BuildPSOs()
 	//
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedOpaquePsoDesc = opaquePsoDesc;
 	skinnedOpaquePsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
-	skinnedOpaquePsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["skinnedVS"]->GetBufferPointer()),
-		mShaders["skinnedVS"]->GetBufferSize()
-	};
-	skinnedOpaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
-	};
+	skinnedOpaquePsoDesc.VS = {
+		reinterpret_cast<BYTE*>(mShaders["skinnedVS"]->GetBufferPointer()), mShaders["skinnedVS"]->GetBufferSize() };
+	skinnedOpaquePsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skinnedOpaquePsoDesc, IID_PPV_ARGS(&mPSOs["skinnedOpaque"])));
 
 	//
@@ -1056,17 +1152,26 @@ void DummyApp::BuildPSOs()
 	// LESS가 아닌 이유: 만약 깊이 버퍼를 1로 지우는 경우 z = 1에서 정규화된 깊이값이 깊이 판정에 실패한다.
 	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 	skyPsoDesc.pRootSignature = mRootSignature.Get();
-	skyPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
-		mShaders["skyVS"]->GetBufferSize()
-	};
-	skyPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
-		mShaders["skyPS"]->GetBufferSize()
-	};
+	skyPsoDesc.VS = { 
+		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()), mShaders["skyVS"]->GetBufferSize() };
+	skyPsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()), mShaders["skyPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+
+	//
+	// PSO for debug(line)
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
+	debugPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	debugPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+	debugPsoDesc.InputLayout = { mColorInputLayout.data(), (UINT)mColorInputLayout.size() };
+	debugPsoDesc.VS = {
+		reinterpret_cast<BYTE*>(mShaders["colorVS"]->GetBufferPointer()), mShaders["colorVS"]->GetBufferSize() };
+	debugPsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
+		IID_PPV_ARGS(&mPSOs["debug"])));
 }
 
 void DummyApp::BuildFrameResources()
@@ -1186,74 +1291,86 @@ void DummyApp::BuildGameObjects()
 	skyGameObject->SetMaterial(mMaterials["sky"].get());
 	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
 
-	mGameObjectLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+	mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
 	mAllGameObjects.push_back(skyGameObject);
 
 	// ------------------------------------------
 	// terrain
 	// ------------------------------------------
-	GameObject* terrainGameObject = new GameObject("terrain", XMMatrixTranslation(0.0f, -600.0f, 0.0f), XMMatrixIdentity());
+	GameObject* terrainGameObject = new GameObject("terrain", XMMatrixIdentity(), XMMatrixIdentity());
 	terrainGameObject->SetCBIndex(objCBIndex);
 	terrainGameObject->SetMesh(mMeshes["terrain"]);
 	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
 	terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
 
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Terrain].push_back(terrainGameObject);
 	mAllGameObjects.push_back(terrainGameObject);
-
-	// ------------------------------------------
-	// Opaque objects - player
-	// ------------------------------------------
-	/*auto player = std::make_unique<Player>("player", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, -100.0f), XMMatrixIdentity());
-	player->SetCBIndex(objCBIndex);
-	player->SetMesh(mMeshes["shapeGeo"].get());
-	player->SetMaterial(mMaterials["bricks0"].get());
-	player->AddSubmesh(player->GetMesh()->GetSubmesh("box"));
-
-	mPlayer = player.get();
-	mCamera = mPlayer->GetCamera();
-	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
-
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(player.get());
-	mAllGameObjects.push_back(std::move(player));*/
 
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(100.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
+	GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
 	gridGameObject->SetCBIndex(objCBIndex);
 	gridGameObject->SetMesh(mMeshes["shapeGeo"]);
 	gridGameObject->SetMaterial(mMaterials["tile0"].get());
 	gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
+	gridGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(10.0f, 1.0f, 15.0f));
+	gridGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
 	mAllGameObjects.push_back(gridGameObject);
+
+	GameObject* boxGameObject = new GameObject("box", XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
+	boxGameObject->SetCBIndex(objCBIndex);
+	boxGameObject->SetMesh(mMeshes["shapeGeo"]);
+	boxGameObject->SetMaterial(mMaterials["bricks0"].get());
+	boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
+	boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
+	boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(boxGameObject);
+	mAllGameObjects.push_back(boxGameObject);
+	mBox = boxGameObject;
 
 	GameObject* swordGameObject = new GameObject("sword", XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
 	swordGameObject->SetMaterial(mMaterials["sword"].get());
 	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mGameObjectLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(swordGameObject);
 	mAllGameObjects.push_back(swordGameObject);
 	// ------------------------------------------
 	// Skinned objects - player
 	// ------------------------------------------
-	Player* playerGameObject = new Player("skinned1", XMMatrixScaling(1.0f, 1.0f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	Player* playerGameObject = new Player("skinned1", XMMatrixTranslation(11000.0f, 0.0f, 0.0f), XMMatrixIdentity());
 	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject->SetMesh(mMeshes["Vanguard"]);
 	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
 	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
 	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
+	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 	mPlayer = playerGameObject;
+	if (mCamera) {
+		delete mCamera;
+		mCamera = nullptr;
+	}
 	mCamera = mPlayer->GetCamera();
-	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 10000.f);
+	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
 
 	mPlayer->SetWeapon(swordGameObject);
 
-	mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject);
 	mAllGameObjects.push_back(playerGameObject);
 }
 
@@ -1275,7 +1392,7 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 		cmdList->IASetPrimitiveTopology(gameObj->GetPrimitiveType());
 
 		if (gameObj->GetSkinnedCBIndex() != -1) {
-			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + 0/*gameObj->GetSkinnedCBIndex()*/ * skinnedCBByteSize;
+			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
 			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
 		}
 		else {
@@ -1290,6 +1407,29 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 
 			cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(j), 1, gameObj->GetBaseIndex(j), gameObj->GetBaseVertex(j), 0);
 		}
+	}
+}
+
+void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
+{
+	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	
+	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+	
+	// 각 렌더항목에 대해:
+	for (UINT i = 0; i < gameObjects.size(); ++i)
+	{
+		// 그리기 명령 시작
+		cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
+		cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());
+		cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+
+		cmdList->SetGraphicsRootConstantBufferView(1, 0);
+
+		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObjects[i]->GetObjCBIndex(0) * objCBByteSize;
+		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+		cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
 	}
 }
 
@@ -1316,6 +1456,16 @@ void DummyApp::ReleseMemory()
 	}
 	mAllGameObjects.clear();
 
+
+	/*if (mPlayer) {
+		delete mPlayer;
+		mPlayer = nullptr;
+	}*/
+
+	if (mCamera) {
+		delete mCamera;
+		mCamera = nullptr;
+	}
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DummyApp::GetStaticSamplers()

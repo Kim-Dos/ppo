@@ -10,16 +10,24 @@ Terrain::~Terrain()
 
 void Terrain::LoadHeightMap(const wchar_t* filepath, int width, int length, float yScale)
 {
+	mImageWidth = width;
+	mImageLength = length;
+
 	mHeightImage.LoadHeightMapImage(filepath, width, length, yScale);
 }
 
 void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
 {
+	mWidth = width;
+	mLength = length;
+
 	int imageWidth = mHeightImage.GetHeightMapWidth();
 	int imageLength = mHeightImage.GetHeightMapLength();
 
 	uint32_t vertexCount =  imageWidth * imageLength;
 
+	mHeight = std::vector<float>(vertexCount);
+	mNormal = std::vector<XMFLOAT3>(vertexCount);
 	//
 	// Create the vertices.
 	//
@@ -50,35 +58,51 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 			vertices[i * imageWidth + j].TexC.y = i * dv;
 		}
 	}
+
 	// terrain y pos 값 평탄화, normal 값 평탄화
-	int flattening = 3;
-	for (UINT i = 2; i < imageLength -2; ++i)
+	int numFlattening = 2;
+	// 상하좌우로 numFlattening만큼의 정점을 기준으로 평탄화를 진행한다.
+	// numFlattening = 2일 경우 하나의 정점 평탄화에 총 25((1 + 2 * numFlattening)^2) 칸의 정점이 사용된다.
+
+	std::vector<Vertex> newVertices(vertices.size());
+	for (uint32_t i = 0; i < imageLength; ++i)
 	{
-		for (UINT j = 2; j < imageWidth - 2; ++j)
+		for (uint32_t j = 0; j < imageWidth; ++j)
 		{
-			XMFLOAT3 addNormal = XMFLOAT3(0.0f, 0.0f, 0.0f);
-			float addYPos = 0.0f;
-			int numAdd = 0;
-			for (int x = j - flattening; x <= j + flattening; x++)
+			int index = i * imageWidth + j;
+			float newY = 0.0f;
+			XMFLOAT3 newNormal = XMFLOAT3(0.f, 0.f, 0.f);
+			int numAddedVertices = 0;
+
+			for (int di = -numFlattening; di <= numFlattening; di++)
 			{
-				if (x < 3 || x > imageWidth - 4)
+				if ((i + di) < 0 || (i + di) >= imageLength)
 					continue;
-				for (int y = i - flattening; y <= i + flattening; y++)
+
+				for (int dj = -numFlattening; dj <= numFlattening; dj++)
 				{
-					if (y < 3 || y > imageLength -4)
+					if ((j + dj) < 0 || (j + dj) >= imageLength)
 						continue;
-					addYPos += vertices[x + imageWidth * y].Pos.y;
-					addNormal.x += vertices[x + imageWidth * y].Normal.x;
-					addNormal.y += vertices[x + imageWidth * y].Normal.y;
-					addNormal.z += vertices[x + imageWidth * y].Normal.z;
-					numAdd++;
+
+					int dIndex = (i + di) * imageWidth + (j + dj);
+
+					newY += vertices[dIndex].Pos.y;
+					newNormal.x += vertices[dIndex].Normal.x;
+					newNormal.y += vertices[dIndex].Normal.y;
+					newNormal.z += vertices[dIndex].Normal.z;
+					numAddedVertices++;
 				}
 			}
-			vertices[i * imageWidth + j].Pos.y = addYPos / numAdd;
-			vertices[i * imageWidth + j].Normal = Vector3::Normalize(addNormal);
+
+			newVertices[index].Pos = XMFLOAT3(vertices[index].Pos.x, newY / numAddedVertices, vertices[index].Pos.z);
+			XMStoreFloat3(&newVertices[index].Normal, XMVector3Normalize(XMLoadFloat3(&newNormal)));
+			newVertices[index].TexC = vertices[index].TexC;
+
+			mHeight[index] = newVertices[index].Pos.y;
+			mNormal[index] = newVertices[index].Normal;
 		}
 	}
-	
+	vertices = newVertices;
 	//
 	// Create the indices.
 	//
@@ -104,4 +128,43 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 	}
 
 	return;
+}
+
+float Terrain::GetHeight(float x, float z)
+{
+	float baseX = (x + mWidth / 2);
+	float baseZ = mLength - (z + mLength / 2);
+
+	float dWidth = baseX / mWidth;
+	float dLength = baseZ / mLength;
+
+	int indexX = int(mImageWidth * dWidth);
+	int indexZ = int(mImageLength * dLength);
+
+	float dIndexX = (mImageWidth * dWidth) - indexX;
+	float dIndexZ = (mImageWidth * dLength) - indexZ;
+
+	// 높이 보간
+	float height = mHeight[indexX + indexZ * mImageWidth];
+	float finalheight = height;
+
+	float heightX = mHeight[(indexX + 1) + indexZ * mImageWidth];
+	float heightY = mHeight[indexX + (indexZ - 1) * mImageWidth];
+
+	finalheight += (heightX - height) * dIndexX;
+	finalheight += (heightY - height) * dIndexZ;
+	/*
+	if (dIndexX + dIndexZ >= 1.0f) {
+		
+	}
+	else {
+		height = mHeight[(indexX + 1) + (indexZ - 1) * mImageWidth];
+		float heightX = mHeight[(indexX + 1) + indexZ * mImageWidth];
+		float heightY = mHeight[indexX + (indexZ - 1) * mImageWidth];
+
+		finalheight += (heightX - height) * (1.0f - dIndexX);
+		finalheight += (heightY - height) * (1.0f - dIndexZ);
+	}
+	*/
+	return finalheight;
 }

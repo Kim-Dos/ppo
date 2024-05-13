@@ -179,6 +179,6 @@ private:
 
     XMFLOAT4X4 mHipsMatrix = Matrix4x4::Identity();
     XMFLOAT4X4 mRightHandMatrix = Matrix4x4::Identity();
-    
+    XMFLOAT3 mHipsPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
 };
 

@@ -60,6 +60,12 @@ struct MaterialData
     UINT MaterialPad2;
 };
 
+struct ColorVertex
+{
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT4 Color;
+};
+
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;

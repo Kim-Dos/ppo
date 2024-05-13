@@ -85,7 +85,7 @@ public:
 	UINT GetBaseVertex(UINT index) { return mDrawIndex[index].mBaseVertex; };
 	UINT GetFramesDirty() { return mNumFramesDirty; }
 	UINT GetNumSubmeshes() { return mNumSubmeshes; }
-
+	
 	void AddSubmesh(const Submesh& submesh);
 	void SetWorldMat(XMFLOAT4X4 world);
 	void SetPosition(float x, float y, float z);
@@ -112,10 +112,21 @@ public:
 	void Rotate(float pitch, float yaw, float roll);
 	void Rotate(XMFLOAT3* axis, float angle);
 	void Rotate(XMFLOAT4* quaternion);
+	
+	void CreateBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList);
+
+	void SetBoundingBox(XMFLOAT3 center, XMFLOAT3 extents) { mBoundingBox = BoundingBox(center, extents); }
+	void SetBoundingBox(BoundingBox boundingBox) { mBoundingBox = boundingBox; }
+	BoundingBox GetBoundingBox() { return mBoundingBox; }
+
+	D3D12_VERTEX_BUFFER_VIEW BoundingBoxVertexBufferView() const;
+	D3D12_INDEX_BUFFER_VIEW BoundingBoxIndexBufferView() const;
 private:
 
 	string mName;
 	
+	BoundingBox mBoundingBox;
+
 	bool mWorldMatDirty = true;
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
@@ -139,5 +150,14 @@ private:
 	// DrawIndexedInstanced 매개변수
 	UINT mNumSubmeshes = 0;
 	DrawIndex mDrawIndex[MAX_NUM_SUBMESHES];
+
+	// draw BoundingBox
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferUploader = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferUploader = nullptr;
+
+
 };
 

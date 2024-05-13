@@ -33,7 +33,7 @@ struct Submesh
 	UINT materialIndex = -1;
 
 	// 서브메쉬의 바운딩 박스
-	BoundingBox bounds;
+	BoundingBox boundingBox;
 };
 
 // 메시의 이름, 정점, 인덱스를 저장
@@ -48,10 +48,6 @@ public:
 
 	// 메시를 이름으로 조회
 	string mName;
-
-	UINT mType = 0x00;
-
-	BoundingBox mBounds;
 
 	D3D12_PRIMITIVE_TOPOLOGY mPrimitiveTopology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 

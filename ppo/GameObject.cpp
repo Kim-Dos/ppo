@@ -193,3 +193,54 @@ void GameObject::Rotate(XMFLOAT4* quaternion)
     XMMATRIX rotateMat = XMMatrixRotationQuaternion(XMLoadFloat4(quaternion));
     mWorld = Matrix4x4::Multiply(rotateMat, mWorld);
 }
+
+void GameObject::CreateBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList)
+{
+    // 바운딩 박스 생성
+    XMFLOAT3 corners[8];
+    GetBoundingBox().GetCorners(corners);
+    std::vector<ColorVertex> vertices(8);
+    for (int i = 0; i < 8; i++)
+    {
+        vertices[i].Pos = corners[i];
+        vertices[i].Color = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+    }
+    std::vector<UINT> indices = {
+        0, 1, 1, 2, 2, 3, 3, 0, // 앞면
+        4, 5, 5, 6, 6, 7, 7, 4, // 뒷면
+        0, 4, 1, 5, 2, 6, 3, 7  // 모서리
+    };
+
+    const UINT vbByteSize = vertices.size() * sizeof(ColorVertex);
+    const UINT ibByteSize = indices.size() * sizeof(UINT);
+
+    mBoundVertexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        vertices.data(), vbByteSize, mBoundVertexBufferUploader);
+
+    mBoundIndexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        indices.data(), ibByteSize, mBoundIndexBufferUploader);
+}
+
+D3D12_VERTEX_BUFFER_VIEW GameObject::BoundingBoxVertexBufferView() const
+{
+    if (mBoundVertexBufferGPU != nullptr) {
+        D3D12_VERTEX_BUFFER_VIEW vbv;
+        vbv.BufferLocation = mBoundVertexBufferGPU->GetGPUVirtualAddress();
+        vbv.StrideInBytes = sizeof(ColorVertex);
+        vbv.SizeInBytes = 8 * sizeof(ColorVertex);
+
+        return vbv;
+    }
+}
+
+D3D12_INDEX_BUFFER_VIEW GameObject::BoundingBoxIndexBufferView() const
+{
+    if (mBoundIndexBufferGPU) {
+        D3D12_INDEX_BUFFER_VIEW ibv;
+        ibv.BufferLocation = mBoundIndexBufferGPU->GetGPUVirtualAddress();
+        ibv.Format = DXGI_FORMAT_R32_UINT;
+        ibv.SizeInBytes = 24 * sizeof(UINT);
+
+        return ibv;
+    }
+}

@@ -93,14 +93,18 @@ public:
 	XMFLOAT3 GetVelocity() { return mVelocity; }
 	float GetAcc() { return mAcceleration; }
 
+	void SetFalling(bool isFalling) { mIsFalling = isFalling; }
 	bool IsFalling() { return mIsFalling; }
+
+	void SetAttacking(bool isAttacking) { mIsAttacking = isAttacking; }
+	bool IsAttacking() { return mIsAttacking; }
 
 	void SetWeapon(GameObject* weapon) { mWeapon = weapon; }
 	GameObject* GetWeapon() { return mWeapon; }
 
 	const float mMaxVelocityWalk = 120.0f;
 	const float mMaxVelocityRun = 300.0f;
-	const float mMaxVelocityFalling = 100.0f;
+	const float mMaxVelocityFalling = 1000.0f;
 private:
 	void InitPlayer();
 
@@ -109,10 +113,10 @@ private:
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	float mAcceleration = 1000.0f;
 
-	float mJumpForce = 38.0f;
-	float mGravity = 98.0f;
+	float mJumpForce = 600.0f;
+	float mGravity = 980.0f;
 	bool mIsFalling = false;
-	bool mIsAttack = false;
+	bool mIsAttacking = false;
 	float mFriction = 450.0f;
 
 	Camera* mCamera = nullptr;

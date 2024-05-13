@@ -1228,6 +1228,9 @@ void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks, const stri
     XMVECTOR rotationQuat = CalcInterpolatedRotation(AnimationTimeTicks, boneAnimation);
     XMVECTOR translation = CalcInterpolatedPosition(AnimationTimeTicks, boneAnimation);
 
+    if (isUpper && isTargetNode)
+        translation = XMLoadFloat3(&mHipsPosition);
+
     // Combine the above transformations
     NodeTransformation = XMMatrixAffineTransformation(scaling, XMQuaternionIdentity(), rotationQuat, translation);
 
@@ -1244,6 +1247,9 @@ void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks, const stri
     if (nodeName == "mixamorig:RightHand") 
         XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
     if (isTargetNode) {
+        if (!isUpper)
+            XMStoreFloat3(&mHipsPosition, translation);
+
         XMStoreFloat4x4(&mHipsMatrix, GlobalTransformation);
         for (int i = 0; i < numChildren; i++)
         {
@@ -1323,6 +1329,9 @@ void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks[2], const s
     XMVECTOR finalRotationQuat = XMQuaternionSlerp(rotationQuat[0], rotationQuat[1], animationWeight);
     XMVECTOR finalTranslation = XMVectorLerp(translation[0], translation[1], animationWeight);
 
+    if (isUpper && isTargetNode)
+        finalTranslation = XMLoadFloat3(&mHipsPosition);
+
     NodeTransformation = XMMatrixAffineTransformation(finalScaling, XMQuaternionIdentity(), finalRotationQuat, finalTranslation);
 
     GlobalTransformation = NodeTransformation * ParentTransform;
@@ -1337,6 +1346,9 @@ void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks[2], const s
     if (nodeName == "mixamorig:RightHand") XMStoreFloat4x4(&mRightHandMatrix, GlobalTransformation);
     // 모든 자식 노드에 대해 재귀 호출
     if (isTargetNode) {
+        if (!isUpper)
+            XMStoreFloat3(&mHipsPosition, finalTranslation);
+
         XMStoreFloat4x4(&mHipsMatrix, GlobalTransformation);
         for (int i = 0; i < numChildren; i++)
         {
@@ -1344,8 +1356,7 @@ void SkinnedMesh::ReadCombinedBoneHierarchy(float AnimationTimeTicks[2], const s
                 ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation, isUpper);
             else if (!isUpper && mNodeHierarchy[nodeId].second[i].find("mixamorig:Spine") == string::npos)
                 ReadCombinedBoneHierarchy(AnimationTimeTicks, mNodeHierarchy[nodeId].second[i], animationNames, animationWeight, GlobalTransformation, isUpper);
-        }
-           
+        } 
     }
     else {
         for (int i = 0; i < numChildren; i++)

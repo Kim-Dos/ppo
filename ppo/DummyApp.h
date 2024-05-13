@@ -12,6 +12,7 @@
 #include "SkinnedMesh.h"
 #include "Player.h"
 #include "MeshSlice.h"
+#include "PhysicsHelper.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -25,6 +26,14 @@ enum class RenderLayer : int
 	SkinnedOpaque,
 	Debug,
 	Sky,
+	Count
+};
+
+enum class GameObjectLayer : int
+{
+	Sky = 0,
+	Terrain,
+	Object,
 	Count
 };
 
@@ -44,6 +53,8 @@ private:
 	virtual void OnResize()override;
 	virtual void Update(const GameTimer& gt)override;
 	virtual void Draw(const GameTimer& gt)override;
+	void DrawDebug();
+	void DrawBoundingBox();
 
 	virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
@@ -70,6 +81,7 @@ private:
 	void BuildMaterials();
 	void BuildGameObjects();
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
+	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
 	void ReleseMemory();
 
@@ -95,6 +107,7 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mColorInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
 
 	// List of all the render items.
@@ -102,16 +115,19 @@ private:
 	std::vector<GameObject*> mAllGameObjects;
 
 	//std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
-	std::vector<GameObject*> mGameObjectLayer[(int)RenderLayer::Count];
+	std::vector<GameObject*> mRenderLayer[(int)RenderLayer::Count];
+	std::vector<GameObject*> mGameObjectLayer[(int)GameObjectLayer::Count];
 
 	PassConstants mMainPassCB;
 	
-	bool mIsWireframe = false;
-	bool mIsToonShading = false;
+	bool mDebugMode = false;
 
 	SkinnedMesh* mSkinnedMesh;
 
 	Player* mPlayer = nullptr;
+	GameObject* mBox = nullptr;
+	GameObject* mCutBox[2] = { nullptr, nullptr };
+	Mesh* mCutBoxMesh[2] = { nullptr, nullptr };
 
 	Camera* mCamera = nullptr;
 

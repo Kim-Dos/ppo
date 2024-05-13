@@ -134,12 +134,6 @@ void Player::Move(const float deltaTime)
 
 	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition(), Vector3::ScalarProduct(mVelocity, deltaTime, false)));
-
-	if (GetPosition().y < 0) {
-		SetPosition(GetPosition().x, 0.0f, GetPosition().z);
-		mVelocity.y = 0.0f;
-		mIsFalling = false;
-	}
 }
 
 void Player::Jump()
@@ -441,6 +435,7 @@ void AttackPlayerState::HandleInput(Player& player, KeyInput keyInput)
 	if (keyInput.isPressedF) {
 		if (player.GetUpperStateId() != StateId::MeleeAttack) {
 			animationTime = 0.0f;
+			player.SetAttacking(true);
 			player.ChangeUpperState(new MeleeAttackPlayerState);
 		}
 	}
@@ -466,6 +461,7 @@ void MeleeAttackPlayerState::Update(Player& player, const float deltaTime)
 
 	if (animationTime > animationDuration - 0.1f) {
 		animationTime = 0.f;
+		player.SetAttacking(false);
 		player.ChangeUpperState(new IdleAttackPlayerState);
 	}
 }
