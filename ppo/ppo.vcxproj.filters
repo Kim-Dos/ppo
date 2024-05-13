@@ -16,6 +16,9 @@
     <Filter Include="Shaders">
       <UniqueIdentifier>{76aaffb0-7839-423f-b494-80589c546fe3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="NetWork">
+      <UniqueIdentifier>{58b9de86-e6ac-4349-afd2-5c7105b6263c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -81,6 +84,12 @@
     <ClInclude Include="MeshSlice.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Grad\GRClient\GRClient\UDPClient.hpp">
+      <Filter>NetWork</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Grad\GRServer\GRServer\Protocol.h">
+      <Filter>NetWork</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -140,6 +149,9 @@
     <ClCompile Include="MeshSlice.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Grad\GRClient\GRClient\UDPClient.cpp">
+      <Filter>NetWork</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="ppo.rc">
@@ -170,5 +182,8 @@
     <FxCompile Include="Shaders\Common.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

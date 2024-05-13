@@ -1,6 +1,8 @@
-#pragma once
 
 //#include "stdafx.h"
+
+#pragma once
+#include <boost\asio.hpp>
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
@@ -12,6 +14,8 @@
 #include "SkinnedMesh.h"
 #include "Player.h"
 #include "MeshSlice.h"
+#include "../../Grad/GRServer/GRServer/Protocol.h"
+#include "../../Grad/GRClient/GRClient/UDPClient.hpp"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -32,7 +36,7 @@ class DummyApp : public D3DApp
 {
 public:
 
-	DummyApp(HINSTANCE hInstance);
+	DummyApp(HINSTANCE hInstance, boost::asio::io_context& context);
 	DummyApp(const DummyApp& rhs) = delete;
 	DummyApp& operator=(const DummyApp& rhs) = delete;
 	~DummyApp();
@@ -115,6 +119,9 @@ private:
 	POINT mLastMousePos;
 
 	UINT mSkyTexHeapIndex = 0;
+
+	UDPC udp_client;
+	
 };
 
 

@@ -3,9 +3,10 @@
 
 const int gNumFrameResources = 3;
 
-DummyApp::DummyApp(HINSTANCE hInstance)
-	: D3DApp(hInstance)
+DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& context)
+	: D3DApp(hInstance), udp_client(context)
 {
+
 }
 
 DummyApp::~DummyApp()
@@ -67,6 +68,8 @@ void DummyApp::Update(const GameTimer& gt)
 	OnKeyboardInput(gt);
 
 	mPlayer->Update(gt);
+	
+	udp_client.SendPosition(*mPlayer);
 
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;

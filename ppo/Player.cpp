@@ -103,6 +103,7 @@ void Player::Move(const float deltaTime)
 		mVelocity.y = 0.0f;
 		mIsFalling = false;
 	}
+	
 }
 
 void Player::HandleInput()
