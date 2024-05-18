@@ -14,6 +14,9 @@
 #include "MeshSlice.h"
 #include "PhysicsHelper.h"
 
+#include "Button.h"
+
+
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -84,6 +87,8 @@ private:
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
+	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
+
 	void ReleseMemory();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -114,6 +119,8 @@ private:
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 	std::vector<GameObject*> mAllGameObjects;
+
+	std::vector<Button*>mButtons;
 
 	//std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 	std::vector<GameObject*> mRenderLayer[(int)RenderLayer::Count];

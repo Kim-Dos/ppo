@@ -265,8 +265,7 @@ void DummyApp::Draw(const GameTimer& gt)
 		DrawDebug();
 	
 	// test
-	mCommandList->SetPipelineState(mPSOs["ui"].Get());
-	mCommandList->DrawInstanced(6, 1, 0, 0);
+	DrawButtons(mCommandList.Get());
 
 	// 자원 용도에 관련된 상태 전이를 D3D에 통지한다.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -307,6 +306,11 @@ void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
+	
+	for (auto v : mButtons) {
+		if (v->isActive() && v->isInButton(x, y))
+			v->ButtonAction();
+	}
 
 	SetCapture(mhMainWnd);
 }
@@ -1387,6 +1391,15 @@ void DummyApp::BuildGameObjects()
 	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
 	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
+
+	// ------------------------------------------
+	// Buttobn
+	// -----------------------------------------
+
+	Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
+	mButtons.push_back(test1);
+
+
 	mPlayer = playerGameObject;
 	if (mCamera) {
 		delete mCamera;
@@ -1458,6 +1471,20 @@ void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::ve
 		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
 		cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
+	}
+}
+
+void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
+{
+	cmdList->SetPipelineState(mPSOs["ui"].Get());
+
+	for (auto v : mButtons) {
+
+		if (!v->isActive()) continue;
+
+		cmdList->DrawInstanced(6, 1, 0, 0);
+	
+
 	}
 }
 
