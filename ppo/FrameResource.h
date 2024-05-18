@@ -155,3 +155,12 @@ public:
     // 이 값은 GPU가 아직 이 프레임 자원들을 사용하고 있는지 판정하는 용도로 쓰인다.
     UINT64 Fence = 0;
 };
+
+
+struct UIObjectConsstants
+{
+    XMUINT2 UICenter;
+    XMUINT2 UIsize;
+    XMUINT2 screenSize;
+    float alpha;
+};

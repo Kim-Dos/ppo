@@ -263,6 +263,10 @@ void DummyApp::Draw(const GameTimer& gt)
 
 	if (mDebugMode)
 		DrawDebug();
+	
+	// test
+	mCommandList->SetPipelineState(mPSOs["ui"].Get());
+	mCommandList->DrawInstanced(6, 1, 0, 0);
 
 	// 자원 용도에 관련된 상태 전이를 D3D에 통지한다.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -586,6 +590,7 @@ void DummyApp::LoadTextures()
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
 		"terrainDiffuseMap",
+		"test",
 		"skyCubeMap"
 	};
 	
@@ -598,6 +603,7 @@ void DummyApp::LoadTextures()
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
 		L"Textures/terrainColorMap.dds",
+		L"Textures/asdfasdf.dds",
 		L"Textures/grasscube1024.dds"
 	};
 
@@ -629,7 +635,7 @@ void DummyApp::BuildRootSignature()
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
-	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 7, 1, 0);
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 1, 0);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
@@ -691,6 +697,7 @@ void DummyApp::BuildDescriptorHeaps()
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
 	auto terrainTex = mTextures["terrainDiffuseMap"]->Resource;
+	auto test = mTextures["test"]->Resource;
 	auto skyTex = mTextures["skyCubeMap"]->Resource;
 
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
@@ -745,6 +752,13 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = terrainTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(terrainTex.Get(), &srvDesc, hDescriptor);
 
+	//// 다음 서술자로 넘어간다.
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = test->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = test->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(test.Get(), &srvDesc, hDescriptor);
+
 	// 다음 서술자로 넘어간다. skyCubeMap
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
@@ -755,7 +769,7 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = skyTex->GetDesc().Format;
 	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
 
-	mSkyTexHeapIndex = 7;
+	mSkyTexHeapIndex = 8;
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -783,6 +797,9 @@ void DummyApp::BuildShadersAndInputLayout()
 
 	mShaders["colorVS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["colorPS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "PS", "ps_5_1");
+
+	mShaders["UIVS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["UIPS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "PS", "ps_5_1");
 
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1172,6 +1189,17 @@ void DummyApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
 		IID_PPV_ARGS(&mPSOs["debug"])));
+
+	// 
+	// ui
+	//
+	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.VS = {
+		reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
+	skyPsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
 }
 
 void DummyApp::BuildFrameResources()
