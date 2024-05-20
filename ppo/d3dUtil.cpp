@@ -104,7 +104,7 @@ ComPtr<ID3DBlob> d3dUtil::CompileShader(
     const std::string& target)
 {
     // 디버그 모드에서 디버깅 관련 플래그들을 사용한다.
-    UINT compileFlags = 0;
+    UINT compileFlags = D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES;
 #if defined(DEBUG) || defined(_DEBUG)  
     compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
