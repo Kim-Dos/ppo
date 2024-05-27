@@ -18,19 +18,82 @@ bool Button::isInButton(int x, int y) const
 	return PtInRect(&DoingButton, { x,y });
 }
 
-LobbyButton::LobbyButton(const POINT& cen, const SIZE& siz) noexcept
-	: Button(cen ,siz)
+
+//-----------Lobby Buttons--------------------
+
+LobbyButton::LobbyButton(const POINT& cen, const SIZE& siz, const int& textureID) noexcept
+	: Button(cen ,siz), texID(textureID)
 {
 }
 
-void LobbyButton::ButtonAction()
+
+ButtonPack& LobbyButton::ButtonAction()
 {
 
-	printf("");
-	int a = 0;
-	a++;
-	a += 2;
+	switch (texID)
+	{
+	case CS_LOGIN:
+		CSLobbyLogin packet;
+		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogin) };
+		return *p;
+	case CS_LOGOUT:
+		CSLobbyLogOut packet;
+		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogOut) };
+		return *p;
+	case CS_QUICK_MATCHING:
+		CSClickMatching packet;
+		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSClickMatching) };
+		return *p;
+	case CS_ENTER_ROOM_CODE:
+		CSEnterRoomCode packet;
+		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSEnterRoomCode) };
+		return *p;
+	case CS_START_GAME:
+		CSStartGame packet;
+		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSStartGame) };
+		return *p;
+	default:
+		printf("Other Texture\n");
+		exit(-1);
+		break;
+	}
+	
 
-	int b = a + 10;
+}
 
+ButtonPack& LobbyButton::LoginActing()
+{
+	CSLobbyLogin packet;
+
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogin) };
+	return *p;
+}
+
+ButtonPack& LobbyButton::LogOutActing()
+{
+	CSLobbyLogOut packet;
+
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogOut) };
+	return *p;
+}
+
+ButtonPack& LobbyButton::QuickMatchingActing()
+{
+	CSClickMatching packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSClickMatching) };
+	return *p;
+}
+
+ButtonPack& LobbyButton::EnterRoomCode()
+{
+	CSEnterRoomCode packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSEnterRoomCode) };
+	return *p;
+}
+
+ButtonPack& LobbyButton::GameStart()
+{
+	CSStartGame packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSStartGame) };
+	return *p;
 }

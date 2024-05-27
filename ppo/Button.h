@@ -13,7 +13,7 @@ public:
 
 	bool isInButton(int x, int y) const;
 	
-	virtual void ButtonAction() = 0;
+	virtual ButtonPack& ButtonAction() = 0;
 	
 
 private:
@@ -22,12 +22,20 @@ private:
 	bool activating;
 };
 
+
+
 class LobbyButton : public Button
 {
 public:
-	LobbyButton(const POINT& cen, const SIZE& siz) noexcept;
+	LobbyButton(const POINT& cen, const SIZE& siz, const int& textureID) noexcept;
 
-	virtual void ButtonAction() override;
+	virtual ButtonPack& ButtonAction() override;
+
+	ButtonPack& LoginActing();
+	ButtonPack& LogOutActing();
+	ButtonPack& QuickMatchingActing();
+	ButtonPack& EnterRoomCode();
+	ButtonPack& GameStart(); 
 
 private:
 	int texID;
