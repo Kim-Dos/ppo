@@ -208,6 +208,9 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return 0;
 
 	// 마우스 처리
+	case WM_MOUSEWHEEL:
+		OnMouseWheel(wParam);
+		return 0;
 	case WM_LBUTTONDOWN:
 	case WM_MBUTTONDOWN:
 	case WM_RBUTTONDOWN:

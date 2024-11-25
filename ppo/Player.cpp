@@ -87,6 +87,7 @@ Player::~Player()
 
 void Player::Update(const GameTimer& gt)
 {
+	//printf("하이요\n");
 	float deltaTime = gt.DeltaTime();
 
 	HandleInput();
@@ -118,6 +119,7 @@ void Player::Move(const float deltaTime)
 		mVelocity.y = -mMaxVelocityFalling;
 	}
 
+	// 최대 속도 제한
 	float maxVelocityXZ = (GetLowerStateId() == StateId::Run) ? mMaxVelocityRun : mMaxVelocityWalk;
 	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
 	if (groundSpeed > maxVelocityXZ) {
@@ -125,11 +127,12 @@ void Player::Move(const float deltaTime)
 		mVelocity.z *= maxVelocityXZ / groundSpeed;
 	}
 
-	// 최대 속도 제한
+	
 	// 마찰
 	XMFLOAT3 friction;
 	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltaTime);
 	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
+	//mVelocity.y = (mVelocity.y >= 0.0f) ? max(0.0f, mVelocity.y + friction.z) : min(0.0f, mVelocity.y + friction.z);
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
 	// 위치 변환
@@ -159,43 +162,12 @@ void Player::UpdateCamera()
 	XMVECTOR cameraLook = XMVector3TransformNormal(XMLoadFloat3(&GetLook()), XMMatrixRotationAxis(XMLoadFloat3(&GetRight()), mPitch));
 
 	XMVECTOR playerPosition = XMLoadFloat3(&GetPosition()) + XMLoadFloat3(&mCameraOffsetPosition);
-	XMVECTOR cameraPosition = playerPosition - cameraLook * 500.f; // distance는 카메라와 플레이어 사이의 거리
+	XMVECTOR cameraPosition = playerPosition - cameraLook * cam_dist; // distance는 카메라와 플레이어 사이의 거리
 
-	XMMATRIX viewMatrix = XMMatrixLookAtLH(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	//XMMATRIX viewMatrix = XMMatrixLookAtLH(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
 	mCamera->LookAt(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
 
 	mCamera->UpdateViewMatrix();
-}
-
-void Player::KeyboardInput(float dt)
-{
-	/*
-	mIsRun = false;
-	if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
-		mIsRun = true;
-
-	XMFLOAT3 velocity;
-
-	if (mIsFalling)
-		velocity = Vector3::ScalarProduct(mAcceleration, dt / 2, false);
-	else if (mIsRun)
-		velocity = Vector3::ScalarProduct(mAcceleration, dt * 2, false);
-	else
-		velocity = Vector3::ScalarProduct(mAcceleration, dt, false);
-	
-
-	if (GetAsyncKeyState('W') & 0x8000)
-		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(GetLook(), velocity));
-
-	if (GetAsyncKeyState('S') & 0x8000)
-		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(Vector3::ScalarProduct(GetLook(), -1), velocity));
-
-	if (GetAsyncKeyState('D') & 0x8000)
-		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(GetRight(), velocity));
-
-	if (GetAsyncKeyState('A') & 0x8000)
-		mVelocity = Vector3::Add(mVelocity, MultipleVelocity(Vector3::ScalarProduct(GetRight(), -1), velocity));
-	*/
 }
 
 void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam) 
@@ -206,15 +178,19 @@ void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
 		switch (wParam)
 		{
 		case 'W':
+		case 'w':
 			mKeyInput.isPressedW = true;
 			break;
 		case 'A':
+		case 'a':
 			mKeyInput.isPressedA = true;
 			break;
 		case 'S':
+		case 's':
 			mKeyInput.isPressedS = true;
 			break;
 		case 'D':
+		case 'd':
 			mKeyInput.isPressedD = true;
 			break;
 		case 'F':
@@ -225,6 +201,14 @@ void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
 			break;
 		case VK_SPACE:
 			mKeyInput.isPressedSpaceBar = true;
+			break;
+		case 'Q':
+		case 'q':
+			this->MoveUp(-500);
+			break;
+		case 'E':
+		case 'e':
+			this->MoveUp(500);
 			break;
 		}
 		break;
@@ -254,16 +238,29 @@ void Player::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
 			break;
 		}
 		break;
+
 	}
 }
 
 void Player::MouseInput(float dx, float dy)
 {
+	float yaw = dx;
 	Rotate(0.f, dx, 0.f);
 
 	float maxPitchRaidan = XMConvertToRadians(MAX_PLAYER_CAMERA_PITCH);
 	mPitch += dy;
 	mPitch = (mPitch < -maxPitchRaidan) ? -maxPitchRaidan : (maxPitchRaidan < mPitch) ? maxPitchRaidan : mPitch;
+}
+
+void Player::WheelInput(WPARAM wParam)
+{
+	int delta = GET_WHEEL_DELTA_WPARAM(wParam); 
+	if (delta < 0) { 
+		if(cam_dist < 1000)
+		cam_dist += 50.f; }
+	else { 
+		if (cam_dist > 50)
+		cam_dist -= 50.f; }
 }
 
 vector<string> Player::GetAnimationName()
@@ -467,5 +464,227 @@ void MeleeAttackPlayerState::Update(Player& player, const float deltaTime)
 	if (animationTime > animationDuration - 0.1f) {
 		animationTime = 0.f;
 		player.ChangeUpperState(new IdleAttackPlayerState);
+	}
+}
+
+
+
+
+void TPPlayer::InitPlayer()
+{
+
+	mCamera = new Camera();
+
+	mCameraOffsetPosition = XMFLOAT3(0.0f, 1000.0f, 20.0f);
+	UpdateCamera();
+
+}
+
+TPPlayer::TPPlayer() :
+	GameObject()
+{
+	InitPlayer();
+}
+
+TPPlayer::TPPlayer(const string name, XMMATRIX world) : GameObject()
+{
+	this->SetName(name);
+	XMFLOAT4X4 temp;
+	XMStoreFloat4x4(&temp, world);
+	this->SetWorldMat(temp);
+	InitPlayer();
+}
+
+TPPlayer::TPPlayer(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) :
+	GameObject(name, world, texTransform)
+{
+	InitPlayer();
+}
+
+TPPlayer::TPPlayer(const string name, XMMATRIX world, XMMATRIX texTransform) :
+	GameObject(name, world, texTransform)
+{
+	InitPlayer();
+}
+
+TPPlayer::~TPPlayer()
+{
+	if (mCamera) {
+		delete mCamera;
+		mCamera = nullptr;
+	}
+	
+}
+
+void TPPlayer::Update(const GameTimer& gt)
+{
+	float deltaTime = gt.DeltaTime();
+
+	Move(deltaTime);
+	printf("Se\n");
+	UpdateCamera();
+	SetFrameDirty();
+}
+
+void TPPlayer::Move(const float deltaTime)
+{
+
+	float velocity = this->GetAcc()* deltaTime;
+
+	XMFLOAT3 movementDir;
+	int x = 0, y = 0, z = 0;
+	if (mKeyInput.isPressedW) x = 1;
+	if (mKeyInput.isPressedS) x = -1;
+	if (mKeyInput.isPressedA) z = 1;
+	if (mKeyInput.isPressedD) z = -1;
+	if (mKeyInput.isPressedQ) y = 1;
+	if (mKeyInput.isPressedE) y = -1;
+
+
+	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&this->GetLook()) * x ) + (XMLoadFloat3(&this->GetRight()) * y ) + (XMLoadFloat3(&this->GetUp())* z )));
+
+	XMFLOAT3 newVelocity = Vector3::Add(this->GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
+	this->SetVelocity(newVelocity);
+
+	// 최대 속도 제한
+	float maxVelocity = 1000;
+	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.y * mVelocity.y + mVelocity.z * mVelocity.z);
+	if (groundSpeed > maxVelocity) {
+		mVelocity.x *= maxVelocity / groundSpeed;
+		mVelocity.y *= maxVelocity / groundSpeed;
+		mVelocity.z *= maxVelocity / groundSpeed;
+	}
+
+	
+	// 마찰
+	XMFLOAT3 friction;
+	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, mVelocity.y, mVelocity.z, 0.0f)) * mFriction * deltaTime);
+	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
+	mVelocity.y = (mVelocity.y >= 0.0f) ? max(0.0f, mVelocity.y + friction.z) : min(0.0f, mVelocity.y + friction.z);
+	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
+
+	// 위치 변환
+	SetPosition(Vector3::Add(GetPosition(), Vector3::ScalarProduct(mVelocity, deltaTime, false)));
+}
+
+void TPPlayer::UpdateCamera()
+{
+	XMVECTOR cameraLook = XMVector3TransformNormal(XMLoadFloat3(&GetLook()), XMMatrixRotationAxis(XMLoadFloat3(&GetRight()), mPitch));
+
+	//XMVECTOR playerPosition = XMLoadFloat3(&GetPosition()) + XMLoadFloat3(&mCameraOffsetPosition);
+	//XMVECTOR cameraPosition = playerPosition - cameraLook * 500.f; // distance는 카메라와 플레이어 사이의 거리
+
+	//XMMATRIX viewMatrix = XMMatrixLookAtLH(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	XMVECTOR temp = XMLoadFloat3(&this->GetPosition());
+	mCamera->LookAt(temp, cameraLook, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	mCamera->UpdateViewMatrix();
+}
+
+
+
+void TPPlayer::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
+{
+	switch (nMessageID)
+	{
+	case WM_KEYDOWN:
+		switch (wParam)
+		{
+		case 'W':
+		case 'w':
+			mKeyInput.isPressedW = true;
+			//this->MoveForward(500);
+			break;
+		case 'A':
+		case 'a':
+			mKeyInput.isPressedA = true;
+			//this->MoveStrafe(-500);
+			break;
+		case 'S':
+		case 's':
+			mKeyInput.isPressedS = true;
+			//this->MoveForward(-500);
+			break;
+		case 'D':
+		case 'd':
+			//this->MoveStrafe(500);
+			mKeyInput.isPressedD = true;
+			break;
+		case 'F':
+			mKeyInput.isPressedF = true;
+			break;
+		case VK_SHIFT:
+			mKeyInput.isPressedShift = true;
+			break;
+		case 'Q':
+		case 'q':
+			mKeyInput.isPressedQ = true;
+			//this->MoveUp(-500);
+			break;
+		case 'E':
+		case 'e':
+			mKeyInput.isPressedE = true;
+			//this->MoveUp(500);
+			break;
+		}
+		break;
+	case WM_KEYUP:
+		switch (wParam)
+		{
+		case 'W':
+			mKeyInput.isPressedW = false;
+			break;
+		case 'A':
+			mKeyInput.isPressedA = false;
+			break;
+		case 'S':
+			mKeyInput.isPressedS = false;
+			break;
+		case 'D':
+			mKeyInput.isPressedD = false;
+			break;
+		case 'F':
+			mKeyInput.isPressedF = false;
+			break;
+		case VK_SHIFT:
+			mKeyInput.isPressedShift = false;
+			break;
+		case VK_SPACE:
+			mKeyInput.isPressedSpaceBar = false;
+			break;
+		case 'Q':
+		case 'q':
+			mKeyInput.isPressedQ = false;
+			//this->MoveUp(-500);
+			break;
+		case 'E':
+		case 'e':
+			mKeyInput.isPressedE = false;
+			//this->MoveUp(500);
+			break;
+		}
+		break;
+	}
+
+}
+
+void TPPlayer::MouseInput(float dx, float dy)
+{
+	mCamera->Pitch(dx);
+	mCamera->RotateY(dy);
+
+	//float maxPitchRaidan = XMConvertToRadians(MAX_PLAYER_CAMERA_PITCH);
+	//mPitch += dy;
+	//mPitch = (mPitch < -maxPitchRaidan) ? -maxPitchRaidan : (maxPitchRaidan < mPitch) ? maxPitchRaidan : mPitch;
+}
+
+void TPPlayer::WheelInput(WPARAM wParam)
+{
+	int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+	if (delta < 0) {
+		//mCamera->SetPosition();
+		mCamera->GetLook();
+	}
+	else {
+		this->MoveForward(-50.f);
 	}
 }

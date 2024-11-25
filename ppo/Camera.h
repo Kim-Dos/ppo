@@ -4,7 +4,7 @@
 
 using namespace DirectX;
 
-class Camera
+class Camera : public Actor
 {
 public:
     Camera();

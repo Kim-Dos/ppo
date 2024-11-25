@@ -66,10 +66,114 @@ void DummyApp::OnResize()
 
 void DummyApp::Update(const GameTimer& gt)
 {
-	OnKeyboardInput(gt);
 
+<<<<<<< Updated upstream
 	mPlayer->Update(gt);
 
+=======
+	float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
+	//DebugPrint("height: %f\n", terrainY);
+	if (mPlayer->GetPosition().y < terrainY) {
+		mPlayer->SetPosition(mPlayer->GetPosition().x, terrainY, mPlayer->GetPosition().z);
+		mPlayer->SetVelocity(XMFLOAT3(mPlayer->GetVelocity().x, 0.0f, mPlayer->GetVelocity().z));
+		mPlayer->SetFalling(false);
+		mPlayer->SetFrameDirty();
+	}
+
+
+	if (isTP) {
+		mCamera = mTPCam->GetCamera();
+		mTPCam->Update(gt);
+		//mPlayer->Update(gt);
+	}
+	else {
+		mCamera = mPlayer->GetCamera();
+		mPlayer->Update(gt);
+	}
+
+
+
+	static float cooltime = 1.0f;
+	cooltime -= gt.DeltaTime();
+	static int b = 0;
+
+
+//	if (mPlayer->IsAttacking()) {
+//		if (PhysicsHelper::CheckTransformedBoundingBoxCollision(
+//			mPlayer->GetWeapon()->GetBoundingBox(), XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()),
+//			mBox->GetBoundingBox(), XMLoadFloat4x4(&mBox->GetWorld())) && cooltime <= 0.0f) {
+//			// 충돌했다면?
+//			cooltime = 1.0f;
+//			if (mCutBox[0]) {
+//				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+//					mRenderLayer[(int)RenderLayer::Opaque].begin(),
+//					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[0]),
+//					mRenderLayer[(int)RenderLayer::Opaque].end());
+//				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[0]), mAllGameObjects.end());
+//				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+//					mRenderLayer[(int)RenderLayer::Opaque].begin(),
+//					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[1]),
+//					mRenderLayer[(int)RenderLayer::Opaque].end());
+//				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[1]), mAllGameObjects.end());
+//				delete mCutBox[0];
+//				delete mCutBox[1];
+//				mCutBox[0] = nullptr;
+//				mCutBox[1] = nullptr;
+//			}
+//			b++;
+//			XMFLOAT3 position;
+//			XMStoreFloat3(&position, XMLoadFloat3(&mBox->GetPosition()));
+//			vector<vector<Vertex>> vertices;
+//			vector<vector<UINT>> indices;
+//			XMFLOAT3 normal = PhysicsHelper::GetCollisionNormal(XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), XMLoadFloat4x4(&mBox->GetWorld()));
+//			// 메시 절단
+//			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"], mMeshes["shapeGeo"]->mSubmeshes[0], XMFLOAT4(normal.x, normal.y, normal.z, 0.0f), vertices, indices);
+//			// 초기화 명령을 위해 명령목록을 재설정하다.
+//			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+//			// 생성된 정점과 인덱스로 메시 생성
+//			for (int i = 0; i < numMeshes; i++)
+//			{
+//				const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
+//				const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
+//				Mesh* geo = new Mesh;
+//				geo->mName = "slicingMesh" + to_string(i);
+//				geo->CreateBlob(vertices[i], indices[i]);
+//				geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
+//				Submesh submesh;
+//				submesh.name = "box";
+//				submesh.baseVertex = 0;
+//				submesh.baseIndex = 0;
+//				submesh.numIndices = indices[i].size();
+//				geo->mSubmeshes.push_back(submesh);
+//				mMeshes[geo->mName] = geo;
+//				mCutBoxMesh[i] = geo;
+//			}
+//			// 초기화 명령 실행
+//			ThrowIfFailed(mCommandList->Close());
+//			ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+//			mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+//			// 초기화 명령들이 모두 처리되기 기다린다.
+//			FlushCommandQueue();
+//			int a = 7;
+//			for (int i = 0; i < 2; i++)
+//			{
+//				XMFLOAT3 boxPostion;
+//				XMStoreFloat3(&boxPostion, XMLoadFloat3(&position) + XMVector3Normalize(XMLoadFloat3(&normal)) * (i == 0 ? 100.0f : -100.0f));
+//				GameObject* gameObject = new GameObject("box", XMMatrixScaling(100.f, 100.f, 100.f) * XMMatrixTranslation(boxPostion.x, boxPostion.y, boxPostion.z), XMMatrixIdentity());
+//				gameObject->SetCBIndex(a);
+//				string meshName = "slicingMesh" + to_string(i);
+//				gameObject->SetMesh(mMeshes[meshName]);
+//				gameObject->SetMaterial(mMaterials["bricks0"].get());
+//				gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
+//				gameObject->SetFrameDirty();
+//				mCutBox[i] = gameObject;
+//				mRenderLayer[(int)RenderLayer::Opaque].push_back(gameObject);
+//				mAllGameObjects.push_back(gameObject);
+//			}
+//		}
+//	}
+
+>>>>>>> Stashed changes
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
@@ -85,7 +189,7 @@ void DummyApp::Update(const GameTimer& gt)
 	}
 
 	// mCurrFrameResource의 자원 갱신
-	AnimateMaterials(gt);
+	//AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
 	UpdateSkinnedCBs(gt);
 	UpdateMaterialCBs(gt);
@@ -164,6 +268,14 @@ void DummyApp::Draw(const GameTimer& gt)
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 	DrawGameObjects(mCommandList.Get(), mGameObjectLayer[(int)RenderLayer::Sky]);
 
+<<<<<<< Updated upstream
+=======
+	if (mDebugMode)
+		DrawDebug();
+	
+	// test
+	//DrawButtons(mCommandList.Get());
+>>>>>>> Stashed changes
 
 	// 자원 용도에 관련된 상태 전이를 D3D에 통지한다.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -189,6 +301,28 @@ void DummyApp::Draw(const GameTimer& gt)
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 }
 
+<<<<<<< Updated upstream
+=======
+void DummyApp::DrawDebug()
+{
+	DrawBoundingBox();
+}
+
+void DummyApp::DrawBoundingBox()
+{
+	mCommandList->SetPipelineState(mPSOs["debug"].Get());
+	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
+}
+
+void DummyApp::OnMouseWheel(WPARAM wheeldelta)
+{
+	if (isTP) {
+		mTPCam->WheelInput(wheeldelta);
+	}
+	mPlayer->WheelInput(wheeldelta);
+}
+
+>>>>>>> Stashed changes
 void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
@@ -210,10 +344,13 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-		mPlayer->MouseInput(dx, dy);
-
-		//mCamera->Pitch(dy);
-		//mCamera->RotateY(dx);
+		if (isTP) {
+			mTPCam->MouseInput(dx, dy);
+		}
+		else {
+			
+			mPlayer->MouseInput(dx, dy);
+		}
 	}
 
 	mLastMousePos.x = x;
@@ -222,8 +359,12 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
-	mPlayer->OnKeyboardMessage(nMessageID, wParam);
-
+	if (isTP) {
+		mTPCam->OnKeyboardMessage(nMessageID, wParam);
+	}
+	else {
+		mPlayer->OnKeyboardMessage(nMessageID, wParam);
+	}
 	switch (nMessageID)
 	{
 	case WM_KEYDOWN:
@@ -308,6 +449,8 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 			}
 			*/
 			break;
+		case VK_TAB:
+			isTP = !isTP;
 		}
 		break;
 	case WM_KEYUP:
@@ -315,15 +458,6 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	}
 
 	return(false);
-}
-
-void DummyApp::OnKeyboardInput(const GameTimer& gt)
-{
-	const float dt = gt.DeltaTime();
-
-	mPlayer->KeyboardInput(dt);
-
-	//mCamera->UpdateViewMatrix();
 }
 
 void DummyApp::AnimateMaterials(const GameTimer& gt)
@@ -496,8 +630,14 @@ void DummyApp::LoadTextures()
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
+<<<<<<< Updated upstream
 		L"Textures/terrainColorMap.dds",
 		L"Textures/grasscube1024.dds"
+=======
+		L"Textures/Python.dds",
+		L"Textures/asdfasdf.dds",
+		L"Textures/desertcube1024.dds"
+>>>>>>> Stashed changes
 	};
 
 	for (int i = 0; i < (int)texNames.size(); ++i)
@@ -511,7 +651,7 @@ void DummyApp::LoadTextures()
 			ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 				mCommandList.Get(), texMap->Filename.c_str(),
 				texMap->Resource, texMap->UploadHeap));
-
+	
 			mTextures[texMap->Name] = std::move(texMap);
 		}
 	}
@@ -678,8 +818,16 @@ void DummyApp::BuildShadersAndInputLayout()
 	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", skinnedDefines, "VS", "vs_5_1");
 
 
+<<<<<<< Updated upstream
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
+=======
+	mShaders["colorVS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["colorPS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "PS", "ps_5_1");
+
+	//mShaders["UIVS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "VS", "vs_5_1");
+	//mShaders["UIPS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "PS", "ps_5_1");
+>>>>>>> Stashed changes
 
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -949,10 +1097,15 @@ void DummyApp::LoadMeshes()
 
 void DummyApp::LoadTerrain()
 {
+<<<<<<< Updated upstream
 	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, 0.02f);
+=======
+
+	mTerrain.LoadHeightMap(L"HeightMap/1sec127.r16", 1017, 1017, 3.f);
+>>>>>>> Stashed changes
 	
-	UINT vcount = 1025 * 1025;
-	UINT tcount = 1024 * 1024 * 2 * 3;
+	UINT vcount = 1017 * 1017;
+	UINT tcount = 1017 * 1017 * 2 * 3;
 	
 	//
 	// Pack the indices of all the meshes into one index buffer.
@@ -970,7 +1123,7 @@ void DummyApp::LoadTerrain()
 	terrainMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
 	terrainMesh->AddSubmesh("terrain", indices.size());
-	
+
 	mMeshes[terrainMesh->mName] = terrainMesh;
 }
 
@@ -1067,6 +1220,35 @@ void DummyApp::BuildPSOs()
 		mShaders["skyPS"]->GetBufferSize()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+<<<<<<< Updated upstream
+=======
+
+	//
+	// PSO for debug(line)
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
+	debugPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	debugPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+	debugPsoDesc.InputLayout = { mColorInputLayout.data(), (UINT)mColorInputLayout.size() };
+	debugPsoDesc.VS = {
+		reinterpret_cast<BYTE*>(mShaders["colorVS"]->GetBufferPointer()), mShaders["colorVS"]->GetBufferSize() };
+	debugPsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
+		IID_PPV_ARGS(&mPSOs["debug"])));
+
+	// 
+	// ui
+	//
+	//skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	//skyPsoDesc.pRootSignature = mRootSignature.Get();
+	//skyPsoDesc.VS = {
+	//	reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
+	//skyPsoDesc.PS = {
+	//	reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
+	//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+>>>>>>> Stashed changes
 }
 
 void DummyApp::BuildFrameResources()
@@ -1246,10 +1428,55 @@ void DummyApp::BuildGameObjects()
 	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
 	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
 	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
+<<<<<<< Updated upstream
+=======
+	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
+	// ------------------------------------------
+	// Buttobn
+	// -----------------------------------------
+
+	//Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
+	//mButtons.push_back(test1);
+
+	TPPlayer* TPCam = new TPPlayer("TPCam", XMMatrixTranslation(11100.0f, 33500.f, 0.0f));
+	TPCam->SetCBIndex(objCBIndex);
+	//TPCam->SetMesh(mMeshes["sphere"]);
+	//TPCam->SetMaterial(0);
+	//TPCam->AddSubmesh(TPCam->GetMesh()->GetSubmesh("sphere"));
+	//TPCam->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f));
+	//TPCam->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+>>>>>>> Stashed changes
+
+	//mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
+	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject);
+	//mAllGameObjects.push_back(playerGameObject);
+
+	mTPCam = TPCam;
 	mPlayer = playerGameObject;
+<<<<<<< Updated upstream
 	mCamera = mPlayer->GetCamera();
 	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 10000.f);
+=======
+
+	//mPlayer = (Player*)TPCam;
+	if (mCamera) {
+		delete mCamera;
+		mCamera = nullptr;
+	}
+
+	TPCam->GetCamera()->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
+	mPlayer->GetCamera()->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
+
+	if (isTP) {
+		mCamera = TPCam->GetCamera();
+	}
+	else {
+		mCamera = mPlayer->GetCamera();
+	}
+
+>>>>>>> Stashed changes
 
 	mPlayer->SetWeapon(swordGameObject);
 
@@ -1293,6 +1520,46 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 	}
 }
 
+<<<<<<< Updated upstream
+=======
+void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
+{
+	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	
+	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+	
+	// 각 렌더항목에 대해:
+	for (UINT i = 0; i < gameObjects.size(); ++i)
+	{
+		// 그리기 명령 시작
+		cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
+		cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());
+		cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+
+		cmdList->SetGraphicsRootConstantBufferView(1, 0);
+
+		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObjects[i]->GetObjCBIndex(0) * objCBByteSize;
+		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+		cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
+	}
+}
+
+void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
+{
+	//cmdList->SetPipelineState(mPSOs["ui"].Get());
+
+	for (auto v : mButtons) {
+
+		if (!v->isActive()) continue;
+
+		cmdList->DrawInstanced(6, 1, 0, 0);
+	
+
+	}
+}
+
+>>>>>>> Stashed changes
 void DummyApp::ReleseMemory()
 {
 	// clear mesh

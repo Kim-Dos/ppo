@@ -18,14 +18,9 @@ struct KeyInput
 	bool isPressedSpaceBar = false;
 	bool isPressedShift = false;
 	bool isPressedF = false;
+	bool isPressedQ = false;
+	bool isPressedE = false;
 };
-
-namespace PlayerConstance
-{
-	const float MAX_VELOCITY_WALK = 1.8f;
-	const float MAX_VELOCITY_RUN = 6.0f;
-	const float MAX_VELOCITY_FALLING = 10.0f;
-}
 
 enum class StateId : UINT
 {
@@ -73,9 +68,9 @@ public:
 	void Jump();
 	void UpdateCamera();
 
-	void KeyboardInput(float dt);
 	void OnKeyboardMessage(UINT nMessageID, WPARAM wParam);
 	void MouseInput(float dx, float dy);
+	void WheelInput(WPARAM wParam);
 
 	Camera* GetCamera() { return mCamera; }
 
@@ -99,8 +94,13 @@ public:
 	GameObject* GetWeapon() { return mWeapon; }
 
 	const float mMaxVelocityWalk = 120.0f;
+<<<<<<< Updated upstream
 	const float mMaxVelocityRun = 300.0f;
 	const float mMaxVelocityFalling = 100.0f;
+=======
+	const float mMaxVelocityRun = 300.f;
+	const float mMaxVelocityFalling = 1000.0f;
+>>>>>>> Stashed changes
 private:
 	void InitPlayer();
 
@@ -109,11 +109,19 @@ private:
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	float mAcceleration = 1000.0f;
 
+<<<<<<< Updated upstream
 	float mJumpForce = 38.0f;
 	float mGravity = 98.0f;
+=======
+	float mJumpForce = 600.0f;
+	float mGravity = 980.0f;
+	//float mGravity = 0.0f;
+>>>>>>> Stashed changes
 	bool mIsFalling = false;
 	bool mIsAttack = false;
 	float mFriction = 450.0f;
+
+	float cam_dist = 500.f;
 
 	Camera* mCamera = nullptr;
 	XMFLOAT3 mCameraOffsetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
@@ -362,3 +370,44 @@ public:
 	}
 	virtual void Exit(Player& player) override {}
 };*/
+
+class TPPlayer : public GameObject{
+public:
+	TPPlayer();
+	TPPlayer(const string name, XMMATRIX world);
+	TPPlayer(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
+	TPPlayer(const string name, XMMATRIX world, XMMATRIX texTransform);
+	~TPPlayer();
+
+	virtual void Update(const GameTimer& gt);
+	void Move(const float deltaTime);
+	void UpdateCamera();
+
+	void OnKeyboardMessage(UINT nMessageID, WPARAM wParam);
+	void MouseInput(float dx, float dy);
+	void WheelInput(WPARAM wParam);
+
+	Camera* GetCamera() { return mCamera; }
+
+	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
+	XMFLOAT3 GetVelocity() { return mVelocity; }
+	float GetAcc() { return mAcceleration; }
+
+private:
+	void InitPlayer();
+
+	float mPitch = 0.0f;
+
+	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	float mAcceleration = 1000.0f;
+
+	float mJumpForce = 600.0f;
+	//float mGravity = 980.0f;
+	float mGravity = 0.0f;
+	float mFriction = 1100.0f;
+
+	Camera* mCamera = nullptr;
+	XMFLOAT3 mCameraOffsetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
+
+	KeyInput mKeyInput;
+};

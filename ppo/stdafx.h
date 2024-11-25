@@ -13,9 +13,12 @@
 #include <malloc.h>
 #include <memory.h>
 #include <tchar.h>
+#include <iostream>
+
 #include <string>
 #include <wrl.h>
 #include <shellapi.h>
+
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <D3Dcompiler.h>
@@ -24,6 +27,11 @@
 #include <DirectXColors.h>
 #include <DirectXCollision.h>
 #include <DXGIDebug.h>
+<<<<<<< Updated upstream
+=======
+
+#include "../../Grad/GRServer/GRServer/Protocol.h"
+>>>>>>> Stashed changes
 
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -35,3 +43,4 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "dxgi.lib")
 
 #pragma comment(lib, "dxguid.lib")
+

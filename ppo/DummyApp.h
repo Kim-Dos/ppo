@@ -1,6 +1,6 @@
 #pragma once
 
-//#include "stdafx.h"
+#include "stdafx.h"
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
@@ -45,12 +45,12 @@ private:
 	virtual void Update(const GameTimer& gt)override;
 	virtual void Draw(const GameTimer& gt)override;
 
+	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 
-	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
 	void UpdateSkinnedCBs(const GameTimer& gt);
@@ -112,6 +112,15 @@ private:
 	SkinnedMesh* mSkinnedMesh;
 
 	Player* mPlayer = nullptr;
+<<<<<<< Updated upstream
+=======
+	TPPlayer* mTPCam = nullptr;
+	bool isTP = false;
+
+	GameObject* mBox = nullptr;
+	GameObject* mCutBox[2] = { nullptr, nullptr };
+	Mesh* mCutBoxMesh[2] = { nullptr, nullptr };
+>>>>>>> Stashed changes
 
 	Camera* mCamera = nullptr;
 
