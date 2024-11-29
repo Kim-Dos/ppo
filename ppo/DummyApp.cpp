@@ -587,6 +587,7 @@ void DummyApp::LoadTextures()
 {
 	std::vector<std::string> texNames =
 	{
+		"skyCubeMap",
 		"missing",
 		"vanguardDiffuse",
 		"swordDiffuse",
@@ -594,22 +595,22 @@ void DummyApp::LoadTextures()
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
 		"terrainDiffuseMap",
-		"test",
-		"skyCubeMap"
+		"test"
 	};
 	
 	std::vector<std::wstring> texFilenames =
-	{
+	{	
+		L"Textures/grasscube1024.dds",
 		L"Textures/Character Texture.dds",
-		L"Textures/Vanguard/VanguardDiffuse.dds",
+		L"Textures/Mesh/VanguardDiffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
-		L"Textures/terrainColorMap.dds",
-		L"Textures/asdfasdf.dds",
-		L"Textures/grasscube1024.dds"
+		L"Textures/Python.dds",
+		L"Textures/asdfasdf.dds"
 	};
+
 
 	for (int i = 0; i < (int)texNames.size(); ++i)
 	{
@@ -714,6 +715,19 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
 
+	// 다음 서술자로 넘어간다. skyCubeMap
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+	srvDesc.TextureCube.MostDetailedMip = 0;
+	srvDesc.TextureCube.MipLevels = skyTex->GetDesc().MipLevels;
+	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+	srvDesc.Format = skyTex->GetDesc().Format;
+	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
+
+	mSkyTexHeapIndex = 0;
+
+
 	// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
@@ -763,17 +777,9 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = test->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(test.Get(), &srvDesc, hDescriptor);
 
-	// 다음 서술자로 넘어간다. skyCubeMap
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-	srvDesc.TextureCube.MostDetailedMip = 0;
-	srvDesc.TextureCube.MipLevels = skyTex->GetDesc().MipLevels;
-	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
-	srvDesc.Format = skyTex->GetDesc().Format;
-	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
 
-	mSkyTexHeapIndex = 8;
+
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -1194,16 +1200,16 @@ void DummyApp::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
 		IID_PPV_ARGS(&mPSOs["debug"])));
 
-	// 
-	// ui
-	//
-	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyPsoDesc.pRootSignature = mRootSignature.Get();
-	skyPsoDesc.VS = {
-		reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
-	skyPsoDesc.PS = {
-		reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+	//// 
+	//// ui
+	////
+	//skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	//skyPsoDesc.pRootSignature = mRootSignature.Get();
+	//skyPsoDesc.VS = {
+	//	reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
+	//skyPsoDesc.PS = {
+	//	reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
+	//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
 }
 
 void DummyApp::BuildFrameResources()
@@ -1396,8 +1402,8 @@ void DummyApp::BuildGameObjects()
 	// Buttobn
 	// -----------------------------------------
 
-	Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
-	mButtons.push_back(test1);
+	//Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
+	//mButtons.push_back(test1);
 
 
 	mPlayer = playerGameObject;

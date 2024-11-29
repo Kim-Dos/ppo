@@ -109,10 +109,6 @@ public:
 	std::string GetName() { return mName; }
 	
 	XMFLOAT4X4 GetTexTransform() { return mTexTransform; }
-	XMFLOAT3 GetPosition();
-	XMFLOAT3 GetLook();
-	XMFLOAT3 GetUp();
-	XMFLOAT3 GetRight();
 
 	void CreateBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList);
 
@@ -143,5 +139,12 @@ private:
 	// DrawIndexedInstanced 매개변수
 	UINT mNumSubmeshes = 0;
 	DrawIndex mDrawIndex[MAX_NUM_SUBMESHES];
+
+	// draw BoundingBox
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferUploader = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferUploader = nullptr;
 };
 

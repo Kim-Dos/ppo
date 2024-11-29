@@ -32,26 +32,21 @@ ButtonPack& LobbyButton::ButtonAction()
 
 	switch (texID)
 	{
-	case CS_LOGIN:
-		CSLobbyLogin packet;
-		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogin) };
-		return *p;
-	case CS_LOGOUT:
-		CSLobbyLogOut packet;
-		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogOut) };
-		return *p;
-	case CS_QUICK_MATCHING:
-		CSClickMatching packet;
-		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSClickMatching) };
-		return *p;
-	case CS_ENTER_ROOM_CODE:
-		CSEnterRoomCode packet;
-		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSEnterRoomCode) };
-		return *p;
-	case CS_START_GAME:
-		CSStartGame packet;
-		ButtonPack* p = new ButtonPack{ &packet, sizeof(CSStartGame) };
-		return *p;
+	case CL_LOGIN:
+		LoginActing();
+		break;
+	case CL_LOGOUT:
+		LogOutActing();
+		break;
+	case CL_QUICK_MATCHING:
+		QuickMatchingActing();
+		break;
+	case CL_ENTER_ROOM_CODE:
+		EnterRoomCode();
+		break;
+	case CL_START_GAME:
+		GameStart();
+		break;
 	default:
 		printf("Other Texture\n");
 		exit(-1);
@@ -63,37 +58,37 @@ ButtonPack& LobbyButton::ButtonAction()
 
 ButtonPack& LobbyButton::LoginActing()
 {
-	CSLobbyLogin packet;
+	CLLobbyLogin packet;
 
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogin) };
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogin) };
 	return *p;
 }
 
 ButtonPack& LobbyButton::LogOutActing()
 {
-	CSLobbyLogOut packet;
+	CLLobbyLogOut packet;
 
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSLobbyLogOut) };
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogOut) };
 	return *p;
 }
 
 ButtonPack& LobbyButton::QuickMatchingActing()
 {
-	CSClickMatching packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSClickMatching) };
+	CLClickMatching packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLClickMatching) };
 	return *p;
 }
 
 ButtonPack& LobbyButton::EnterRoomCode()
 {
-	CSEnterRoomCode packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSEnterRoomCode) };
+	CLEnterRoomCode packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLEnterRoomCode) };
 	return *p;
 }
 
 ButtonPack& LobbyButton::GameStart()
 {
-	CSStartGame packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CSStartGame) };
+	CLStartGame packet;
+	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLStartGame) };
 	return *p;
 }
