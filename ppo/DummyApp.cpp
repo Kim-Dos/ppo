@@ -594,8 +594,7 @@ void DummyApp::LoadTextures()
 		"bricksDiffuseMap",
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
-		"terrainDiffuseMap",
-		"test"
+		"terrainDiffuseMap"
 	};
 	
 	std::vector<std::wstring> texFilenames =
@@ -607,8 +606,7 @@ void DummyApp::LoadTextures()
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
-		L"Textures/Python.dds",
-		L"Textures/asdfasdf.dds"
+		L"Textures/Python.dds"
 	};
 
 
@@ -619,6 +617,9 @@ void DummyApp::LoadTextures()
 		{
 			auto texMap = std::make_unique<Texture>();
 			texMap->Name = texNames[i];
+
+			//cout << texMap->Name << endl;
+			
 			texMap->Filename = texFilenames[i];
 			ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 				mCommandList.Get(), texMap->Filename.c_str(),
@@ -702,22 +703,18 @@ void DummyApp::BuildDescriptorHeaps()
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
 	auto terrainTex = mTextures["terrainDiffuseMap"]->Resource;
-	auto test = mTextures["test"]->Resource;
+	//auto test = mTextures["test"]->Resource;
 	auto skyTex = mTextures["skyCubeMap"]->Resource;
 
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = missingTex->GetDesc().Format;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = missingTex->GetDesc().MipLevels;
-	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
 
-	// 다음 서술자로 넘어간다. skyCubeMap
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
+
+	// skyCubeMap 디스크립터 생성
+	// 텍스처 큐브 디스크립터
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
 	srvDesc.TextureCube.MostDetailedMip = 0;
 	srvDesc.TextureCube.MipLevels = skyTex->GetDesc().MipLevels;
@@ -726,6 +723,25 @@ void DummyApp::BuildDescriptorHeaps()
 	md3dDevice->CreateShaderResourceView(skyTex.Get(), &srvDesc, hDescriptor);
 
 	mSkyTexHeapIndex = 0;
+
+
+
+
+
+
+	///// 2D 텍스쳐 디스크립터
+
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = missingTex->GetDesc().Format;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = missingTex->GetDesc().MipLevels;
+	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
+
+
 
 
 	// 다음 서술자로 넘어간다.
@@ -770,12 +786,12 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = terrainTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(terrainTex.Get(), &srvDesc, hDescriptor);
 
-	//// 다음 서술자로 넘어간다.
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	////// 다음 서술자로 넘어간다.
+	//hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	srvDesc.Format = test->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = test->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(test.Get(), &srvDesc, hDescriptor);
+	//srvDesc.Format = test->GetDesc().Format;
+	//srvDesc.Texture2D.MipLevels = test->GetDesc().MipLevels;
+	//md3dDevice->CreateShaderResourceView(test.Get(), &srvDesc, hDescriptor);
 
 
 
@@ -805,11 +821,11 @@ void DummyApp::BuildShadersAndInputLayout()
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders/Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders/Sky.hlsl", nullptr, "PS", "ps_5_1");
 
-	mShaders["colorVS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["colorPS"] = d3dUtil::CompileShader(L"Shaders/Color.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["colorVS"] = d3dUtil::CompileShader(L"Shaders/not light/Color.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["colorPS"] = d3dUtil::CompileShader(L"Shaders/not light/Color.hlsl", nullptr, "PS", "ps_5_1");
 
-	mShaders["UIVS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["UIPS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "PS", "ps_5_1");
+	//mShaders["UIVS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "VS", "vs_5_1");
+	//mShaders["UIPS"] = d3dUtil::CompileShader(L"Shaders/UIShader.hlsl", nullptr, "PS", "ps_5_1");
 
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1232,69 +1248,6 @@ void DummyApp::BuildMaterials()
 {
 	int matCBIndex = 0;
 
-	auto missing = std::make_unique<Material>();
-	missing->Name = "missing";
-	missing->MatCBIndex = matCBIndex++;
-	missing->DiffuseSrvHeapIndex = 0;
-	missing->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	missing->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	missing->Roughness = 1.0f;
-	
-	auto sword = std::make_unique<Material>();
-	sword->Name = "sword";
-	sword->MatCBIndex = matCBIndex++;
-	sword->DiffuseSrvHeapIndex = 1;
-	sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	sword->Roughness = 0.1f;
-
-	auto vanguard = std::make_unique<Material>();
-	vanguard->Name = "vanguardDiffuse";
-	vanguard->MatCBIndex = matCBIndex++;
-	vanguard->DiffuseSrvHeapIndex = 2;
-	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	vanguard->Roughness = 0.1f;
-
-	auto bricks0 = std::make_unique<Material>();
-	bricks0->Name = "bricks0";
-	bricks0->MatCBIndex = matCBIndex++;
-	bricks0->DiffuseSrvHeapIndex = 3;
-	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	bricks0->Roughness = 0.1f;
-
-	auto stone0 = std::make_unique<Material>();
-	stone0->Name = "stone0";
-	stone0->MatCBIndex = matCBIndex++;
-	stone0->DiffuseSrvHeapIndex = 4;
-	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	stone0->Roughness = 0.3f;
-
-	auto tile0 = std::make_unique<Material>();
-	tile0->Name = "tile0";
-	tile0->MatCBIndex = matCBIndex++;
-	tile0->DiffuseSrvHeapIndex = 5;
-	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	tile0->Roughness = 0.3f;
-
-	auto skullMat = std::make_unique<Material>();
-	skullMat->Name = "skullMat";
-	skullMat->MatCBIndex = matCBIndex++;
-	skullMat->DiffuseSrvHeapIndex = 5;
-	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	skullMat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	skullMat->Roughness = 0.3f;
-
-	auto terrainMat = std::make_unique<Material>();
-	terrainMat->Name = "terrainMat";
-	terrainMat->MatCBIndex = matCBIndex++;
-	terrainMat->DiffuseSrvHeapIndex = 6;
-	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-	terrainMat->Roughness = 0.05f;
 
 	auto sky = std::make_unique<Material>();
 	sky->Name = "sky";
@@ -1304,15 +1257,90 @@ void DummyApp::BuildMaterials()
 	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	sky->Roughness = 1.0f;
 
-	mMaterials["missing"] = std::move(missing);
-	mMaterials["sword"] = std::move(sword);
-	mMaterials["vanguard"] = std::move(vanguard);
-	mMaterials["bricks0"] = std::move(bricks0);
-	mMaterials["stone0"] = std::move(stone0);
-	mMaterials["tile0"] = std::move(tile0);
-	mMaterials["skullMat"] = std::move(skullMat);
-	mMaterials["terrainMat"] = std::move(terrainMat);
 	mMaterials["sky"] = std::move(sky);
+
+	int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
+
+	auto missing = std::make_unique<Material>();
+	missing->Name = "missing";
+	missing->MatCBIndex = matCBIndex++;
+	missing->DiffuseSrvHeapIndex = 1;
+	missing->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	missing->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	missing->Roughness = 1.0f;
+	
+	mMaterials["missing"] = std::move(missing);
+
+	auto sword = std::make_unique<Material>();
+	sword->Name = "sword";
+	sword->MatCBIndex = matCBIndex++;
+	sword->DiffuseSrvHeapIndex = 2;
+	sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	sword->Roughness = 0.1f;
+
+	mMaterials["sword"] = std::move(sword);
+
+	auto vanguard = std::make_unique<Material>();
+	vanguard->Name = "vanguardDiffuse";
+	vanguard->MatCBIndex = matCBIndex++;
+	vanguard->DiffuseSrvHeapIndex = 3;
+	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	vanguard->Roughness = 0.1f;
+
+	mMaterials["vanguard"] = std::move(vanguard);
+
+	auto bricks0 = std::make_unique<Material>();
+	bricks0->Name = "bricks0";
+	bricks0->MatCBIndex = matCBIndex++;
+	bricks0->DiffuseSrvHeapIndex = 4;
+	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	bricks0->Roughness = 0.1f;
+
+	mMaterials["bricks0"] = std::move(bricks0);
+
+	auto stone0 = std::make_unique<Material>();
+	stone0->Name = "stone0";
+	stone0->MatCBIndex = matCBIndex++;
+	stone0->DiffuseSrvHeapIndex = 5;
+	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	stone0->Roughness = 0.3f;
+
+	mMaterials["stone0"] = std::move(stone0);
+
+	auto tile0 = std::make_unique<Material>();
+	tile0->Name = "tile0";
+	tile0->MatCBIndex = matCBIndex++;
+	tile0->DiffuseSrvHeapIndex = 6;
+	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	tile0->Roughness = 0.3f;
+
+	mMaterials["tile0"] = std::move(tile0);
+
+	auto skullMat = std::make_unique<Material>();
+	skullMat->Name = "skullMat";
+	skullMat->MatCBIndex = matCBIndex++;
+	skullMat->DiffuseSrvHeapIndex = 6;
+	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	skullMat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	skullMat->Roughness = 0.3f;
+
+	mMaterials["skullMat"] = std::move(skullMat);
+
+	auto terrainMat = std::make_unique<Material>();
+	terrainMat->Name = "terrainMat";
+	terrainMat->MatCBIndex = matCBIndex++;
+	terrainMat->DiffuseSrvHeapIndex = 7;
+	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+	terrainMat->Roughness = 0.05f;
+
+	mMaterials["terrainMat"] = std::move(terrainMat);
+
 }
 
 void DummyApp::BuildGameObjects()
@@ -1482,7 +1510,7 @@ void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::ve
 
 void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
 {
-	cmdList->SetPipelineState(mPSOs["ui"].Get());
+	//cmdList->SetPipelineState(mPSOs["ui"].Get());
 
 	for (auto v : mButtons) {
 
