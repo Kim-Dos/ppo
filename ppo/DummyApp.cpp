@@ -338,6 +338,10 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
+void DummyApp::OnMouseWheel(WPARAM wheeldelta)
+{
+}
+
 bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
 	mPlayer->OnKeyboardMessage(nMessageID, wParam);
