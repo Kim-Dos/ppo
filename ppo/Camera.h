@@ -1,8 +1,5 @@
 #pragma once
-
 #include "d3dUtil.h"
-
-using namespace DirectX;
 
 class Camera
 {
@@ -94,3 +91,18 @@ private:
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 };
 
+class movingCamera : public Camera
+{
+public:
+	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
+	XMFLOAT3 GetVelocity() { return mVelocity; }
+	float GetAcc() { return mAcceleration; }
+	void Move(const float& deltatime);
+
+private:
+	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	float mAcceleration = 1000.0f;
+	float mFriction = 450.0f;
+
+	float maxSpeed = 1000.f;
+};

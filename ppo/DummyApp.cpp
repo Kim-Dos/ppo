@@ -6,6 +6,7 @@ const int gNumFrameResources = 3;
 DummyApp::DummyApp(HINSTANCE hInstance)
 	: D3DApp(hInstance)
 {
+	
 }
 
 DummyApp::~DummyApp()
@@ -57,11 +58,11 @@ void DummyApp::OnResize()
 
 	// 창의 크기가 변경되었기 때문에 종횡비를 갱신하고
 	// 투영행렬을 다시 계산한다.
-	if (!mCamera) {
-		mCamera = new Camera;
+	if (!mMainCamera) {
+		mMainCamera = new Camera;
 	}
 		
-	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 }
 
 void DummyApp::Update(const GameTimer& gt)
@@ -83,100 +84,82 @@ void DummyApp::Update(const GameTimer& gt)
 	cooltime -= gt.DeltaTime();
 	static int b = 0;
 
-	if (mPlayer->IsAttacking()) {
-		if (PhysicsHelper::CheckTransformedBoundingBoxCollision(
-			mPlayer->GetWeapon()->GetBoundingBox(), XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), 
-			mBox->GetBoundingBox(), XMLoadFloat4x4(&mBox->GetWorld())) && cooltime <= 0.0f) {
-			// 충돌했다면?
-			cooltime = 1.0f;
-
-			if (mCutBox[0]) {
-				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
-					mRenderLayer[(int)RenderLayer::Opaque].begin(), 
-					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[0]),
-					mRenderLayer[(int)RenderLayer::Opaque].end());
-				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[0]), mAllGameObjects.end());
-
-				mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
-					mRenderLayer[(int)RenderLayer::Opaque].begin(),
-					mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[1]),
-					mRenderLayer[(int)RenderLayer::Opaque].end());
-				mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[1]), mAllGameObjects.end());
-
-				delete mCutBox[0];
-				delete mCutBox[1];
-
-				mCutBox[0] = nullptr;
-				mCutBox[1] = nullptr;
-			}
-
-			b++;
-			XMFLOAT3 position;
-			XMStoreFloat3(&position, XMLoadFloat3(&mBox->GetPosition()));
-
-			vector<vector<Vertex>> vertices;
-			vector<vector<UINT>> indices;
-			
-			XMFLOAT3 normal = PhysicsHelper::GetCollisionNormal(XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), XMLoadFloat4x4(&mBox->GetWorld()));
-			// 메시 절단
-			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"], mMeshes["shapeGeo"]->mSubmeshes[0], XMFLOAT4(normal.x, normal.y, normal.z, 0.0f), vertices, indices);
-
-			// 초기화 명령을 위해 명령목록을 재설정하다.
-			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-
-			// 생성된 정점과 인덱스로 메시 생성
-			for (int i = 0; i < numMeshes; i++)
-			{
-				const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
-				const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
-
-				Mesh* geo = new Mesh;
-				geo->mName = "slicingMesh" + to_string(i);
-
-				geo->CreateBlob(vertices[i], indices[i]);
-				geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
-
-				Submesh submesh;
-				submesh.name = "box";
-				submesh.baseVertex = 0;
-				submesh.baseIndex = 0;
-				submesh.numIndices = indices[i].size();
-				geo->mSubmeshes.push_back(submesh);
-
-				mMeshes[geo->mName] = geo;
-				mCutBoxMesh[i] = geo;
-			}
-			// 초기화 명령 실행
-			ThrowIfFailed(mCommandList->Close());
-			ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-			mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-			// 초기화 명령들이 모두 처리되기 기다린다.
-			FlushCommandQueue();
-
-			int a = 7;
-
-			for (int i = 0; i < 2; i++)
-			{
-				XMFLOAT3 boxPostion;
-				XMStoreFloat3(&boxPostion, XMLoadFloat3(&position) + XMVector3Normalize(XMLoadFloat3(&normal)) * (i == 0 ? 100.0f : -100.0f));
-
-				GameObject* gameObject = new GameObject("box", XMMatrixScaling(100.f, 100.f, 100.f) * XMMatrixTranslation(boxPostion.x, boxPostion.y, boxPostion.z), XMMatrixIdentity());
-				gameObject->SetCBIndex(a);
-				string meshName = "slicingMesh" + to_string(i);
-				gameObject->SetMesh(mMeshes[meshName]);
-				gameObject->SetMaterial(mMaterials["bricks0"].get());
-				gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
-
-				gameObject->SetFrameDirty();
-				mCutBox[i] = gameObject;
-
-				mRenderLayer[(int)RenderLayer::Opaque].push_back(gameObject);
-				mAllGameObjects.push_back(gameObject);
-			}
-		}
-	}
-
+	//if (mPlayer->IsAttacking()) {
+	//	if (PhysicsHelper::CheckTransformedBoundingBoxCollision(
+	//		mPlayer->GetWeapon()->GetBoundingBox(), XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), 
+	//		mBox->GetBoundingBox(), XMLoadFloat4x4(&mBox->GetWorld())) && cooltime <= 0.0f) {
+	//		// 충돌했다면?
+	//		cooltime = 1.0f;
+	//		if (mCutBox[0]) {
+	//			mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+	//				mRenderLayer[(int)RenderLayer::Opaque].begin(), 
+	//				mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[0]),
+	//				mRenderLayer[(int)RenderLayer::Opaque].end());
+	//			mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[0]), mAllGameObjects.end());
+	//			mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
+	//				mRenderLayer[(int)RenderLayer::Opaque].begin(),
+	//				mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[1]),
+	//				mRenderLayer[(int)RenderLayer::Opaque].end());
+	//			mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[1]), mAllGameObjects.end());
+	//			delete mCutBox[0];
+	//			delete mCutBox[1];
+	//			mCutBox[0] = nullptr;
+	//			mCutBox[1] = nullptr;
+	//		}
+	//		b++;
+	//		XMFLOAT3 position;
+	//		XMStoreFloat3(&position, XMLoadFloat3(&mBox->GetPosition()));
+	//		vector<vector<Vertex>> vertices;
+	//		vector<vector<UINT>> indices;
+	//		
+	//		XMFLOAT3 normal = PhysicsHelper::GetCollisionNormal(XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), XMLoadFloat4x4(&mBox->GetWorld()));
+	//		// 메시 절단
+	//		int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"], mMeshes["shapeGeo"]->mSubmeshes[0], XMFLOAT4(normal.x, normal.y, normal.z, 0.0f), vertices, indices);
+	//		// 초기화 명령을 위해 명령목록을 재설정하다.
+	//		ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+	//		// 생성된 정점과 인덱스로 메시 생성
+	//		for (int i = 0; i < numMeshes; i++)
+	//		{
+	//			const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
+	//			const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
+	//			Mesh* geo = new Mesh;
+	//			geo->mName = "slicingMesh" + to_string(i);
+	//			geo->CreateBlob(vertices[i], indices[i]);
+	//			geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
+	//			Submesh submesh;
+	//			submesh.name = "box";
+	//			submesh.baseVertex = 0;
+	//			submesh.baseIndex = 0;
+	//			submesh.numIndices = indices[i].size();
+	//			geo->mSubmeshes.push_back(submesh);
+	//			mMeshes[geo->mName] = geo;
+	//			mCutBoxMesh[i] = geo;
+	//		}
+	//		// 초기화 명령 실행
+	//		ThrowIfFailed(mCommandList->Close());
+	//		ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+	//		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+	//		// 초기화 명령들이 모두 처리되기 기다린다.
+	//		FlushCommandQueue();
+	//		int a = 7;
+	//		for (int i = 0; i < 2; i++)
+	//		{
+	//			XMFLOAT3 boxPostion;
+	//			XMStoreFloat3(&boxPostion, XMLoadFloat3(&position) + XMVector3Normalize(XMLoadFloat3(&normal)) * (i == 0 ? 100.0f : -100.0f));
+	//			GameObject* gameObject = new GameObject("box", XMMatrixScaling(100.f, 100.f, 100.f) * XMMatrixTranslation(boxPostion.x, boxPostion.y, boxPostion.z), XMMatrixIdentity());
+	//			gameObject->SetCBIndex(a);
+	//			string meshName = "slicingMesh" + to_string(i);
+	//			gameObject->SetMesh(mMeshes[meshName]);
+	//			gameObject->SetMaterial(mMaterials["bricks0"].get());
+	//			gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
+	//			gameObject->SetFrameDirty();
+	//			mCutBox[i] = gameObject;
+	//			mRenderLayer[(int)RenderLayer::Opaque].push_back(gameObject);
+	//			mAllGameObjects.push_back(gameObject);
+	//		}
+	//	}
+	//}
+	
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
@@ -533,8 +516,8 @@ void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
 
 void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 {
-	XMMATRIX view = mCamera->GetView();
-	XMMATRIX proj = mCamera->GetProj();
+	XMMATRIX view = mMainCamera->GetView();
+	XMMATRIX proj = mMainCamera->GetProj();
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -547,11 +530,11 @@ void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	mMainPassCB.EyePosW = mCamera->GetPosition3f();
+	mMainPassCB.EyePosW = mMainCamera->GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
-	mMainPassCB.NearZ = mCamera->GetNearZ();
-	mMainPassCB.FarZ = mCamera->GetFarZ();
+	mMainPassCB.NearZ = mMainCamera->GetNearZ();
+	mMainPassCB.FarZ = mMainCamera->GetFarZ();
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 
@@ -1404,7 +1387,7 @@ void DummyApp::BuildGameObjects()
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(boxGameObject);
 	mAllGameObjects.push_back(boxGameObject);
-	mBox = boxGameObject;
+	//mBox = boxGameObject;
 
 	GameObject* swordGameObject = new GameObject("sword", XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
@@ -1439,12 +1422,12 @@ void DummyApp::BuildGameObjects()
 
 
 	mPlayer = playerGameObject;
-	if (mCamera) {
-		delete mCamera;
-		mCamera = nullptr;
+	if (mMainCamera) {
+		delete mMainCamera;
+		mMainCamera = nullptr;
 	}
-	mCamera = mPlayer->GetCamera();
-	mCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
+	mMainCamera = mPlayer->GetCamera();
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
 
 	mPlayer->SetWeapon(swordGameObject);
 
@@ -1555,9 +1538,9 @@ void DummyApp::ReleseMemory()
 		mPlayer = nullptr;
 	}*/
 
-	if (mCamera) {
-		delete mCamera;
-		mCamera = nullptr;
+	if (mMainCamera) {
+		delete mMainCamera;
+		mMainCamera = nullptr;
 	}
 }
 

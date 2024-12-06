@@ -134,11 +134,9 @@ private:
 	SkinnedMesh* mSkinnedMesh;
 
 	Player* mPlayer = nullptr;
-	GameObject* mBox = nullptr;
-	GameObject* mCutBox[2] = { nullptr, nullptr };
-	Mesh* mCutBoxMesh[2] = { nullptr, nullptr };
 
-	Camera* mCamera = nullptr;
+	Camera* mMainCamera = nullptr;
+	std::vector<Camera*> mSubCamera;
 
 	POINT mLastMousePos;
 

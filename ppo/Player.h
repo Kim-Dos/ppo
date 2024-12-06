@@ -263,6 +263,11 @@ public:
 };
 
 
+
+class TopPlayer : public Actor {
+
+};
+
 /*
 class PlayerStateIdle : public PlayerState
 {

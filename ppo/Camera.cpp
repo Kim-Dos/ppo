@@ -234,3 +234,24 @@ void Camera::UpdateViewMatrix()
 		mViewDirty = false;
 	}
 }
+
+void movingCamera::Move(const float& deltatime)
+{
+		// 최대 속도 제한
+	float Speed = Vector3::Length(mVelocity);
+	if (Speed > maxSpeed) {
+		mVelocity.x *= maxSpeed / Speed;
+		mVelocity.y *= maxSpeed / Speed;
+		mVelocity.z *= maxSpeed / Speed;
+	}
+
+	// 마찰
+	XMFLOAT3 friction;
+	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltatime);
+	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
+	mVelocity.x = (mVelocity.y >= 0.0f) ? max(0.0f, mVelocity.y + friction.y) : min(0.0f, mVelocity.y + friction.y);
+	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
+
+	// 위치 변환
+	SetPosition(Vector3::Add(GetPosition3f(), Vector3::ScalarProduct(mVelocity, deltatime, false)));
+}
