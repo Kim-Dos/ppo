@@ -137,7 +137,6 @@ private:
 
 	Camera* mMainCamera = nullptr;
 	std::vector<Camera*> mSubCamera;
-
 	POINT mLastMousePos;
 
 	UINT mSkyTexHeapIndex = 0;

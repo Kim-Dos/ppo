@@ -1,6 +1,9 @@
 #pragma once
 #include "d3dUtil.h"
 
+
+class Player;
+
 class Camera
 {
 public:
@@ -61,6 +64,14 @@ public:
 	void Pitch(float angle);
 	void RotateY(float angle);
 
+
+	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
+	XMFLOAT3 GetVelocity() { return mVelocity; }
+	float GetAcc() { return mAcceleration; }
+	void Move(const float& deltatime);
+
+	void SetPlayerDirections(Player* p);
+
 	// 시야 행렬 업데이트
 	void UpdateViewMatrix();
 
@@ -81,6 +92,12 @@ private:
 	float mNearWindowHeight = 0.0f;
 	float mFarWindowHeight = 0.0f;
 
+	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	float mAcceleration = 1000.0f;
+	float mFriction = 450.0f;
+
+	float maxSpeed = 1000.f;
+
 	bool mViewDirty = true;
 
 	XMFLOAT4X4 mOffsetMat = MathHelper::Identity4x4();
@@ -89,20 +106,4 @@ private:
 	// 시야 행렬, 투영 행렬;
 	XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
-};
-
-class movingCamera : public Camera
-{
-public:
-	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
-	XMFLOAT3 GetVelocity() { return mVelocity; }
-	float GetAcc() { return mAcceleration; }
-	void Move(const float& deltatime);
-
-private:
-	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	float mAcceleration = 1000.0f;
-	float mFriction = 450.0f;
-
-	float maxSpeed = 1000.f;
 };

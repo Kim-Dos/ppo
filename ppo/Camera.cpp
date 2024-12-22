@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Player.h"
 
 Camera::Camera()
 {
@@ -235,7 +236,7 @@ void Camera::UpdateViewMatrix()
 	}
 }
 
-void movingCamera::Move(const float& deltatime)
+void Camera::Move(const float& deltatime)
 {
 		// 최대 속도 제한
 	float Speed = Vector3::Length(mVelocity);
@@ -255,3 +256,19 @@ void movingCamera::Move(const float& deltatime)
 	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition3f(), Vector3::ScalarProduct(mVelocity, deltatime, false)));
 }
+
+void Camera::SetPlayerDirections(Player* p) {
+
+	SetPosition(XMFLOAT3(0.0f, 100.0f, 20.0f));
+
+	XMVECTOR cameraLook = XMVector3TransformNormal(XMLoadFloat3(&p->GetLook()), XMMatrixRotationAxis(XMLoadFloat3(&p->GetRight()), p->GetPitch()));
+
+	XMVECTOR playerPosition = XMLoadFloat3(&p->GetPosition()) + XMLoadFloat3(&GetPosition3f());
+	XMVECTOR cameraPosition = playerPosition - cameraLook * 500.f; // distance는 카메라와 플레이어 사이의 거리
+
+	XMMATRIX viewMatrix = XMMatrixLookAtLH(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	LookAt(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+
+	UpdateViewMatrix();
+}
+

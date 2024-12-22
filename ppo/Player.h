@@ -102,6 +102,8 @@ public:
 	void SetWeapon(GameObject* weapon) { mWeapon = weapon; }
 	GameObject* GetWeapon() { return mWeapon; }
 
+	float GetPitch() { return mPitch; }
+
 	const float mMaxVelocityWalk = 120.0f;
 	const float mMaxVelocityRun = 300.0f;
 	const float mMaxVelocityFalling = 1000.0f;
