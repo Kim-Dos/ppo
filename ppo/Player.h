@@ -105,7 +105,7 @@ public:
 	float GetPitch() { return mPitch; }
 
 	const float mMaxVelocityWalk = 120.0f;
-	const float mMaxVelocityRun = 300.0f;
+	const float mMaxVelocityRun = 1000.0f;
 	const float mMaxVelocityFalling = 1000.0f;
 private:
 	void InitPlayer();

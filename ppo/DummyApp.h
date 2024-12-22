@@ -41,6 +41,8 @@ enum class GameObjectLayer : int
 	Count
 };
 
+
+
 class DummyApp : public D3DApp
 {
 public:
@@ -65,6 +67,8 @@ private:
 	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
+
+	void CameraMove();
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
@@ -135,7 +139,13 @@ private:
 
 	Player* mPlayer = nullptr;
 
+	bool mFPSmode = true;
+	CamInput input;
+	
+	
 	Camera* mMainCamera = nullptr;
+	
+	
 	std::vector<Camera*> mSubCamera;
 	POINT mLastMousePos;
 

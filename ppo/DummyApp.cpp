@@ -1,7 +1,7 @@
-
 #include "DummyApp.h"
 
 const int gNumFrameResources = 3;
+
 
 DummyApp::DummyApp(HINSTANCE hInstance)
 	: D3DApp(hInstance)
@@ -78,7 +78,13 @@ void DummyApp::Update(const GameTimer& gt)
 		mPlayer->SetFrameDirty();
 	}
 
-	mPlayer->Update(gt);
+	if (mFPSmode) {
+		mPlayer->Update(gt);
+	}
+	else {
+		mMainCamera->Move(gt);
+		std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
+	}
 
 	static float cooltime = 1.0f;
 	cooltime -= gt.DeltaTime();
@@ -311,10 +317,15 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-		mPlayer->MouseInput(dx, dy);
+		if (mFPSmode) {
+			mPlayer->MouseInput(dx, dy);
+		}
+		else {
+			mMainCamera->Pitch(dy);
+			mMainCamera->RotateY(dx);
 
-		//mMainCamera->Pitch(dy);
-		//mMainCamera->RotateY(dx);
+			mMainCamera->UpdateViewMatrix();
+		}
 	}
 
 	mLastMousePos.x = x;
@@ -327,7 +338,13 @@ void DummyApp::OnMouseWheel(WPARAM wheeldelta)
 
 bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
-	mPlayer->OnKeyboardMessage(nMessageID, wParam);
+	if (mFPSmode) {
+		mPlayer->OnKeyboardMessage(nMessageID, wParam);
+	}
+	else {
+		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
+	}
+	//std::cout << mPlayer->GetPosition().y << std::endl;
 
 	switch (nMessageID)
 	{
@@ -337,80 +354,36 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case '1':
 			mDebugMode = !mDebugMode;
 			return(false);
-		case 'F':
-			/*
-			int a = 5;
-			XMFLOAT3 position;
-			XMStoreFloat3(&position, XMLoadFloat3(&mPlayer->GetPosition()) + XMLoadFloat3(&mPlayer->GetLook()) * 100.f);
-			auto gameObject = std::make_unique<GameObject>("box", XMMatrixScaling(50.f, 50.f, 50.f) * XMMatrixTranslation(position.x, position.y + 130.f, position.z), XMMatrixIdentity());
-			gameObject->SetCBIndex(a);
-			gameObject->SetMesh(mMeshes["shapeGeo"].get());
-			gameObject->SetMaterial(mMaterials["tile0"].get());
-			gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
-
-			gameObject->SetFrameDirty();
-
-			mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gameObject.get());
-			mAllGameObjects.push_back(std::move(gameObject));
-
-
-			vector<vector<Vertex>> vertices;
-			vector<vector<UINT>> indices;
-			int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"].get(), mMeshes["shapeGeo"].get()->mSubmeshes[0], XMFLOAT4(0.0f, 1.0f, 0.0f, 0.0f), vertices, indices);
-
-			// 초기화 명령을 위해 명령목록을 재설정하다.
-			ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-			for (int i = 0; i < numMeshes; i++)
-			{
-				const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
-				const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
-
-				auto geo = std::make_unique<Mesh>();
-				geo->mName = "slicingMesh" + to_string(i);
-
-				geo->CreateBlob(vertices[i], indices[i]);
-				geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
-
-				Submesh submesh;
-				submesh.name = "box";
-				submesh.baseVertex = 0;
-				submesh.baseIndex = 0;
-				submesh.numIndices = indices[i].size();
-				geo->mSubmeshes.push_back(submesh);
-
-				mMeshes[geo->mName] = std::move(geo);
+		case 'T':
+			if (mFPSmode) {
+				mFPSmode = false;
+				mMainCamera = mSubCamera[0];
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
 			}
-			// 초기화 명령 실행
-			ThrowIfFailed(mCommandList->Close());
-			ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-			mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-			// 초기화 명령들이 모두 처리되기 기다린다.
-			FlushCommandQueue();
-
-			for (int i = 0; i < 2; i++)
-			{
-				auto gameObject = std::make_unique<GameObject>("box", XMMatrixScaling(50.f, 50.f, 50.f) * XMMatrixTranslation(position.x + (i + 1) * 150.f, position.y + 130.f, position.z), XMMatrixIdentity());
-				gameObject->SetCBIndex(a);
-				string meshName = "slicingMesh" + to_string(i);
-				gameObject->SetMesh(mMeshes[meshName].get());
-				gameObject->SetMaterial(mMaterials["tile0"].get());
-				gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
-
-				gameObject->SetFrameDirty();
-
-				mGameObjectLayer[(int)RenderLayer::Opaque].push_back(gameObject.get());
-				mAllGameObjects.push_back(std::move(gameObject));
+			else {
+				mFPSmode = true;
+				mMainCamera = mPlayer->GetCamera();
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
 			}
-			*/
 			break;
 		}
 		break;
+
 	case WM_KEYUP:
+		switch (wParam)
+		{
+		default:
+			break;
+		}
 		break;
 	}
 
 	return(false);
+}
+
+void DummyApp::CameraMove()
+{
+
 }
 
 void DummyApp::OnKeyboardInput(const GameTimer& gt)
@@ -688,13 +661,14 @@ void DummyApp::BuildDescriptorHeaps()
 	auto missingTex = mTextures["missing"]->Resource;
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
-	auto crystalTex = mTextures["crystalDiffuse"]->Resource;
 
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
 	auto terrainTex = mTextures["terrainDiffuseMap"]->Resource;
 	
+
+	auto crystalTex = mTextures["crystalDiffuse"]->Resource;
 	//auto test = mTextures["test"]->Resource;
 	auto skyTex = mTextures["skyCubeMap"]->Resource;
 
@@ -1015,10 +989,6 @@ void DummyApp::LoadSkinnedMesh()
 		indices.push_back(mSkinnedMesh->mIndices[i]);
 	}
 
-	//
-	// 
-	// 
-	// Pack the indices of all the meshes into one index buffer.
 	mSkinnedMesh->mName = "Vanguard";
 
 	mSkinnedMesh->CreateBlob(vertices, indices);
@@ -1088,6 +1058,8 @@ void DummyApp::LoadMeshes()
 
 		crystalMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 0.f);
 		crystalMesh->LoadMesh("Models/Environment/crystal.fbx");
+		//crystalMesh->LoadMesh("Models/mech.fbx");
+
 
 		UINT vcount = 0;
 		UINT tcount = 0;
@@ -1097,7 +1069,7 @@ void DummyApp::LoadMeshes()
 		UINT dindex = 0;
 
 		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
-		XMMATRIX offsetMat = XMMatrixScaling(10.0f, 10.0f, 10.0f);
+		XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
 
 		UINT numVertices = crystalMesh->mPositions.size();
 		for (int j = 0; j < numVertices; j++)
@@ -1132,7 +1104,7 @@ void DummyApp::LoadMeshes()
 		crystalMesh->CreateBlob(vertices, indices);
 		crystalMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-		crystalMesh->mSubmeshes[0].name = "crsytal";
+		crystalMesh->mSubmeshes[0].name = "crystal";
 
 		mMeshes[crystalMesh->mName] = crystalMesh;
 	}
@@ -1142,10 +1114,10 @@ void DummyApp::LoadMeshes()
 
 void DummyApp::LoadTerrain()
 {
-	mTerrain.LoadHeightMap(L"HeightMap/heightmap.r16", 1025, 1025, 0.2f);
+	mTerrain.LoadHeightMap(L"HeightMap/1sec127.r16", 1017, 1017, 1.f);
 	
-	UINT vcount = 1025 * 1025;
-	UINT tcount = 1025 * 1025 * 2 * 3;
+	UINT vcount = 1017 * 1017;
+	UINT tcount = 1017 * 1017 * 2 * 3;
 	
 	//
 	// Pack the indices of all the meshes into one index buffer.
@@ -1154,7 +1126,7 @@ void DummyApp::LoadTerrain()
 	std::vector<Vertex> vertices(vcount);
 	std::vector<uint32_t> indices(tcount);
 
-	mTerrain.CreateTerrain(50000.0f, 50000.f, vertices, indices);
+	mTerrain.CreateTerrain(20000.0f, 20000.f, vertices, indices);
 	
 	Mesh* terrainMesh = new Mesh;
 	terrainMesh->mName = "terrain";
@@ -1294,14 +1266,14 @@ void DummyApp::BuildMaterials()
 	auto sky = std::make_unique<Material>();
 	sky->Name = "sky";
 	sky->MatCBIndex = matCBIndex++;
-	sky->DiffuseSrvHeapIndex = mSkyTexHeapIndex;
+	sky->DiffuseSrvHeapIndex = mSkyTexHeapIndex; // SkyTexHeapIndex == 0
 	sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	sky->Roughness = 1.0f;
 
 	mMaterials["sky"] = std::move(sky);
 
-	int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
+	//int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
 
 	auto missing = std::make_unique<Material>();
 	missing->Name = "missing";
@@ -1398,20 +1370,20 @@ void DummyApp::BuildMaterials()
 void DummyApp::BuildGameObjects()
 {
 	int objCBIndex = 0, skinnedCBIndex = 0;
-	Submesh submesh;
+	//Submesh submesh;
 
 	// ------------------------------------------
 	// sky sphere
 	// ------------------------------------------
-	GameObject* skyGameObject = new GameObject("sky", XMMatrixIdentity(), XMMatrixIdentity());
-	skyGameObject->SetCBIndex(objCBIndex);
-	skyGameObject->SetMesh(mMeshes["shapeGeo"]);
-	skyGameObject->SetMaterial(mMaterials["sky"].get());
-	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
+	//GameObject* skyGameObject = new GameObject("sky", XMMatrixIdentity(), XMMatrixIdentity());
+	//skyGameObject->SetCBIndex(objCBIndex);
+	//skyGameObject->SetMesh(mMeshes["shapeGeo"]);
+	//skyGameObject->SetMaterial(mMaterials["sky"].get());
+	//skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
 
-	mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
-	mAllGameObjects.push_back(skyGameObject);
+	//mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+	//mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
+	//mAllGameObjects.push_back(skyGameObject);
 
 	// ------------------------------------------
 	// terrain
@@ -1441,18 +1413,17 @@ void DummyApp::BuildGameObjects()
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
 	mAllGameObjects.push_back(gridGameObject);
 
-	//GameObject* boxGameObject = new GameObject("box", XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
-	//boxGameObject->SetCBIndex(objCBIndex);
-	//boxGameObject->SetMesh(mMeshes["shapeGeo"]);
-	//boxGameObject->SetMaterial(mMaterials["bricks0"].get());
-	//boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
-	//boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
-	//boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	GameObject* boxGameObject = new GameObject("box", XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
+	boxGameObject->SetCBIndex(objCBIndex);
+	boxGameObject->SetMesh(mMeshes["shapeGeo"]);
+	boxGameObject->SetMaterial(mMaterials["bricks0"].get());
+	boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
+	boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
+	boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	//mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
-	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(boxGameObject);
-	//mAllGameObjects.push_back(boxGameObject);
-	//mBox = boxGameObject;
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(boxGameObject);
+	mAllGameObjects.push_back(boxGameObject);
 
 	GameObject* swordGameObject = new GameObject("sword", XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
@@ -1467,7 +1438,24 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(swordGameObject);
 
 
-	GameObject* crystalGameObject = new GameObject("crystal", XMMatrixScaling(1000.0f, 1000.0f, 1000.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
+
+
+
+
+	// ------------------------------------------
+	// Skinned objects - player
+	// ------------------------------------------
+	Player* playerGameObject = new Player("skinned1", XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject->SetMesh(mMeshes["Vanguard"]);
+	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
+	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
+	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+
+	GameObject* crystalGameObject = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9999.0f, mTerrain.GetHeight(-9999.f,-9999.f), -9999.0f), XMMatrixIdentity());
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
@@ -1479,20 +1467,17 @@ void DummyApp::BuildGameObjects()
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
 	mAllGameObjects.push_back(crystalGameObject);
 
+	GameObject* crystalGameObject1 = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
+	crystalGameObject1->SetCBIndex(objCBIndex);
+	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
+	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
+	crystalGameObject1->AddSubmesh(crystalGameObject1->GetMesh()->GetSubmesh("crystal"));
+	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	crystalGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-
-	// ------------------------------------------
-	// Skinned objects - player
-	// ------------------------------------------
-	Player* playerGameObject = new Player("skinned1", XMMatrixTranslation(11000.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject->SetMesh(mMeshes["Vanguard"]);
-	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
-	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
-	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject1);
+	mAllGameObjects.push_back(crystalGameObject1);
 
 	// ------------------------------------------
 	// Buttobn
@@ -1509,13 +1494,16 @@ void DummyApp::BuildGameObjects()
 	}
 
 	Camera* m = new Camera();
-	m->SetPlayerDirections(mPlayer);
+	//m->SetPlayerDirections(mPlayer);
 	//mMainCamera = m;
+	m->SetPosition(1100.f, mTerrain.GetHeight(1000.f, 0.f)+1000, 0.f);
+	mSubCamera.push_back(m);
+	 
 	mMainCamera = mPlayer->GetCamera();
 	
 
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
 	
-	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 50000.f);
 
 	mPlayer->SetWeapon(swordGameObject);
 

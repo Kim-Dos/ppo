@@ -1,5 +1,6 @@
 #include "Camera.h"
 #include "Player.h"
+#include "GameTimer.h"
 
 Camera::Camera()
 {
@@ -115,7 +116,7 @@ void Camera::SetOffset(XMFLOAT3 position, float pitch, float yaw, float roll)
 XMMATRIX Camera::GetView() const
 {
 	// 카메라가 이동하거나 회전한 이후 업데이트되지 않은 경우
-	assert(!mViewDirty);
+	//assert(!mViewDirty);
 	return XMLoadFloat4x4(&mView);
 }
 
@@ -236,10 +237,44 @@ void Camera::UpdateViewMatrix()
 	}
 }
 
-void Camera::Move(const float& deltatime)
+void Camera::Move(const GameTimer& gt)
 {
-		// 최대 속도 제한
+	float moveY = 0, moveX = 0, moveZ = 0;
+
+	if (mKeyInput.isPressedW == true) {
+		++moveZ;
+	}
+	if (mKeyInput.isPressedS == true) {
+		--moveZ;
+	}
+
+	if (mKeyInput.isPressedD == true) {
+		++moveX;
+	}
+	if (mKeyInput.isPressedA == true) {
+		--moveX;
+	}
+
+
+	if (mKeyInput.isPressedQ == true) {
+		--moveY;
+	}
+	if (mKeyInput.isPressedE == true) {
+		++moveY;
+	}
+
+
+	XMFLOAT3 movementDir;
+	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&mLook) * moveZ) + (XMLoadFloat3(&mRight) * moveX) + (XMLoadFloat3(&mUp) * moveY)));
+
+	//SetVelocity(newVelocity);
+	
+	float deltatime = gt.DeltaTime();
+	mVelocity = Vector3::Add(mVelocity, Vector3::ScalarProduct(movementDir, mAcceleration * deltatime, false));
+
+	// 최대 속도 제한
 	float Speed = Vector3::Length(mVelocity);
+
 	if (Speed > maxSpeed) {
 		mVelocity.x *= maxSpeed / Speed;
 		mVelocity.y *= maxSpeed / Speed;
@@ -248,27 +283,71 @@ void Camera::Move(const float& deltatime)
 
 	// 마찰
 	XMFLOAT3 friction;
-	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltatime);
+	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, mVelocity.y, mVelocity.z, 0.0f)) * mFriction * deltatime);
 	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
-	mVelocity.x = (mVelocity.y >= 0.0f) ? max(0.0f, mVelocity.y + friction.y) : min(0.0f, mVelocity.y + friction.y);
+	mVelocity.y = (mVelocity.y >= 0.0f) ? max(0.0f, mVelocity.y + friction.y) : min(0.0f, mVelocity.y + friction.y);
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
 	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition3f(), Vector3::ScalarProduct(mVelocity, deltatime, false)));
-}
 
-void Camera::SetPlayerDirections(Player* p) {
-
-	SetPosition(XMFLOAT3(0.0f, 100.0f, 20.0f));
-
-	XMVECTOR cameraLook = XMVector3TransformNormal(XMLoadFloat3(&p->GetLook()), XMMatrixRotationAxis(XMLoadFloat3(&p->GetRight()), p->GetPitch()));
-
-	XMVECTOR playerPosition = XMLoadFloat3(&p->GetPosition()) + XMLoadFloat3(&GetPosition3f());
-	XMVECTOR cameraPosition = playerPosition - cameraLook * 500.f; // distance는 카메라와 플레이어 사이의 거리
-
-	XMMATRIX viewMatrix = XMMatrixLookAtLH(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
-	LookAt(cameraPosition, playerPosition, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	mViewDirty = true;
 
 	UpdateViewMatrix();
 }
 
+void Camera::OnKeyboardMessage(UINT nMessageID, WPARAM wParam)
+{
+	switch (nMessageID)
+	{
+	case WM_KEYDOWN:
+		switch (wParam)
+		{
+		case 'W':
+			mKeyInput.isPressedW = true;
+			//mVelocity = Vector3::Add(mVelocity, XMFLOAT3(0.0f, 0.f, 1.f));
+			break;
+		case 'A':
+			//mVelocity = Vector3::Add(mVelocity, XMFLOAT3(1.0f, 0.f, -1.f));
+			mKeyInput.isPressedA = true;
+			break;
+		case 'S':
+			mKeyInput.isPressedS = true;
+			break;
+		case 'D':
+			mKeyInput.isPressedD = true;
+			break;
+		case 'Q':
+			mKeyInput.isPressedQ = true;
+			break;
+		case 'E':
+			mKeyInput.isPressedE = true;
+			break;
+		}
+		break;
+	case WM_KEYUP:
+		switch (wParam)
+		{
+		case 'W':
+			mKeyInput.isPressedW = false;
+			break;
+		case 'A':
+			mKeyInput.isPressedA = false;
+			break;
+		case 'S':
+			mKeyInput.isPressedS = false;
+			break;
+		case 'D':
+			mKeyInput.isPressedD = false;
+			break;
+		case 'Q':
+			mKeyInput.isPressedQ = false;
+			break;
+		case 'E':
+			mKeyInput.isPressedE = false;
+			break;
+		}
+		break;
+	}
+	mViewDirty = true;
+}

@@ -3,6 +3,18 @@
 
 
 class Player;
+class GameTimer;
+
+
+struct CamInput
+{
+	bool isPressedW = false;
+	bool isPressedA = false;
+	bool isPressedS = false;
+	bool isPressedD = false;
+	bool isPressedQ = false;
+	bool isPressedE = false;
+};
 
 class Camera
 {
@@ -68,12 +80,17 @@ public:
 	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
 	XMFLOAT3 GetVelocity() { return mVelocity; }
 	float GetAcc() { return mAcceleration; }
-	void Move(const float& deltatime);
 
-	void SetPlayerDirections(Player* p);
+	void Move(const GameTimer& gt);
+
+	void SetMovingDirection(XMFLOAT3 Direction) { mMovingDirection = Direction; }
+	XMFLOAT3 GetMovingDirection() { return mMovingDirection; }
 
 	// 시야 행렬 업데이트
 	void UpdateViewMatrix();
+
+
+	void OnKeyboardMessage(UINT nMessageID, WPARAM wParam);
 
 private:
 	XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f };
@@ -92,11 +109,15 @@ private:
 	float mNearWindowHeight = 0.0f;
 	float mFarWindowHeight = 0.0f;
 
-	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	float mAcceleration = 1000.0f;
-	float mFriction = 450.0f;
+	XMFLOAT3 mMovingDirection = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	CamInput mKeyInput;
 
-	float maxSpeed = 1000.f;
+
+	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	float mAcceleration = 10000.0f;
+	float mFriction = 5000.f;
+
+	float maxSpeed = 10000.f;
 
 	bool mViewDirty = true;
 

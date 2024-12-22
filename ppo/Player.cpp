@@ -378,6 +378,7 @@ void OnAirPlayerState::Update(Player& player, const float deltaTime)
 	XMFLOAT3 movementDir;
 	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&player.GetLook()) * moveY) + (XMLoadFloat3(&player.GetRight()) * moveX)));
 
+
 	XMFLOAT3 newVelocity = Vector3::Add(player.GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
 	player.SetVelocity(newVelocity);
 
