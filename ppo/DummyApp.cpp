@@ -83,7 +83,7 @@ void DummyApp::Update(const GameTimer& gt)
 	}
 	else {
 		mMainCamera->Move(gt);
-		std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
+		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
 	}
 
 	static float cooltime = 1.0f;
@@ -293,25 +293,60 @@ void DummyApp::DrawBoundingBox()
 
 void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
+	mStartMousePos.x = x;
+	mStartMousePos.y = y;
+	
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
 	
-	for (auto v : mButtons) {
-		if (v->isActive() && v->isInButton(x, y))
-			v->ButtonAction();
+	if (mFPSmode) {
+		ShowCursor(false);
 	}
+	else {
+		if ((btnState & MK_LBUTTON) != 0 && (btnState & MK_RBUTTON) == 0) {
+			ShowCursor(true);
+			std::cout << x << ", " << y << std::endl;
+		}
+		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
+		else {
+			ShowCursor(false);
+		}
+
+	}
+
+	//for (auto v : mButtons) {
+	//	if (v->isActive() && v->isInButton(x, y))
+	//		v->ButtonAction();
+	//}
+
+
 
 	SetCapture(mhMainWnd);
 }
 
 void DummyApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
+	
+
+	if (mFPSmode) {
+
+	}
+	else {
+		mLastMousePos.x = x;
+		mLastMousePos.y = y;
+		std::cout << x << ", " << y << std::endl;
+		ShowCursor(false);
+		//드래그 이벤트 입력
+		DragEvent();
+	}
+
 	ReleaseCapture();
+
 }
 
 void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
-	if ((btnState & MK_LBUTTON) != 0)
+	if ((btnState & MK_RBUTTON) != 0)
 	{
 		// Make each pixel correspond to a quarter of a degree.
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
@@ -326,12 +361,40 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 			mMainCamera->UpdateViewMatrix();
 		}
+
+		mLastMousePos.x = x;
+		mLastMousePos.y = y;
 	}
 
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
+
 }
 
+void DummyApp::DragEvent()
+{
+
+		XMMATRIX viewMatrix = XMMatrixIdentity(); // 예시로 아이덴티티 행렬 사용
+		XMMATRIX projMatrix = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.0f);
+
+		XMVECTOR worldCoords1 = MathHelper::ScreenToWorld(mStartMousePos.x, mStartMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
+		XMVECTOR worldCoords2 = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
+
+
+		float minX = min(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
+		float maxX = max(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
+		float minZ = min(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
+		float maxZ = max(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
+
+		for (const auto& obj : mAllGameObjects) {
+			float objX = obj->GetPosition().x;
+			float objZ = obj->GetPosition().z;
+
+			if (objX >= minX && objX <= maxX && objZ >= minZ && objZ <= maxZ) {
+				//이벤트
+			}
+		}
+
+
+}
 void DummyApp::OnMouseWheel(WPARAM wheeldelta)
 {
 }
@@ -381,10 +444,6 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	return(false);
 }
 
-void DummyApp::CameraMove()
-{
-
-}
 
 void DummyApp::OnKeyboardInput(const GameTimer& gt)
 {
@@ -1455,7 +1514,7 @@ void DummyApp::BuildGameObjects()
 	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 
-	GameObject* crystalGameObject = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9999.0f, mTerrain.GetHeight(-9999.f,-9999.f), -9999.0f), XMMatrixIdentity());
+	GameObject* crystalGameObject = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-3000.0f, mTerrain.GetHeight(-3000.f,-9000.f), -9000.0f), XMMatrixIdentity());
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());

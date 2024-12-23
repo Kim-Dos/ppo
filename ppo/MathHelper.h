@@ -96,6 +96,7 @@ public:
 
     static DirectX::XMVECTOR RandUnitVec3();
     static DirectX::XMVECTOR RandHemisphereUnitVec3(XMVECTOR n);
+	static DirectX::XMVECTOR ScreenToWorld(int screenX, int screenY, int screenWidth, int screenHeight, const XMMATRIX& viewMatrix, const XMMATRIX& projMatrix);
 
 	static const float Infinity;
 	static const float Pi;
@@ -109,6 +110,8 @@ inline bool IsZero(float fValue) { return((fabsf(fValue) < EPSILON)); }
 inline bool IsEqual(float fA, float fB) { return(::IsZero(fA - fB)); }
 inline float InverseSqrt(float fValue) { return 1.0f / sqrtf(fValue); }
 inline void Swap(float* pfS, float* pfT) { float fTemp = *pfS; *pfS = *pfT; *pfT = fTemp; }
+
+
 
 namespace Vector3
 {

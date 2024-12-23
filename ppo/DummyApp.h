@@ -68,7 +68,7 @@ private:
 	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 
-	void CameraMove();
+	void DragEvent();
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
@@ -125,6 +125,9 @@ private:
 	//std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 	std::vector<GameObject*> mAllGameObjects;
 
+	std::vector<GameObject*> mPickingObjects;
+	bool mPicking = false;
+
 	std::vector<Button*>mButtons;
 
 	//std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
@@ -147,7 +150,9 @@ private:
 	
 	
 	std::vector<Camera*> mSubCamera;
+	POINT mStartMousePos;
 	POINT mLastMousePos;
+
 
 	UINT mSkyTexHeapIndex = 0;
 };

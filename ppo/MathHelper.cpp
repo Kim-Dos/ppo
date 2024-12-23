@@ -11,6 +11,27 @@ using namespace DirectX;
 const float MathHelper::Infinity = FLT_MAX;
 const float MathHelper::Pi       = 3.1415926535f;
 
+XMVECTOR MathHelper::ScreenToWorld(int screenX, int screenY, int screenWidth, int screenHeight, const XMMATRIX& viewMatrix, const XMMATRIX& projMatrix)
+{
+	// 스크린 좌표를 뷰포트 좌표로 변환
+	float vx = (2.0f * screenX / screenWidth) - 1.0f;
+	float vy = 1.0f - (2.0f * screenY / screenHeight);
+
+	// 뷰포트 좌표를 클립 좌표로 변환
+	XMVECTOR clipCoords = XMVectorSet(vx, vy, 1.0f, 1.0f);
+
+	// 클립 좌표를 뷰 좌표로 변환
+	XMMATRIX invProj = XMMatrixInverse(nullptr, projMatrix);
+	XMVECTOR viewCoords = XMVector4Transform(clipCoords, invProj);
+	viewCoords = XMVectorSetZ(viewCoords, 1.0f);  // 클립 좌표에서 Z를 1.0으로 설정
+
+	// 뷰 좌표를 월드 좌표로 변환
+	XMMATRIX invView = XMMatrixInverse(nullptr, viewMatrix);
+	XMVECTOR worldCoords = XMVector3TransformCoord(viewCoords, invView);
+
+	return worldCoords;
+}
+
 float MathHelper::AngleFromXY(float x, float y)
 {
 	float theta = 0.0f;
@@ -80,3 +101,5 @@ XMVECTOR MathHelper::RandHemisphereUnitVec3(XMVECTOR n)
 		return XMVector3Normalize(v);
 	}
 }
+
+
