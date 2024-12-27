@@ -55,14 +55,14 @@ void Player::ChangeUpperState(PlayerState* nextState)
 	mCurrentUpperState->Enter(*this);
 }
 
-Player::Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : 
-    GameObject(name, world, texTransform)
+Player::Player(const string name, ObjectsType type, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) :
+    GameObject(name, type, world, texTransform)
 {
 	InitPlayer();
 }
 
-Player::Player(const string name, XMMATRIX world, XMMATRIX texTransform) :
-    GameObject(name, world, texTransform)
+Player::Player(const string name, ObjectsType type, XMMATRIX world, XMMATRIX texTransform) :
+    GameObject(name, type, world, texTransform)
 {
 	InitPlayer();
 }
@@ -258,6 +258,17 @@ void Player::MouseInput(float dx, float dy)
 	float maxPitchRaidan = XMConvertToRadians(MAX_PLAYER_CAMERA_PITCH);
 	mPitch += dy;
 	mPitch = (mPitch < -maxPitchRaidan) ? -maxPitchRaidan : (maxPitchRaidan < mPitch) ? maxPitchRaidan : mPitch;
+}
+
+void Player::ResetKeyInput()
+{
+	mKeyInput.isPressedW = false;
+	mKeyInput.isPressedA = false;
+	mKeyInput.isPressedS = false;
+	mKeyInput.isPressedD = false;
+	mKeyInput.isPressedF = false;
+	mKeyInput.isPressedShift = false;
+	mKeyInput.isPressedSpaceBar = false;
 }
 
 vector<string> Player::GetAnimationName()

@@ -6,13 +6,13 @@ GameObject::GameObject() : Actor()
 {
 }
 
-GameObject::GameObject(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : Actor(name, world)
+GameObject::GameObject(const string name, ObjectsType type, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : Actor(name, world, type)
 {
 
     mTexTransform = texTransform;
 }
 
-GameObject::GameObject(const string name, XMMATRIX world, XMMATRIX texTransform) : Actor(name, world)
+GameObject::GameObject(const string name, ObjectsType type, XMMATRIX world, XMMATRIX texTransform) : Actor(name, world, type)
 {
 
     XMStoreFloat4x4(&mTexTransform, texTransform);

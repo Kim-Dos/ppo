@@ -63,8 +63,8 @@ class Player : public GameObject
 {
 public:
 	Player();
-	Player(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
-	Player(const string name, XMMATRIX world, XMMATRIX texTransform);
+	Player(const string name, ObjectsType type, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
+	Player(const string name, ObjectsType type, XMMATRIX world, XMMATRIX texTransform);
 	~Player();
 
 	virtual void Update(const GameTimer& gt);
@@ -76,6 +76,9 @@ public:
 	void KeyboardInput(float dt);
 	void OnKeyboardMessage(UINT nMessageID, WPARAM wParam);
 	void MouseInput(float dx, float dy);
+
+	void ResetKeyInput();
+
 
 	Camera* GetCamera() { return mCamera; }
 

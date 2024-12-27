@@ -67,10 +67,11 @@ void DummyApp::OnResize()
 
 void DummyApp::Update(const GameTimer& gt)
 {
-	OnKeyboardInput(gt);
+	//OnKeyboardInput(gt);
 
 	float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 	//DebugPrint("height: %f\n", terrainY);
+	//std::cout << terrainY << std::endl;
 	if (mPlayer->GetPosition().y < terrainY) {
 		mPlayer->SetPosition(mPlayer->GetPosition().x, terrainY, mPlayer->GetPosition().z);
 		mPlayer->SetVelocity(XMFLOAT3(mPlayer->GetVelocity().x, 0.0f, mPlayer->GetVelocity().z));
@@ -82,6 +83,12 @@ void DummyApp::Update(const GameTimer& gt)
 		mPlayer->Update(gt);
 	}
 	else {
+
+		if (mRoateFlag) ShowCursor(false);
+		else ShowCursor(true);
+
+		mPlayer->ResetKeyInput();
+		mPlayer->Update(gt);
 		mMainCamera->Move(gt);
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
 	}
@@ -304,12 +311,14 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 	}
 	else {
 		if (msg == WM_RBUTTONDOWN) {
-			ShowCursor(true);
+			ShowCursor(false);
+			mRoateFlag = true;
 			std::cout << x << ", " << y << std::endl;
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
-		else {
-			ShowCursor(false);
+		else if (msg == WM_LBUTTONDOWN){
+			mDragFlag = true;
+			
 		}
 
 	}
@@ -334,9 +343,16 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 	else {
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
-		ShowCursor(false);
-		//드래그 이벤트 입력
-		DragEvent();
+
+		mRoateFlag = false;
+		ShowCursor(true);
+		if (msg == WM_LBUTTONUP) {
+			mDragFlag = false;
+			ShowCursor(true);
+			std::cout << "BUTTON UP" << std::endl;
+			//드래그 이벤트 입력
+			DragEvent();
+		}
 	}
 
 	ReleaseCapture();
@@ -384,7 +400,8 @@ void DummyApp::DragEvent()
 
 	mGameObjectLayer[(int)GameObjectLayer::Picking].clear();
 
-	for (const auto& obj : mAllGameObjects) {
+	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object]) {
+		cout << obj->GetName() << endl;
 		float objX = obj->GetPosition().x;
 		float objZ = obj->GetPosition().z;
 
@@ -394,7 +411,7 @@ void DummyApp::DragEvent()
 		}
 	}
 
-	std::cout << mGameObjectLayer[(int)GameObjectLayer::Picking].size() << std::endl;
+	//std::cout << mGameObjectLayer[(int)GameObjectLayer::Picking].size() << std::endl;
 
 	for (auto x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
 		std::cout << x->GetName() << std::endl;
@@ -412,6 +429,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		mPlayer->OnKeyboardMessage(nMessageID, wParam);
 	}
 	else {
+		
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
 	
@@ -427,12 +445,13 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 			if (mFPSmode) {
 				mFPSmode = false;
 				mMainCamera = mSubCamera[0];
-				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
 			else {
 				mFPSmode = true;
+				mPlayer->ResetKeyInput();
 				mMainCamera = mPlayer->GetCamera();
-				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
 			break;
 		}
@@ -613,7 +632,6 @@ void DummyApp::LoadTextures()
 	std::vector<std::string> texNames =
 	{
 		"skyCubeMap",
-		"missing",
 		"vanguardDiffuse",
 		"swordDiffuse",
 		"bricksDiffuseMap",
@@ -625,15 +643,14 @@ void DummyApp::LoadTextures()
 	
 	std::vector<std::wstring> texFilenames =
 	{	
-		L"Textures/grasscube1024.dds",
-		L"Textures/Character Texture.dds",
-		L"Textures/Mesh/VanguardDiffuse.dds",
+		L"Textures/Environment/grasscube1024.dds",
+		L"Textures/Character/VanguardDiffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
-		L"Textures/Python.dds",
-		L"Textures/crystal.dds"
+		L"Textures/Environment/Python.dds",
+		L"Textures/Environment/crystal.dds"
 	};
 
 
@@ -723,7 +740,6 @@ void DummyApp::BuildDescriptorHeaps()
 	// 힙의 시작을 가리키는 포인터를 얻는다.
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-	auto missingTex = mTextures["missing"]->Resource;
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 
@@ -755,19 +771,11 @@ void DummyApp::BuildDescriptorHeaps()
 
 
 
-	///// 2D 텍스쳐 디스크립터
+	///// 2D 텍스쳐 디스크립터 기본
 
-
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = missingTex->GetDesc().Format;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = missingTex->GetDesc().MipLevels;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	md3dDevice->CreateShaderResourceView(missingTex.Get(), &srvDesc, hDescriptor);
-
-
 
 
 	// 다음 서술자로 넘어간다.
@@ -994,20 +1002,20 @@ void DummyApp::LoadSkinnedMesh()
 	mSkinnedMesh = new SkinnedMesh;
 
 	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-	mSkinnedMesh->LoadMesh("Models/Vanguard/Vanguard.fbx");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Idle.fbx", "Idle");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/WalkForward.fbx", "WalkForward");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/WalkBack.fbx", "WalkBack");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeRight1.fbx", "WalkRight1");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeRight2.fbx", "WalkRight2");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeLeft1.fbx", "WalkLeft1");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/StrafeLeft2.fbx", "WalkLeft2");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/RunForward.fbx", "RunForward");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Jump.fbx", "Jump");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Falling.fbx", "Falling");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/Landing.fbx", "Landing");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-	mSkinnedMesh->LoadAnimation("Models/Vanguard/Animations/MeleeAttack2.fbx", "MeleeAttack2");
+	mSkinnedMesh->LoadMesh("Models/Character/Vanguard.fbx");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
 	UINT vcount = 0;
 	UINT tcount = 0;
@@ -1326,6 +1334,7 @@ void DummyApp::BuildFrameResources()
 void DummyApp::BuildMaterials()
 {
 	int matCBIndex = 0;
+	int SRVIndex = 1;
 
 
 	auto sky = std::make_unique<Material>();
@@ -1340,20 +1349,10 @@ void DummyApp::BuildMaterials()
 
 	//int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
 
-	auto missing = std::make_unique<Material>();
-	missing->Name = "missing";
-	missing->MatCBIndex = matCBIndex++;
-	missing->DiffuseSrvHeapIndex = 1;
-	missing->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	missing->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	missing->Roughness = 1.0f;
-	
-	mMaterials["missing"] = std::move(missing);
-
 	auto sword = std::make_unique<Material>();
 	sword->Name = "sword";
 	sword->MatCBIndex = matCBIndex++;
-	sword->DiffuseSrvHeapIndex = 2;
+	sword->DiffuseSrvHeapIndex = SRVIndex++;
 	sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	sword->Roughness = 0.1f;
@@ -1363,7 +1362,7 @@ void DummyApp::BuildMaterials()
 	auto vanguard = std::make_unique<Material>();
 	vanguard->Name = "vanguardDiffuse";
 	vanguard->MatCBIndex = matCBIndex++;
-	vanguard->DiffuseSrvHeapIndex = 3;
+	vanguard->DiffuseSrvHeapIndex = SRVIndex++;
 	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	vanguard->Roughness = 0.1f;
@@ -1373,7 +1372,7 @@ void DummyApp::BuildMaterials()
 	auto bricks0 = std::make_unique<Material>();
 	bricks0->Name = "bricks0";
 	bricks0->MatCBIndex = matCBIndex++;
-	bricks0->DiffuseSrvHeapIndex = 4;
+	bricks0->DiffuseSrvHeapIndex = SRVIndex++;
 	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
@@ -1383,7 +1382,7 @@ void DummyApp::BuildMaterials()
 	auto stone0 = std::make_unique<Material>();
 	stone0->Name = "stone0";
 	stone0->MatCBIndex = matCBIndex++;
-	stone0->DiffuseSrvHeapIndex = 5;
+	stone0->DiffuseSrvHeapIndex = SRVIndex++;
 	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
@@ -1393,27 +1392,17 @@ void DummyApp::BuildMaterials()
 	auto tile0 = std::make_unique<Material>();
 	tile0->Name = "tile0";
 	tile0->MatCBIndex = matCBIndex++;
-	tile0->DiffuseSrvHeapIndex = 6;
+	tile0->DiffuseSrvHeapIndex = SRVIndex++;
 	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	tile0->Roughness = 0.3f;
 
 	mMaterials["tile0"] = std::move(tile0);
 
-	auto skullMat = std::make_unique<Material>();
-	skullMat->Name = "skullMat";
-	skullMat->MatCBIndex = matCBIndex++;
-	skullMat->DiffuseSrvHeapIndex = 6;
-	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	skullMat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	skullMat->Roughness = 0.3f;
-
-	mMaterials["skullMat"] = std::move(skullMat);
-
 	auto terrainMat = std::make_unique<Material>();
 	terrainMat->Name = "terrainMat";
 	terrainMat->MatCBIndex = matCBIndex++;
-	terrainMat->DiffuseSrvHeapIndex = 7;
+	terrainMat->DiffuseSrvHeapIndex = SRVIndex++;
 	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
 	terrainMat->Roughness = 0.05f;
@@ -1423,7 +1412,7 @@ void DummyApp::BuildMaterials()
 	auto crystal = std::make_unique<Material>();
 	crystal->Name = "crystal";
 	crystal->MatCBIndex = matCBIndex++;
-	crystal->DiffuseSrvHeapIndex = 8;
+	crystal->DiffuseSrvHeapIndex = SRVIndex++;
 	crystal->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	crystal->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	crystal->Roughness = 0.1f;
@@ -1440,27 +1429,27 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// sky sphere
 	// ------------------------------------------
-	//GameObject* skyGameObject = new GameObject("sky", XMMatrixIdentity(), XMMatrixIdentity());
-	//skyGameObject->SetCBIndex(objCBIndex);
-	//skyGameObject->SetMesh(mMeshes["shapeGeo"]);
-	//skyGameObject->SetMaterial(mMaterials["sky"].get());
-	//skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
+	GameObject* skyGameObject = new GameObject("sky", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
+	skyGameObject->SetCBIndex(objCBIndex);
+	skyGameObject->SetMesh(mMeshes["shapeGeo"]);
+	skyGameObject->SetMaterial(mMaterials["sky"].get());
+	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
 
-	//mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
-	//mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
-	//mAllGameObjects.push_back(skyGameObject);
+	mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
+	mAllGameObjects.push_back(skyGameObject);
 
 	// ------------------------------------------
 	// terrain
 	// ------------------------------------------
-	GameObject* terrainGameObject = new GameObject("terrain", XMMatrixIdentity(), XMMatrixIdentity());
+	GameObject* terrainGameObject = new GameObject("terrain", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
 	terrainGameObject->SetCBIndex(objCBIndex);
 	terrainGameObject->SetMesh(mMeshes["terrain"]);
 	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
 	terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Terrain].push_back(terrainGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(terrainGameObject);
 	mAllGameObjects.push_back(terrainGameObject);
 
 	// ------------------------------------------
@@ -1478,19 +1467,19 @@ void DummyApp::BuildGameObjects()
 	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
 	//mAllGameObjects.push_back(gridGameObject);
 
-	GameObject* boxGameObject = new GameObject("box", XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
+	GameObject* boxGameObject = new GameObject("box", ObjectsType::ENVIRONMENT,XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
 	boxGameObject->SetCBIndex(objCBIndex);
 	boxGameObject->SetMesh(mMeshes["shapeGeo"]);
 	boxGameObject->SetMaterial(mMaterials["bricks0"].get());
 	boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
 	boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
 	boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
+	 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(boxGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(boxGameObject);
 	mAllGameObjects.push_back(boxGameObject);
 
-	GameObject* swordGameObject = new GameObject("sword", XMMatrixIdentity(), XMMatrixIdentity());
+	GameObject* swordGameObject = new GameObject("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
 	swordGameObject->SetMaterial(mMaterials["sword"].get());
@@ -1499,18 +1488,14 @@ void DummyApp::BuildGameObjects()
 	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(swordGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
 	mAllGameObjects.push_back(swordGameObject);
-
-
-
-
 
 
 	// ------------------------------------------
 	// Skinned objects - player
 	// ------------------------------------------
-	Player* playerGameObject = new Player("skinned1", XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	Player* playerGameObject = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
 	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject->SetMesh(mMeshes["Vanguard"]);
 	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
@@ -1520,7 +1505,7 @@ void DummyApp::BuildGameObjects()
 	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 
-	GameObject* crystalGameObject = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-3000.0f, mTerrain.GetHeight(-3000.f,-9000.f), -9000.0f), XMMatrixIdentity());
+	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f,-9000.f), -9000.0f), XMMatrixIdentity());
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
@@ -1532,7 +1517,7 @@ void DummyApp::BuildGameObjects()
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
 	mAllGameObjects.push_back(crystalGameObject);
 
-	GameObject* crystalGameObject1 = new GameObject("crystal", XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
+	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
 	crystalGameObject1->SetCBIndex(objCBIndex);
 	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
@@ -1561,13 +1546,14 @@ void DummyApp::BuildGameObjects()
 	Camera* m = new Camera();
 	//m->SetPlayerDirections(mPlayer);
 	//mMainCamera = m;
-	m->SetPosition(1100.f, mTerrain.GetHeight(1000.f, 0.f)+1000, 0.f);
+	m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
+	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
 	mMainCamera = mPlayer->GetCamera();
 	
 
-	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.f);
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 	
 
 	mPlayer->SetWeapon(swordGameObject);

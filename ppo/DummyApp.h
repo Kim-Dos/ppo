@@ -36,7 +36,7 @@ enum class RenderLayer : int
 enum class GameObjectLayer : int
 {
 	Sky = 0,
-	Terrain,
+	Environment,
 	Object,
 	Picking,
 	Count
@@ -128,6 +128,9 @@ private:
 
 	std::vector<GameObject*> mPickingObjects;
 	bool mPicking = false;
+
+	bool mRoateFlag = false;
+	bool mDragFlag = false;
 
 	std::vector<Button*>mButtons;
 

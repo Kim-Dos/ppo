@@ -5,16 +5,18 @@ Actor::Actor()
 {
 }
 
-Actor::Actor(const string name, XMFLOAT4X4 world)
+Actor::Actor(const string name, XMFLOAT4X4 world, ObjectsType type)
 {
     mName = name;
     mWorld = world;
+    mObjectType = type;
 }
 
-Actor::Actor(const string name, XMMATRIX world)
+Actor::Actor(const string name, XMMATRIX world, ObjectsType type)
 {
     mName = name;
     XMStoreFloat4x4(&mWorld, world);
+    mObjectType = type;
 }
 
 Actor::~Actor()

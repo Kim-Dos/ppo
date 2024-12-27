@@ -197,7 +197,9 @@
     <FxCompile Include="Shaders\UIShader.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-    <FxCompile Include="Shaders\not light\Color.hlsl" />
+    <FxCompile Include="Shaders\not light\Color.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

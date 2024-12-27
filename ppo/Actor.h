@@ -7,8 +7,8 @@
 class Actor {
 public:
 	Actor();
-	Actor(const string name, XMFLOAT4X4 world);
-	Actor(const string name, XMMATRIX world);
+	Actor(const string name, XMFLOAT4X4 world, ObjectsType type);
+	Actor(const string name, XMMATRIX world, ObjectsType type);
 	~Actor();
 
 	virtual void Update(const GameTimer& gt);
@@ -54,6 +54,8 @@ protected:
 	// NumFramesDirty = gNumFrameResources로 설정해야 한다.
 	// 그래야 각각의 프레임 자원이 갱신된다.
 	int mNumFramesDirty = gNumFrameResources;
+
+	ObjectsType mObjectType;
 
 
 };

@@ -19,8 +19,8 @@ class GameObject : public Actor
 {
 public:
     GameObject();
-    GameObject(const string name, XMFLOAT4X4 world, XMFLOAT4X4 texTransform);
-	GameObject(const string name, XMMATRIX world, XMMATRIX texTransform);
+    GameObject(const string name, ObjectsType type, XMFLOAT4X4 world, XMFLOAT4X4 texTransform );
+	GameObject(const string name, ObjectsType type, XMMATRIX world, XMMATRIX texTransform);
 	~GameObject();
 
 	virtual void Update(const GameTimer& gt);

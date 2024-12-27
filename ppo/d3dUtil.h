@@ -32,6 +32,15 @@
 
 extern const int gNumFrameResources;
 
+enum class ObjectsType : int
+{
+	NONE = 0,
+	ENVIRONMENT,
+	CHARACTER,
+	WEAPON,
+	BUILDING
+};
+
 inline void DebugPrint(const char* format, ...) {
 	va_list args;
 	va_start(args, format);
