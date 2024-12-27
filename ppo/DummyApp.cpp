@@ -291,7 +291,7 @@ void DummyApp::DrawBoundingBox()
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
 }
 
-void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
+void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 {
 	mStartMousePos.x = x;
 	mStartMousePos.y = y;
@@ -303,7 +303,7 @@ void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
 		ShowCursor(false);
 	}
 	else {
-		if ((btnState & MK_LBUTTON) != 0 && (btnState & MK_RBUTTON) == 0) {
+		if (msg == WM_RBUTTONDOWN) {
 			ShowCursor(true);
 			std::cout << x << ", " << y << std::endl;
 		}
@@ -324,7 +324,7 @@ void DummyApp::OnMouseDown(WPARAM btnState, int x, int y)
 	SetCapture(mhMainWnd);
 }
 
-void DummyApp::OnMouseUp(WPARAM btnState, int x, int y)
+void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 {
 	
 
@@ -334,7 +334,6 @@ void DummyApp::OnMouseUp(WPARAM btnState, int x, int y)
 	else {
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
-		std::cout << x << ", " << y << std::endl;
 		ShowCursor(false);
 		//드래그 이벤트 입력
 		DragEvent();
@@ -371,27 +370,35 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 void DummyApp::DragEvent()
 {
+	XMMATRIX viewMatrix = mMainCamera->GetView(); // 예시로 아이덴티티 행렬 사용
+	XMMATRIX projMatrix = mMainCamera->GetProj();
 
-		XMMATRIX viewMatrix = XMMatrixIdentity(); // 예시로 아이덴티티 행렬 사용
-		XMMATRIX projMatrix = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 20000.0f);
-
-		XMVECTOR worldCoords1 = MathHelper::ScreenToWorld(mStartMousePos.x, mStartMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
-		XMVECTOR worldCoords2 = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
+	XMVECTOR worldCoords1 = MathHelper::ScreenToWorld(mStartMousePos.x, mStartMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
+	XMVECTOR worldCoords2 = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
 
 
-		float minX = min(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
-		float maxX = max(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
-		float minZ = min(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
-		float maxZ = max(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
+	float minX = min(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
+	float maxX = max(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
+	float minZ = min(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
+	float maxZ = max(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
 
-		for (const auto& obj : mAllGameObjects) {
-			float objX = obj->GetPosition().x;
-			float objZ = obj->GetPosition().z;
+	mGameObjectLayer[(int)GameObjectLayer::Picking].clear();
 
-			if (objX >= minX && objX <= maxX && objZ >= minZ && objZ <= maxZ) {
-				//이벤트
-			}
+	for (const auto& obj : mAllGameObjects) {
+		float objX = obj->GetPosition().x;
+		float objZ = obj->GetPosition().z;
+
+		if (objX >= minX && objX <= maxX && objZ >= minZ && objZ <= maxZ) {
+			//이벤트
+			mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(obj);
 		}
+	}
+
+	std::cout << mGameObjectLayer[(int)GameObjectLayer::Picking].size() << std::endl;
+
+	for (auto x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+		std::cout << x->GetName() << std::endl;
+	}
 
 
 }
@@ -407,8 +414,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	else {
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
-	//std::cout << mPlayer->GetPosition().y << std::endl;
-
+	
 	switch (nMessageID)
 	{
 	case WM_KEYDOWN:
@@ -1460,17 +1466,17 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
-	gridGameObject->SetCBIndex(objCBIndex);
-	gridGameObject->SetMesh(mMeshes["shapeGeo"]);
-	gridGameObject->SetMaterial(mMaterials["tile0"].get());
-	gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
-	gridGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(10.0f, 1.0f, 15.0f));
-	gridGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	//GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
+	//gridGameObject->SetCBIndex(objCBIndex);
+	//gridGameObject->SetMesh(mMeshes["shapeGeo"]);
+	//gridGameObject->SetMaterial(mMaterials["tile0"].get());
+	//gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
+	//gridGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(10.0f, 1.0f, 15.0f));
+	//gridGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
-	mAllGameObjects.push_back(gridGameObject);
+	//mRenderLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
+	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
+	//mAllGameObjects.push_back(gridGameObject);
 
 	GameObject* boxGameObject = new GameObject("box", XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
 	boxGameObject->SetCBIndex(objCBIndex);

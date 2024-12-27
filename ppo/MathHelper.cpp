@@ -13,23 +13,37 @@ const float MathHelper::Pi       = 3.1415926535f;
 
 XMVECTOR MathHelper::ScreenToWorld(int screenX, int screenY, int screenWidth, int screenHeight, const XMMATRIX& viewMatrix, const XMMATRIX& projMatrix)
 {
-	// 스크린 좌표를 뷰포트 좌표로 변환
-	float vx = (2.0f * screenX / screenWidth) - 1.0f;
-	float vy = 1.0f - (2.0f * screenY / screenHeight);
+	float ndcX = (2.0f * screenX) / screenWidth - 1.0f;
+	float ndcY = 1.0f - (2.0f * screenY) / screenHeight;
 
-	// 뷰포트 좌표를 클립 좌표로 변환
-	XMVECTOR clipCoords = XMVectorSet(vx, vy, 1.0f, 1.0f);
+	// near plane과 살짝 더 먼 거리만 사용
+	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.1f, 1.0f);    // near plane
+	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 20000.f, 1.0f);    // 1.0f에서 0.1f로 변경
 
-	// 클립 좌표를 뷰 좌표로 변환
-	XMMATRIX invProj = XMMatrixInverse(nullptr, projMatrix);
-	XMVECTOR viewCoords = XMVector4Transform(clipCoords, invProj);
-	viewCoords = XMVectorSetZ(viewCoords, 1.0f);  // 클립 좌표에서 Z를 1.0으로 설정
+	XMMATRIX invViewProj = XMMatrixInverse(nullptr, XMMatrixMultiply(viewMatrix, projMatrix));
+	XMVECTOR worldRayOrigin = XMVector3TransformCoord(rayOrigin, invViewProj);
+	XMVECTOR worldRayTarget = XMVector3TransformCoord(rayTarget, invViewProj);
 
-	// 뷰 좌표를 월드 좌표로 변환
-	XMMATRIX invView = XMMatrixInverse(nullptr, viewMatrix);
-	XMVECTOR worldCoords = XMVector3TransformCoord(viewCoords, invView);
+	XMVECTOR rayDirection = XMVector3Normalize(XMVectorSubtract(worldRayTarget, worldRayOrigin));
 
-	return worldCoords;
+	float dirY = XMVectorGetY(rayDirection);
+	if (abs(dirY) < 0.0001f)
+	{
+		return XMVectorSet(
+			XMVectorGetX(worldRayOrigin),
+			0.0f,
+			XMVectorGetZ(worldRayOrigin),
+			1.0f
+		);
+	}
+
+	float t = -XMVectorGetY(worldRayOrigin) / dirY;
+	XMVECTOR intersectionPoint = XMVectorAdd(
+		worldRayOrigin,
+		XMVectorScale(rayDirection, t)
+	);
+
+	return intersectionPoint;
 }
 
 float MathHelper::AngleFromXY(float x, float y)

@@ -38,6 +38,7 @@ enum class GameObjectLayer : int
 	Sky = 0,
 	Terrain,
 	Object,
+	Picking,
 	Count
 };
 
@@ -62,8 +63,8 @@ private:
 	void DrawDebug();
 	void DrawBoundingBox();
 
-	virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
-	virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
+	virtual void OnMouseDown(UINT msg, WPARAM btnState, int x, int y)override;
+	virtual void OnMouseUp(UINT msg, WPARAM btnState, int x, int y)override;
 	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);

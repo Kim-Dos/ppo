@@ -94,7 +94,7 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 				}
 			}
 
-			newVertices[index].Pos = XMFLOAT3(vertices[index].Pos.x, newY / numAddedVertices, vertices[index].Pos.z);
+			newVertices[index].Pos = XMFLOAT3(vertices[index].Pos.x, (newY / numAddedVertices) - 32768, vertices[index].Pos.z);
 			XMStoreFloat3(&newVertices[index].Normal, XMVector3Normalize(XMLoadFloat3(&newNormal)));
 			newVertices[index].TexC = vertices[index].TexC;
 
