@@ -14,6 +14,13 @@ struct DrawIndex
 	UINT mBaseVertex = 0;
 };
 
+enum class FollowerKeyInput : int
+{
+	None,
+	Move,
+	Attack,
+	Patrol
+};
 
 class GameObject : public Actor
 {
@@ -65,6 +72,7 @@ public:
 
 	D3D12_VERTEX_BUFFER_VIEW BoundingBoxVertexBufferView() const;
 	D3D12_INDEX_BUFFER_VIEW BoundingBoxIndexBufferView() const;
+
 private:
 	
 	bool mWorldMatDirty = true;

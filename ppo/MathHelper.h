@@ -97,6 +97,7 @@ public:
     static DirectX::XMVECTOR RandUnitVec3();
     static DirectX::XMVECTOR RandHemisphereUnitVec3(XMVECTOR n);
 	static DirectX::XMVECTOR ScreenToWorld(int screenX, int screenY, int screenWidth, int screenHeight, const XMMATRIX& viewMatrix, const XMMATRIX& projMatrix);
+	static bool IntersectRayAABB( XMVECTOR rayOrigin,  XMVECTOR rayDirection, XMFLOAT3 Center, XMFLOAT3 Extents ,float& distance);
 
 	static const float Infinity;
 	static const float Pi;

@@ -11,6 +11,80 @@ using namespace DirectX;
 const float MathHelper::Infinity = FLT_MAX;
 const float MathHelper::Pi       = 3.1415926535f;
 
+bool MathHelper::IntersectRayAABB( XMVECTOR rayOrigin,  XMVECTOR rayDirection, XMFLOAT3 boxCenter, XMFLOAT3 boxExtents, float& distance)
+{
+	XMVECTOR center = XMLoadFloat3(&boxCenter);
+	XMVECTOR extents = XMLoadFloat3(&boxExtents);
+
+	// 레이를 박스 로컬 공간으로 변환
+	XMVECTOR localOrigin = rayOrigin - center;
+
+	// 각 축별로 슬랩 교차 검사
+	float tmin = -FLT_MAX;
+	float tmax = FLT_MAX;
+
+	// X축 검사
+	float e = XMVectorGetX(localOrigin);
+	float f = XMVectorGetX(rayDirection);
+
+	if (fabs(f) > 0.001f)
+	{
+		float t1 = (e + XMVectorGetX(extents)) / -f;
+		float t2 = (e - XMVectorGetX(extents)) / -f;
+
+		tmin = max(tmin, min(t1, t2));
+		tmax = min(tmax, max(t1, t2));
+	}
+	else if (abs(e) > XMVectorGetX(extents))
+	{
+		return false;
+	}
+
+	// Y축 검사
+	e = XMVectorGetY(localOrigin);
+	f = XMVectorGetY(rayDirection);
+
+	if (fabs(f) > 0.001f)
+	{
+		float t1 = (e + XMVectorGetY(extents)) / -f;
+		float t2 = (e - XMVectorGetY(extents)) / -f;
+
+		tmin = max(tmin, min(t1, t2));
+		tmax = min(tmax, max(t1, t2));
+	}
+	else if (abs(e) > XMVectorGetY(extents))
+	{
+		return false;
+	}
+
+	// Z축 검사
+	e = XMVectorGetZ(localOrigin);
+	f = XMVectorGetZ(rayDirection);
+
+	if (fabs(f) > 0.001f)
+	{
+		float t1 = (e + XMVectorGetZ(extents)) / -f;
+		float t2 = (e - XMVectorGetZ(extents)) / -f;
+
+		tmin = max(tmin, min(t1, t2));
+		tmax = min(tmax, max(t1, t2));
+	}
+	else if (abs(e) > XMVectorGetZ(extents))
+	{
+		return false;
+	}
+
+	// 교차점이 레이의 양의 방향에 있는지 확인
+	if (tmax < 0 || tmin > tmax)
+	{
+		return false;
+	}
+
+	distance = tmin < 0 ? tmax : tmin;
+
+	return true;
+}
+
 XMVECTOR MathHelper::ScreenToWorld(int screenX, int screenY, int screenWidth, int screenHeight, const XMMATRIX& viewMatrix, const XMMATRIX& projMatrix)
 {
 	float ndcX = (2.0f * screenX) / screenWidth - 1.0f;

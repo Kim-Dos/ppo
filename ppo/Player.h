@@ -79,6 +79,9 @@ public:
 
 	void ResetKeyInput();
 
+	void SetDestination(XMFLOAT3 destination) { mDestination = destination; }
+	void FollowerEvent();
+	void SetFollowerKeyInput(FollowerKeyInput x) { mFollowInput = x; }
 
 	Camera* GetCamera() { return mCamera; }
 
@@ -94,6 +97,7 @@ public:
 	vector<string> GetLowerAnimationName() { return mCurrentLowerState->GetAnimationName(); }
 	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
 	XMFLOAT3 GetVelocity() { return mVelocity; }
+
 	float GetAcc() { return mAcceleration; }
 
 	void SetFalling(bool isFalling) { mIsFalling = isFalling; }
@@ -108,7 +112,7 @@ public:
 	float GetPitch() { return mPitch; }
 
 	const float mMaxVelocityWalk = 120.0f;
-	const float mMaxVelocityRun = 1000.0f;
+	const float mMaxVelocityRun = 400.0f;
 	const float mMaxVelocityFalling = 1000.0f;
 private:
 	void InitPlayer();
@@ -116,13 +120,16 @@ private:
 	float mPitch = 0.0f;
 	
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	float mAcceleration = 1000.0f;
+	float mAcceleration = 400.0f;
 
-	float mJumpForce = 600.0f;
+	float mJumpForce = 500.0f;
 	float mGravity = 980.0f;
 	bool mIsFalling = false;
 	bool mIsAttacking = false;
-	float mFriction = 450.0f;
+	float mFriction = 400.f;
+
+	XMFLOAT3 mDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	FollowerKeyInput mFollowInput;
 
 	Camera* mCamera = nullptr;
 	XMFLOAT3 mCameraOffsetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
@@ -226,6 +233,8 @@ public:
 	virtual void Enter(Player& player);
 	virtual vector<string> GetAnimationName() { return vector<string>{"Jump"}; }
 	virtual void Update(Player& player, const float deltaTime);
+protected:
+	bool oneJump = false;
 };
 
 class FallingPlayerState : public OnAirPlayerState

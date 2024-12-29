@@ -233,7 +233,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		else if ((int)wParam == VK_F2)
 		{
-			Set4xMsaaState(!m4xMsaaState);
+			Set4xMsaaState(m4xMsaaState);
 		}
 
 		return 0;

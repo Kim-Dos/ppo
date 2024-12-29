@@ -98,7 +98,7 @@ void Player::Update(const GameTimer& gt)
 
 	// 카메라 이동
 	UpdateCamera();
-
+	//printf("%f\n", mPitch);
 	if (mWeapon) {
 		XMFLOAT4X4 rightHandMat = dynamic_cast<SkinnedMesh*>(GetMesh())->GetRightHandMatrix();
 		XMFLOAT4X4 swordMat;
@@ -111,6 +111,7 @@ void Player::Update(const GameTimer& gt)
 
 void Player::Move(const float deltaTime)
 {
+
 	// 추락
 	mVelocity.y -= mGravity * deltaTime;
 	float fallSpeed = sqrt(mVelocity.y * mVelocity.y);
@@ -134,6 +135,7 @@ void Player::Move(const float deltaTime)
 
 	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition(), Vector3::ScalarProduct(mVelocity, deltaTime, false)));
+
 }
 
 void Player::Jump()
@@ -258,6 +260,7 @@ void Player::MouseInput(float dx, float dy)
 	float maxPitchRaidan = XMConvertToRadians(MAX_PLAYER_CAMERA_PITCH);
 	mPitch += dy;
 	mPitch = (mPitch < -maxPitchRaidan) ? -maxPitchRaidan : (maxPitchRaidan < mPitch) ? maxPitchRaidan : mPitch;
+
 }
 
 void Player::ResetKeyInput()
@@ -269,6 +272,24 @@ void Player::ResetKeyInput()
 	mKeyInput.isPressedF = false;
 	mKeyInput.isPressedShift = false;
 	mKeyInput.isPressedSpaceBar = false;
+}
+
+void Player::FollowerEvent()
+{
+	if (mFollowInput == FollowerKeyInput::Move) {
+		XMVECTOR curPos = XMLoadFloat3(&GetPosition());
+		XMVECTOR destPos = XMLoadFloat3(&mDestination);
+		XMVECTOR direction = XMVectorSubtract(destPos, curPos);
+
+		direction = XMVector3Normalize(direction);
+
+		XMFLOAT3 dir3f;
+		XMStoreFloat3(&dir3f, direction);
+
+		mVelocity = MultipleVelocity(dir3f, XMFLOAT3(1000.f, 1000.f, 1000.f));
+		//ChangeUpperState(new RunPlayerState);
+		ChangeLowerState(new RunPlayerState);
+	}
 }
 
 vector<string> Player::GetAnimationName()
@@ -325,17 +346,17 @@ void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
 		}
 	}
 	else if (moveX != 0 || moveY != 0) {
-		if (moveY == 1 && keyInput.isPressedShift) {
+		if (moveY == 1 /*&& keyInput.isPressedShift*/) {
 			if (player.GetLowerStateId() != StateId::Run) {
 				animationTime = 0.0f;
 				player.ChangeLowerState(new RunPlayerState);
 			}
 		}
 		else {
-			if (player.GetLowerStateId() != StateId::Walk) {
-				animationTime = 0.0f;
-				player.ChangeLowerState(new WalkPlayerState);
-			}
+			//if (player.GetLowerStateId() != StateId::Walk) {
+			//	animationTime = 0.0f;
+			//	player.ChangeLowerState(new WalkPlayerState);
+			//}
 		}
 	}
 	else {

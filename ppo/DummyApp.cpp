@@ -78,16 +78,14 @@ void DummyApp::Update(const GameTimer& gt)
 		mPlayer->SetFalling(false);
 		mPlayer->SetFrameDirty();
 	}
+	if (mRoateFlag) ShowCursor(false);
+	else ShowCursor(true);
 
 	if (mFPSmode) {
 		mPlayer->Update(gt);
 	}
 	else {
-
-		if (mRoateFlag) ShowCursor(false);
-		else ShowCursor(true);
-
-		mPlayer->ResetKeyInput();
+		
 		mPlayer->Update(gt);
 		mMainCamera->Move(gt);
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
@@ -296,6 +294,7 @@ void DummyApp::DrawBoundingBox()
 {
 	mCommandList->SetPipelineState(mPSOs["debug"].Get());
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
+	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
 }
 
 void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
@@ -317,8 +316,6 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
 		else if (msg == WM_LBUTTONDOWN){
-			mDragFlag = true;
-			
 		}
 
 	}
@@ -347,12 +344,20 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 		mRoateFlag = false;
 		ShowCursor(true);
 		if (msg == WM_LBUTTONUP) {
-			mDragFlag = false;
+			std::cout << mDragFlag << std::endl;
 			ShowCursor(true);
-			std::cout << "BUTTON UP" << std::endl;
 			//드래그 이벤트 입력
-			DragEvent();
+			if (mDragFlag) DragEvent();
+			else FollowerKeyEvent();
+			mDragFlag = false;
 		}
+		else if (msg == WM_RBUTTONUP) {
+			if (mPicking) {
+				mFollowerinput = FollowerKeyInput::Move;
+				FollowerKeyEvent();
+			}
+		}
+
 	}
 
 	ReleaseCapture();
@@ -361,62 +366,180 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 
 void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
+
+
+	// Make each pixel correspond to a quarter of a degree.
+	float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
+	float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
+
+	if (mFPSmode) {
+		mPlayer->MouseInput(dx, dy);
+	}
+
 	if ((btnState & MK_RBUTTON) != 0)
 	{
-		// Make each pixel correspond to a quarter of a degree.
-		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
-
-		if (mFPSmode) {
-			mPlayer->MouseInput(dx, dy);
-		}
-		else {
+		if(!mFPSmode) {
 			mMainCamera->Pitch(dy);
 			mMainCamera->RotateY(dx);
 
 			mMainCamera->UpdateViewMatrix();
 		}
-
-		mLastMousePos.x = x;
-		mLastMousePos.y = y;
 	}
+	mLastMousePos.x = x;
+	mLastMousePos.y = y;
 
+	if ((btnState & MK_LBUTTON) != 0) {
+		if (mLastMousePos.x != mStartMousePos.x || mLastMousePos.y != mStartMousePos.y) mDragFlag = true;
+	}
 
 }
 
 void DummyApp::DragEvent()
 {
-	XMMATRIX viewMatrix = mMainCamera->GetView(); // 예시로 아이덴티티 행렬 사용
-	XMMATRIX projMatrix = mMainCamera->GetProj();
+	// 현재 드래그 중인 사각형 영역 계산
+	RECT dragRect;
+	dragRect.left = min(mStartMousePos.x, mLastMousePos.x);
+	dragRect.right = max(mStartMousePos.x, mLastMousePos.x);
+	dragRect.top = min(mStartMousePos.y, mLastMousePos.y);
+	dragRect.bottom = max(mStartMousePos.y, mLastMousePos.y);
 
-	XMVECTOR worldCoords1 = MathHelper::ScreenToWorld(mStartMousePos.x, mStartMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
-	XMVECTOR worldCoords2 = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, viewMatrix, projMatrix);
-
-
-	float minX = min(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
-	float maxX = max(XMVectorGetX(worldCoords1), XMVectorGetX(worldCoords2));
-	float minZ = min(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
-	float maxZ = max(XMVectorGetZ(worldCoords1), XMVectorGetZ(worldCoords2));
-
+	// 피킹된 오브젝트 리스트 초기화
 	mGameObjectLayer[(int)GameObjectLayer::Picking].clear();
 
-	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object]) {
-		cout << obj->GetName() << endl;
-		float objX = obj->GetPosition().x;
-		float objZ = obj->GetPosition().z;
+	XMMATRIX viewMatrix = mMainCamera->GetView();
+	XMMATRIX projMatrix = mMainCamera->GetProj();
 
-		if (objX >= minX && objX <= maxX && objZ >= minZ && objZ <= maxZ) {
-			//이벤트
-			mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(obj);
+	// 모든 게임 오브젝트에 대해 검사
+	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
+	{
+		// 오브젝트의 월드 좌표를 화면 좌표로 변환
+		XMFLOAT3 worldPos = obj->GetPosition();
+		XMVECTOR posVector = XMLoadFloat3(&worldPos);
+
+		// 월드 좌표를 뷰 공간으로 변환
+		XMVECTOR viewPos = XMVector3TransformCoord(posVector, viewMatrix);
+
+		// 뷰 공간 좌표를 투영 공간으로 변환
+		XMVECTOR projPos = XMVector3TransformCoord(viewPos, projMatrix);
+
+		// 투영된 좌표를 스크린 좌표로 변환
+		float screenX = ((XMVectorGetX(projPos) + 1.0f) * 0.5f) * mClientWidth;
+		float screenY = ((1.0f - XMVectorGetY(projPos)) * 0.5f) * mClientHeight;
+
+		// 스크린 좌표가 드래그 영역 안에 있는지 검사
+		if (screenX >= dragRect.left && screenX <= dragRect.right &&
+			screenY >= dragRect.top && screenY <= dragRect.bottom)
+		{
+			// 절두체 컬링 체크 (카메라 앞쪽에 있는 오브젝트만 선택)
+			if (XMVectorGetZ(viewPos) > 0.0f)
+			{
+				mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(obj);
+			}
 		}
 	}
+	mPicking = true;
 
-	//std::cout << mGameObjectLayer[(int)GameObjectLayer::Picking].size() << std::endl;
+#ifdef _DEBUG
+	for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
+		cout << x->GetName() << endl;
+#endif
+}
 
-	for (auto x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
-		std::cout << x->GetName() << std::endl;
+void DummyApp::AddPicking()
+{
+	std::cout << "AddPicking" << std::endl;
+
+	float ndcX = (2.0f * mLastMousePos.x) / mClientWidth - 1.0f;
+	float ndcY = 1.0f - (2.0f * mLastMousePos.y) / mClientHeight;
+
+	// near plane과 살짝 더 먼 거리만 사용
+	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.1f, 1.0f);    // near plane
+	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 20000.f, 1.0f);    // far plane
+
+	XMMATRIX invViewProj = XMMatrixInverse(nullptr, XMMatrixMultiply(mMainCamera->GetView(), mMainCamera->GetProj()));
+	XMVECTOR worldRayOrigin = XMVector3TransformCoord(rayOrigin, invViewProj);
+	XMVECTOR worldRayTarget = XMVector3TransformCoord(rayTarget, invViewProj);
+
+	XMVECTOR rayDirection = XMVector3Normalize(worldRayTarget - worldRayOrigin);
+
+	//// XMFLOAT3로 변환
+	//XMFLOAT3 rayPos, rayDir;
+	//XMStoreFloat3(&rayPos, worldRayOrigin);
+	//XMStoreFloat3(&rayDir, rayDirection);
+
+	float closestDist = MathHelper::Infinity;
+	GameObject* closestObject = nullptr;
+
+	// 모든 게임 오브젝트에 대해 레이 충돌 검사
+	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
+	{
+		float dist = 0.f;
+
+		if (obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist))
+		{
+			// 가장 가까운 오브젝트 찾기
+			if (dist < closestDist)
+			{
+				closestDist = dist;
+				closestObject = obj;
+			}
+		}
+	}
+	if (closestObject)
+	{
+		mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(closestObject);
+
+#ifdef _DEBUG
+		std::cout << "Picked Object: " << closestObject->GetName() << "\n";
+#endif
 	}
 
+}
+void DummyApp::PickingMove()
+{
+	if (mPicking)
+	{
+		XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+
+			XMFLOAT3 destPos = { XMVectorGetX(worldPos), x->GetPosition().y, XMVectorGetZ(worldPos) };
+			
+			auto k = dynamic_cast<Player*>(x);
+			k->SetDestination(destPos);
+			k->SetFollowerKeyInput(FollowerKeyInput::Move);
+			//k->SetPosition(destPos);
+			// 바운딩 박스도 함께 업데이트
+			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
+		}
+	}
+}
+void DummyApp::PickingAttackMove()
+{
+}
+void DummyApp::PickingPatrolMove()
+{
+}
+void DummyApp::FollowerKeyEvent()
+{
+	switch (mFollowerinput)
+	{
+	case FollowerKeyInput::None:
+		AddPicking();
+		break;
+	case FollowerKeyInput::Move:
+		PickingMove();
+		break;
+	case FollowerKeyInput::Patrol:
+		PickingPatrolMove();
+		break;
+	case FollowerKeyInput::Attack:
+		PickingAttackMove();
+		break;
+	default:
+		break;
+	}
+
+	mFollowerinput = FollowerKeyInput::None;
 
 }
 void DummyApp::OnMouseWheel(WPARAM wheeldelta)
@@ -428,42 +551,55 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	if (mFPSmode) {
 		mPlayer->OnKeyboardMessage(nMessageID, wParam);
 	}
-	else {
-		
+	else{
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
 	
-	switch (nMessageID)
-	{
-	case WM_KEYDOWN:
+	if (nMessageID == WM_KEYDOWN) {
 		switch (wParam)
 		{
 		case '1':
 			mDebugMode = !mDebugMode;
 			return(false);
-		case 'T':
+		case VK_TAB:
 			if (mFPSmode) {
 				mFPSmode = false;
+				mRoateFlag = false;
 				mMainCamera = mSubCamera[0];
+				
+				mPlayer->ResetKeyInput();
+
+				mMainCamera->SetPosition(Vector3::Add(XMFLOAT3(0.f, 1000.f, 0.f), mPlayer->GetPosition()));
+				//mMainCamera->LookAt(mMainCamera->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
+				ShowCursor(true);
 				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
 			else {
 				mFPSmode = true;
+				mRoateFlag = true;
 				mPlayer->ResetKeyInput();
 				mMainCamera = mPlayer->GetCamera();
 				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
 			break;
-		}
-		break;
+		case VK_CONTROL:
+			mSpecialKeyinput.isCtrl = true;
+			break;
+		case VK_LSHIFT:
+			mSpecialKeyinput.isShift = true;
+			break;
 
-	case WM_KEYUP:
+		default:
+			break;
+		}
+	}
+	else if (nMessageID == WM_KEYUP) {
 		switch (wParam)
 		{
 		default:
 			break;
 		}
-		break;
+	
 	}
 
 	return(false);
@@ -638,19 +774,21 @@ void DummyApp::LoadTextures()
 		"stoneDiffuseMap",
 		"tileDiffuseMap",
 		"terrainDiffuseMap",
-		"crystalDiffuse"
+		"crystalDiffuse",
+		"bowDiffuse"
 	};
 	
 	std::vector<std::wstring> texFilenames =
 	{	
 		L"Textures/Environment/grasscube1024.dds",
-		L"Textures/Character/VanguardDiffuse.dds",
+		L"Textures/Character/Paladin_diffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
 		L"Textures/tile.dds",
 		L"Textures/Environment/Python.dds",
-		L"Textures/Environment/crystal.dds"
+		L"Textures/Environment/crystal.dds",
+		L"Textures/Weapon/Bow/BowDiffuse.dds"
 	};
 
 
@@ -743,6 +881,7 @@ void DummyApp::BuildDescriptorHeaps()
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 
+
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
@@ -752,6 +891,8 @@ void DummyApp::BuildDescriptorHeaps()
 	auto crystalTex = mTextures["crystalDiffuse"]->Resource;
 	//auto test = mTextures["test"]->Resource;
 	auto skyTex = mTextures["skyCubeMap"]->Resource;
+
+	auto bowTex = mTextures["bowDiffuse"]->Resource;
 
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -826,6 +967,13 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = crystalTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = crystalTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(crystalTex.Get(), &srvDesc, hDescriptor);
+
+	////// 다음 서술자로 넘어간다.
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = bowTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = bowTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(bowTex.Get(), &srvDesc, hDescriptor);
 
 }
 
@@ -1002,7 +1150,7 @@ void DummyApp::LoadSkinnedMesh()
 	mSkinnedMesh = new SkinnedMesh;
 
 	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-	mSkinnedMesh->LoadMesh("Models/Character/Vanguard.fbx");
+	mSkinnedMesh->LoadMesh("Models/Character/Paladin.fbx");
 	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
 	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
 	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
@@ -1072,6 +1220,7 @@ void DummyApp::LoadSkinnedMesh()
 
 void DummyApp::LoadMeshes()
 {
+	//Sword Mesh
 	{
 		Mesh* swordMesh = new Mesh;
 
@@ -1126,6 +1275,8 @@ void DummyApp::LoadMeshes()
 		mMeshes[swordMesh->mName] = swordMesh;
 	}
 
+
+	//Crystal Mesh
 	{
 		Mesh* crystalMesh = new Mesh;
 
@@ -1181,6 +1332,61 @@ void DummyApp::LoadMeshes()
 
 		mMeshes[crystalMesh->mName] = crystalMesh;
 	}
+
+	//Bow Mesh
+	{
+		Mesh* bowMesh = new Mesh;
+
+		bowMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 90.f);
+		bowMesh->LoadMesh("Models/Weapon/WoodenBow.fbx");
+
+		UINT vcount = 0;
+		UINT tcount = 0;
+		std::vector<Vertex> vertices;
+		std::vector<UINT> indices;
+		UINT index;
+		UINT dindex = 0;
+
+		XMMATRIX offsetMat = XMMatrixScaling(100.0f, 100.0f, 100.0f);
+
+		UINT numVertices = bowMesh->mPositions.size();
+		for (int j = 0; j < numVertices; j++)
+		{
+			Vertex vertex;
+			vertex.Pos.x = bowMesh->mPositions[j].x;
+			vertex.Pos.y = bowMesh->mPositions[j].y;
+			vertex.Pos.z = bowMesh->mPositions[j].z;
+			XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+			vertex.Normal.x = bowMesh->mNormals[j].x;
+			vertex.Normal.y = bowMesh->mNormals[j].y;
+			vertex.Normal.z = bowMesh->mNormals[j].z;
+			XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+			vertex.TexC.x = bowMesh->mTexCoords[j].x;
+			vertex.TexC.y = bowMesh->mTexCoords[j].y;
+
+			vertices.push_back(vertex);
+		}
+
+		UINT numIndices = bowMesh->mIndices.size();
+		for (UINT i = 0; i < numIndices; i++)
+		{
+			indices.push_back(bowMesh->mIndices[i]);
+		}
+
+		//
+		// Pack the indices of all the meshes into one index buffer.
+		bowMesh->mName = "Bow";
+
+		bowMesh->CreateBlob(vertices, indices);
+		bowMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+		bowMesh->mSubmeshes[0].name = "bow";
+
+		mMeshes[bowMesh->mName] = bowMesh;
+	}
+
 
 	LoadSkinnedMesh();
 }
@@ -1419,6 +1625,15 @@ void DummyApp::BuildMaterials()
 
 	mMaterials["crystal"] = std::move(crystal);
 
+	auto bow = std::make_unique<Material>();
+	bow->Name = "bow";
+	bow->MatCBIndex = matCBIndex++;
+	bow->DiffuseSrvHeapIndex = SRVIndex++;
+	bow->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	bow->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	bow->Roughness = 0.1f;
+
+	mMaterials["bow"] = std::move(bow);
 }
 
 void DummyApp::BuildGameObjects()
@@ -1467,17 +1682,17 @@ void DummyApp::BuildGameObjects()
 	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
 	//mAllGameObjects.push_back(gridGameObject);
 
-	GameObject* boxGameObject = new GameObject("box", ObjectsType::ENVIRONMENT,XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
-	boxGameObject->SetCBIndex(objCBIndex);
-	boxGameObject->SetMesh(mMeshes["shapeGeo"]);
-	boxGameObject->SetMaterial(mMaterials["bricks0"].get());
-	boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
-	boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
-	boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-	 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(boxGameObject);
-	mAllGameObjects.push_back(boxGameObject);
+	//GameObject* boxGameObject = new GameObject("box", ObjectsType::ENVIRONMENT,XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
+	//boxGameObject->SetCBIndex(objCBIndex);
+	//boxGameObject->SetMesh(mMeshes["shapeGeo"]);
+	//boxGameObject->SetMaterial(mMaterials["bricks0"].get());
+	//boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
+	//boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
+	//boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	// 
+	//mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
+	//mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(boxGameObject);
+	//mAllGameObjects.push_back(boxGameObject);
 
 	GameObject* swordGameObject = new GameObject("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
@@ -1492,6 +1707,19 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(swordGameObject);
 
 
+	GameObject* bowGameObject = new GameObject("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	bowGameObject->SetCBIndex(objCBIndex);
+	bowGameObject->SetMesh(mMeshes["Bow"]);
+	bowGameObject->SetMaterial(mMaterials["bow"].get());
+	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
+	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+	mAllGameObjects.push_back(bowGameObject);
+
+
 	// ------------------------------------------
 	// Skinned objects - player
 	// ------------------------------------------
@@ -1504,25 +1732,29 @@ void DummyApp::BuildGameObjects()
 	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
 	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject);
+	mAllGameObjects.push_back(playerGameObject);
+
 
 	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f,-9000.f), -9000.0f), XMMatrixIdentity());
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
 	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
 	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
 	mAllGameObjects.push_back(crystalGameObject);
 
-	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
+	GameObject* crystalGameObject1 = new GameObject("crystal1", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
 	crystalGameObject1->SetCBIndex(objCBIndex);
 	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
 	crystalGameObject1->AddSubmesh(crystalGameObject1->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
 	crystalGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject1);
@@ -1558,9 +1790,7 @@ void DummyApp::BuildGameObjects()
 
 	mPlayer->SetWeapon(swordGameObject);
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject);
-	mAllGameObjects.push_back(playerGameObject);
+
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
@@ -1608,6 +1838,7 @@ void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::ve
 	// 각 렌더항목에 대해:
 	for (UINT i = 0; i < gameObjects.size(); ++i)
 	{
+		if (gameObjects[i]->GetName() == "terrain") continue;
 		// 그리기 명령 시작
 		cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
 		cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());

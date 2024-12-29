@@ -42,7 +42,12 @@ enum class GameObjectLayer : int
 	Count
 };
 
+struct SpecialKeyInput
+{
+	bool isShift = false;
+	bool isCtrl = false;
 
+};
 
 class DummyApp : public D3DApp
 {
@@ -70,6 +75,12 @@ private:
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 
 	void DragEvent();
+	void FollowerKeyEvent();
+	void AddPicking();
+	void PickingMove();
+	void PickingAttackMove();
+	void PickingPatrolMove();
+
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
@@ -127,10 +138,15 @@ private:
 	std::vector<GameObject*> mAllGameObjects;
 
 	std::vector<GameObject*> mPickingObjects;
-	bool mPicking = false;
 
-	bool mRoateFlag = false;
+	bool mPicking = false;
 	bool mDragFlag = false;
+	bool mRoateFlag = true;
+
+	FollowerKeyInput mFollowerinput = FollowerKeyInput::None;
+
+	SpecialKeyInput mSpecialKeyinput;
+
 
 	std::vector<Button*>mButtons;
 
@@ -147,7 +163,7 @@ private:
 	Player* mPlayer = nullptr;
 
 	bool mFPSmode = true;
-	CamInput input;
+	//CamInput input;
 	
 	
 	Camera* mMainCamera = nullptr;
