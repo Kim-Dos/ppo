@@ -49,6 +49,21 @@ struct SpecialKeyInput
 
 };
 
+struct UIKeyInput
+{
+	bool isB = false; // Build -> House or Tower
+
+	bool isU = false; // Upgrade
+	
+	bool isO = false; // Objects -> Hunter Knight Slave -> Summon
+	
+	bool isK = false; //Knight
+	bool isN = false; //Hunter
+	bool isL = false; //Slave
+	bool isH = false; //House
+	bool isT = false; //Tower
+};
+
 class DummyApp : public D3DApp
 {
 public:
@@ -80,7 +95,9 @@ private:
 	void PickingMove();
 	void PickingAttackMove();
 	void PickingPatrolMove();
-
+	void UIPicking(WPARAM wParam);
+	void RsetUIInput();
+	void SummonObject();
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
@@ -105,6 +122,13 @@ private:
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
 	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
+
+	void SummonKnight();
+	void SummonHunter();
+	void SummonSlave();
+	
+	void DoUpgrade();
+	void SetBuilding();
 
 	void ReleseMemory();
 
@@ -137,13 +161,15 @@ private:
 	//std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 	std::vector<GameObject*> mAllGameObjects;
 
-	std::vector<GameObject*> mPickingObjects;
-
 	bool mPicking = false;
 	bool mDragFlag = false;
 	bool mRoateFlag = true;
 
+	int objCBIndex = 0, skinnedCBIndex = 0;
+	
 	FollowerKeyInput mFollowerinput = FollowerKeyInput::None;
+
+	UIKeyInput mUIkey;
 
 	SpecialKeyInput mSpecialKeyinput;
 

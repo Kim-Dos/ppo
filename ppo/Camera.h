@@ -80,6 +80,7 @@ public:
 	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
 	XMFLOAT3 GetVelocity() { return mVelocity; }
 	float GetAcc() { return mAcceleration; }
+	void ResetKeyInput();
 
 	void Move(const GameTimer& gt);
 
@@ -112,6 +113,8 @@ private:
 	XMFLOAT3 mMovingDirection = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	CamInput mKeyInput;
 
+	XMFLOAT3 MAXPosition = { 9999.f, 3000.f, 9999.f };
+	XMFLOAT3 MINPosition = { -9999.f, 0.f , -9999.f };
 
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	float mAcceleration = 10000.0f;

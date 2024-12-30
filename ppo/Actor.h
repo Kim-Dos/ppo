@@ -14,6 +14,7 @@ public:
 	virtual void Update(const GameTimer& gt);
 
 	void SetName(const string name) { mName = name; }
+	ObjectsType GetObjType() { return mObjectType; }
 
 	void SetFrameDirty() { mNumFramesDirty = gNumFrameResources; }
 	void DecreaseFrameDirty() { mNumFramesDirty--; }

@@ -394,7 +394,7 @@ void SkinnedMesh::InitAnimation(const aiScene* pScene, const string name)
     animationClip.name = pAnimation->mName.C_Str();
     animationClip.duration = pAnimation->mDuration;
     if(name == "Jump") animationClip.tickPerSecond = pAnimation->mTicksPerSecond != 0 ? pAnimation->mTicksPerSecond : 25.0f;
-    animationClip.tickPerSecond = 60.f;
+    animationClip.tickPerSecond = 40.f;
 
     int numChannels = pAnimation->mNumChannels;
     for (unsigned int j = 0; j < numChannels; j++)

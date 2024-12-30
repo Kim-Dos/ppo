@@ -277,8 +277,10 @@ void Player::ResetKeyInput()
 void Player::FollowerEvent()
 {
 	if (mFollowInput == FollowerKeyInput::Move) {
+
+		
 		XMVECTOR curPos = XMLoadFloat3(&GetPosition());
-		XMVECTOR destPos = XMLoadFloat3(&mDestination);
+		XMVECTOR destPos = XMLoadFloat3(&GetDestination());
 		XMVECTOR direction = XMVectorSubtract(destPos, curPos);
 
 		direction = XMVector3Normalize(direction);
@@ -286,11 +288,18 @@ void Player::FollowerEvent()
 		XMFLOAT3 dir3f;
 		XMStoreFloat3(&dir3f, direction);
 
-		mVelocity = MultipleVelocity(dir3f, XMFLOAT3(1000.f, 1000.f, 1000.f));
-		//ChangeUpperState(new RunPlayerState);
+		float angle = atan2f(dir3f.x, dir3f.z); // atan2f(y, x) 대신 x, z 순서로 전달
+
+		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f); // Y 축 기준 회전
+
+		Rotate(&axis, angle);
+
+		mKeyInput.isPressedW = true;
 		ChangeLowerState(new RunPlayerState);
+		ChangeUpperState(new RunPlayerState);
 	}
 }
+
 
 vector<string> Player::GetAnimationName()
 {
@@ -340,6 +349,8 @@ void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
 		moveX++;
 	}
 
+
+
 	if (keyInput.isPressedSpaceBar) {
 		if (!player.IsFalling() && player.GetLowerStateId() != StateId::Jump) {
 			player.ChangeLowerState(new JumpPlayerState);
@@ -368,20 +379,73 @@ void OnGroundPlayerState::HandleInput(Player& player, KeyInput keyInput)
 void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 {
 	PlayerState::Update(player, deltaTime);
+	followkeyinput = player.GetFollowerKey();
 
-	float velocity;
-	if (player.GetLowerStateId() == StateId::Run) {
+	if (followkeyinput == FollowerKeyInput::None)
+	{
+		float velocity;
+		if (player.GetLowerStateId() == StateId::Run) {
 		velocity = 2 * player.GetAcc() * deltaTime;
-	}
-	else {
+		}
+		else {
 		velocity = player.GetAcc() * deltaTime;
+		}
+
+		XMFLOAT3 movementDir;
+		XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&player.GetLook()) * moveY) + (XMLoadFloat3(&player.GetRight()) * moveX)));
+
+		XMFLOAT3 newVelocity = Vector3::Add(player.GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
+		player.SetVelocity(newVelocity);
 	}
+	else if (followkeyinput == FollowerKeyInput::Move) {
 
-	XMFLOAT3 movementDir;
-	XMStoreFloat3(&movementDir, XMVector3Normalize((XMLoadFloat3(&player.GetLook()) * moveY) + (XMLoadFloat3(&player.GetRight()) * moveX)));
+		XMVECTOR curPos = XMLoadFloat3(&player.GetPosition());
+		XMVECTOR destPos = XMLoadFloat3(&player.GetDestination());
+		XMVECTOR direction = XMVectorSubtract(destPos, curPos);
 
-	XMFLOAT3 newVelocity = Vector3::Add(player.GetVelocity(), Vector3::ScalarProduct(movementDir, velocity, false));
-	player.SetVelocity(newVelocity);
+		direction = XMVector3Normalize(direction);
+
+		XMFLOAT3 dir3f;
+		XMStoreFloat3(&dir3f, direction);
+
+		player.SetVelocity(MultipleVelocity(dir3f, XMFLOAT3(1000.f, 1000.f, 1000.f)));
+
+		//// 방향 회전 설정
+
+		float angle = atan2f(dir3f.x, dir3f.z); // atan2f(y, x) 대신 x, z 순서로 전달
+
+		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f); // Y 축 기준 회전
+		
+
+		// 방향 벡터와 현재 방향 벡터의 내적을 통해 각도를 계산합니다.
+		float dotProduct = Vector3::DotProduct(dir3f, player.GetLook());
+		float lengthProduct = Vector3::Length(dir3f) * Vector3::Length(player.GetLook());
+
+		// 내적 값이 길이의 곱과 다른 경우에만 회전 수행
+		if (lengthProduct != 0 && fabs(dotProduct) < lengthProduct) {
+			float angleDiff = acosf(dotProduct / lengthProduct);
+			if (Vector3::CrossProduct(player.GetLook(), dir3f).y < 0) {
+				player.Rotate(&axis, -angleDiff);
+			}
+			else {
+				player.Rotate(&axis, angleDiff);
+			}
+		}
+
+		if (Vector3::DistanceBetweenPoints(player.GetDestination(), player.GetPosition()) <= 1) {
+			player.ResetKeyInput();
+			player.SetFollowerKeyInput(FollowerKeyInput::None);
+			player.ChangeLowerState(new IdlePlayerState);
+			player.ChangeUpperState(new IdlePlayerState);
+		}
+		//float angleline = Vector3::DotProduct(dir3f, player.GetLook());
+		//if (angleline != Vector3::Length(dir3f)) {
+		//	if (angleline < 0) player.Rotate(&axis, angle);
+		//	else player.Rotate(&axis, -angle);
+		//}
+
+
+	}
 }
 
 void OnAirPlayerState::HandleInput(Player& player, KeyInput keyInput)

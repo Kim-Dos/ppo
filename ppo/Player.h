@@ -80,8 +80,11 @@ public:
 	void ResetKeyInput();
 
 	void SetDestination(XMFLOAT3 destination) { mDestination = destination; }
+	XMFLOAT3 GetDestination() { return mDestination; }
+
 	void FollowerEvent();
 	void SetFollowerKeyInput(FollowerKeyInput x) { mFollowInput = x; }
+	FollowerKeyInput GetFollowerKey() { return mFollowInput; }
 
 	Camera* GetCamera() { return mCamera; }
 
@@ -123,7 +126,7 @@ private:
 	float mAcceleration = 400.0f;
 
 	float mJumpForce = 500.0f;
-	float mGravity = 980.0f;
+	float mGravity = 0.f;
 	bool mIsFalling = false;
 	bool mIsAttacking = false;
 	float mFriction = 400.f;
@@ -149,6 +152,7 @@ public:
 	virtual void Update(Player& player, const float deltaTime);
 protected:
 	int moveX = 0, moveY = 0;
+	FollowerKeyInput followkeyinput = FollowerKeyInput::None;
 };
 
 class OnAirPlayerState : public PlayerState {

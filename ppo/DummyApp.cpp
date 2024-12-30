@@ -72,23 +72,29 @@ void DummyApp::Update(const GameTimer& gt)
 	float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 	//DebugPrint("height: %f\n", terrainY);
 	//std::cout << terrainY << std::endl;
-	if (mPlayer->GetPosition().y < terrainY) {
-		mPlayer->SetPosition(mPlayer->GetPosition().x, terrainY, mPlayer->GetPosition().z);
-		mPlayer->SetVelocity(XMFLOAT3(mPlayer->GetVelocity().x, 0.0f, mPlayer->GetVelocity().z));
-		mPlayer->SetFalling(false);
-		mPlayer->SetFrameDirty();
+	for (auto& x : mAllGameObjects) {
+		if (x->GetPosition().y < terrainY) {
+			x->SetPosition(x->GetPosition().x, terrainY, x->GetPosition().z);
+			if (x->GetObjType() == ObjectsType::CHARACTER) {
+				auto k = dynamic_cast<Player*>(x);
+				k->SetVelocity(XMFLOAT3(k->GetVelocity().x, 0.0f, k->GetVelocity().z));
+				k->SetFalling(false);
+				k->SetFrameDirty();
+			}
+		}
 	}
 	if (mRoateFlag) ShowCursor(false);
 	else ShowCursor(true);
 
 	if (mFPSmode) {
-		mPlayer->Update(gt);
 	}
 	else {
-		
-		mPlayer->Update(gt);
 		mMainCamera->Move(gt);
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
+	}
+
+	for (auto& x : mAllGameObjects) {
+		x->Update(gt);
 	}
 
 	static float cooltime = 1.0f;
@@ -311,8 +317,8 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 	else {
 		if (msg == WM_RBUTTONDOWN) {
 			ShowCursor(false);
-			mRoateFlag = true;
-			std::cout << x << ", " << y << std::endl;
+			
+			//std::cout << x << ", " << y << std::endl;
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
 		else if (msg == WM_LBUTTONDOWN){
@@ -341,22 +347,27 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
 
-		mRoateFlag = false;
 		ShowCursor(true);
 		if (msg == WM_LBUTTONUP) {
-			std::cout << mDragFlag << std::endl;
-			ShowCursor(true);
-			//드래그 이벤트 입력
-			if (mDragFlag) DragEvent();
-			else FollowerKeyEvent();
-			mDragFlag = false;
+			if (mUIkey.isO || mUIkey.isB) {
+				SummonObject();
+			}
+			else {
+				std::cout << mDragFlag << std::endl;
+				ShowCursor(true);
+				//드래그 이벤트 입력
+				if (mDragFlag) DragEvent();
+				else FollowerKeyEvent();
+				mDragFlag = false;
+			}
 		}
-		else if (msg == WM_RBUTTONUP) {
+		else if (msg == WM_RBUTTONUP && mRoateFlag == false) {
 			if (mPicking) {
 				mFollowerinput = FollowerKeyInput::Move;
 				FollowerKeyEvent();
 			}
 		}
+		mRoateFlag = false;
 
 	}
 
@@ -366,7 +377,6 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 
 void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
-
 
 	// Make each pixel correspond to a quarter of a degree.
 	float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
@@ -379,6 +389,7 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 	if ((btnState & MK_RBUTTON) != 0)
 	{
 		if(!mFPSmode) {
+			mRoateFlag = true;
 			mMainCamera->Pitch(dy);
 			mMainCamera->RotateY(dx);
 
@@ -480,6 +491,7 @@ void DummyApp::AddPicking()
 			// 가장 가까운 오브젝트 찾기
 			if (dist < closestDist)
 			{
+				std::cout << dist << std::endl;
 				closestDist = dist;
 				closestObject = obj;
 			}
@@ -503,14 +515,20 @@ void DummyApp::PickingMove()
 		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
 
 			XMFLOAT3 destPos = { XMVectorGetX(worldPos), x->GetPosition().y, XMVectorGetZ(worldPos) };
-			
-			auto k = dynamic_cast<Player*>(x);
-			k->SetDestination(destPos);
-			k->SetFollowerKeyInput(FollowerKeyInput::Move);
+			if (x->GetObjType() == ObjectsType::CHARACTER) {
+				auto k = dynamic_cast<Player*>(x);
+				k->SetDestination(destPos);
+				k->SetFollowerKeyInput(FollowerKeyInput::Move);
+				k->FollowerEvent();
+			}
 			//k->SetPosition(destPos);
 			// 바운딩 박스도 함께 업데이트
 			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
 		}
+		for (const auto& x : mAllGameObjects) {
+			std::cout << x->GetName() << ", ";
+		}
+		std::cout << std::endl;
 	}
 }
 void DummyApp::PickingAttackMove()
@@ -518,6 +536,71 @@ void DummyApp::PickingAttackMove()
 }
 void DummyApp::PickingPatrolMove()
 {
+}
+void DummyApp::UIPicking(WPARAM wParam)
+{
+	switch (wParam)
+	{
+	case 'O':
+		mUIkey.isO = true;
+		break;
+	case 'B':
+		mUIkey.isB = true;
+		break;
+	case 'U':
+		//바로 확인해도 됨
+		DoUpgrade();
+		break;
+	case 'L':
+		mUIkey.isL = true;
+		break;
+	case 'K':
+		mUIkey.isK = true;
+		break;
+	case 'H':
+		mUIkey.isH = true;
+		break;
+	case 'N':
+		mUIkey.isN = true;
+		break;
+	case 'T':
+		mUIkey.isT = true;
+		break;
+	}
+}
+void DummyApp::RsetUIInput()
+{
+	mUIkey.isO = false;
+	mUIkey.isB = false;
+	mUIkey.isL = false;
+	mUIkey.isU = false;
+	mUIkey.isK = false;
+	mUIkey.isH = false;
+	mUIkey.isN = false;
+	mUIkey.isT = false;
+}
+void DummyApp::SummonObject()
+{
+	if (mUIkey.isO) {
+		if (mUIkey.isN) {
+			SummonHunter();
+		}
+		else if (mUIkey.isL) {
+			SummonSlave();
+		}
+		else if (mUIkey.isK) {
+			SummonKnight();
+		}
+	}
+	else if (mUIkey.isB) {
+		if (mUIkey.isT) {
+			//SummonTower();
+		}
+		else if (mUIkey.isH) {
+			//SummonHouse();
+		}
+	}
+
 }
 void DummyApp::FollowerKeyEvent()
 {
@@ -551,7 +634,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	if (mFPSmode) {
 		mPlayer->OnKeyboardMessage(nMessageID, wParam);
 	}
-	else{
+	else{ //WASD QE 만 받음
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
 	
@@ -566,9 +649,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 				mFPSmode = false;
 				mRoateFlag = false;
 				mMainCamera = mSubCamera[0];
-				
-				mPlayer->ResetKeyInput();
-
+				mMainCamera->ResetKeyInput();
 				mMainCamera->SetPosition(Vector3::Add(XMFLOAT3(0.f, 1000.f, 0.f), mPlayer->GetPosition()));
 				//mMainCamera->LookAt(mMainCamera->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 				ShowCursor(true);
@@ -578,6 +659,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 				mFPSmode = true;
 				mRoateFlag = true;
 				mPlayer->ResetKeyInput();
+				mMainCamera->SetVelocity(XMFLOAT3(0.f, 0.f, 0.f));
 				mMainCamera = mPlayer->GetCamera();
 				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
@@ -588,14 +670,20 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case VK_LSHIFT:
 			mSpecialKeyinput.isShift = true;
 			break;
-
 		default:
+			UIPicking(wParam);
 			break;
 		}
 	}
 	else if (nMessageID == WM_KEYUP) {
 		switch (wParam)
 		{
+		case VK_CONTROL:
+			mSpecialKeyinput.isCtrl = false;
+			break;
+		case VK_LSHIFT:
+			mSpecialKeyinput.isShift = false;
+			break;
 		default:
 			break;
 		}
@@ -775,13 +863,14 @@ void DummyApp::LoadTextures()
 		"tileDiffuseMap",
 		"terrainDiffuseMap",
 		"crystalDiffuse",
-		"bowDiffuse"
+		"bowDiffuse",
+		//"archerDiffuse"
 	};
 	
 	std::vector<std::wstring> texFilenames =
 	{	
 		L"Textures/Environment/grasscube1024.dds",
-		L"Textures/Character/Paladin_diffuse.dds",
+		L"Textures/Character/paladin_diffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
@@ -789,6 +878,7 @@ void DummyApp::LoadTextures()
 		L"Textures/Environment/Python.dds",
 		L"Textures/Environment/crystal.dds",
 		L"Textures/Weapon/Bow/BowDiffuse.dds"
+		//L"Textures/Character/Archer_diffuse.dds"
 	};
 
 
@@ -823,7 +913,7 @@ void DummyApp::BuildRootSignature()
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
-	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 1, 0);
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 20, 1, 0);
 
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
@@ -880,6 +970,9 @@ void DummyApp::BuildDescriptorHeaps()
 
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
+	
+	//auto archerTex = mTextures["archerDiffuse"]->Resource;
+
 
 
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
@@ -974,6 +1067,13 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = bowTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = bowTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(bowTex.Get(), &srvDesc, hDescriptor);
+
+	//// 다음 서술자로 넘어간다.
+	//hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	//srvDesc.Format = archerTex->GetDesc().Format;
+	//srvDesc.Texture2D.MipLevels = archerTex->GetDesc().MipLevels;
+	//md3dDevice->CreateShaderResourceView(archerTex.Get(), &srvDesc, hDescriptor);
 
 }
 
@@ -1147,75 +1247,149 @@ void DummyApp::BuildShapeGeometry()
 
 void DummyApp::LoadSkinnedMesh()
 {
-	mSkinnedMesh = new SkinnedMesh;
-
-	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-	mSkinnedMesh->LoadMesh("Models/Character/Paladin.fbx");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
-
-	UINT vcount = 0;
-	UINT tcount = 0;
-	std::vector<SkinnedVertex> vertices;
-	std::vector<UINT> indices;
-	UINT index;
-	UINT dindex = 0;
-
-	UINT numVertices = mSkinnedMesh->mPositions.size();
-	for (int j = 0; j < numVertices; j++)
 	{
-		SkinnedVertex vertex;
-		vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
-		vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
-		vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+		mSkinnedMesh = new SkinnedMesh;
 
-		vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
-		vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
-		vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+		mSkinnedMesh->LoadMesh("Models/Character/Paladin.fbx");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
-		vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
-		vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+		UINT vcount = 0;
+		UINT tcount = 0;
+		std::vector<SkinnedVertex> vertices;
+		std::vector<UINT> indices;
+		UINT index;
+		UINT dindex = 0;
 
-		vertices.push_back(vertex);
+		UINT numVertices = mSkinnedMesh->mPositions.size();
+		for (int j = 0; j < numVertices; j++)
+		{
+			SkinnedVertex vertex;
+			vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+			vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+			vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+
+			vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+			vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+			vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+
+			vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+			vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+
+			vertices.push_back(vertex);
+		}
+
+		for (int i = 0; i < numVertices; i++)
+		{
+			vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+			vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+			vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+			vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+
+			float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+
+			vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+			vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+			vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+		}
+
+		UINT numIndices = mSkinnedMesh->mIndices.size();
+		for (UINT i = 0; i < numIndices; i++)
+		{
+			indices.push_back(mSkinnedMesh->mIndices[i]);
+		}
+
+		mSkinnedMesh->mName = "Vanguard";
+
+		mSkinnedMesh->CreateBlob(vertices, indices);
+		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+		mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
 	}
 
-	for (int i = 0; i < numVertices; i++)
-	{
-		vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
-		vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
-		vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
-		vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+	//{
+	//	mSkinnedMesh = new SkinnedMesh;
 
-		float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+	//	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+	//	mSkinnedMesh->LoadMesh("Models/Character/Archer.fbx");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
-		vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
-		vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
-		vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
-	}
+	//	UINT vcount = 0;
+	//	UINT tcount = 0;
+	//	std::vector<SkinnedVertex> vertices;
+	//	std::vector<UINT> indices;
+	//	UINT index;
+	//	UINT dindex = 0;
 
-	UINT numIndices = mSkinnedMesh->mIndices.size();
-	for (UINT i = 0; i < numIndices; i++)
-	{
-		indices.push_back(mSkinnedMesh->mIndices[i]);
-	}
+	//	UINT numVertices = mSkinnedMesh->mPositions.size();
+	//	for (int j = 0; j < numVertices; j++)
+	//	{
+	//		SkinnedVertex vertex;
+	//		vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+	//		vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+	//		vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
 
-	mSkinnedMesh->mName = "Vanguard";
+	//		vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+	//		vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+	//		vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
 
-	mSkinnedMesh->CreateBlob(vertices, indices);
-	mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+	//		vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+	//		vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
 
-	mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
+	//		vertices.push_back(vertex);
+	//	}
+
+	//	for (int i = 0; i < numVertices; i++)
+	//	{
+	//		vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+	//		vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+	//		vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+	//		vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+
+	//		float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+
+	//		vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+	//		vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+	//		vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+	//	}
+
+	//	UINT numIndices = mSkinnedMesh->mIndices.size();
+	//	for (UINT i = 0; i < numIndices; i++)
+	//	{
+	//		indices.push_back(mSkinnedMesh->mIndices[i]);
+	//	}
+
+	//	mSkinnedMesh->mName = "Archer";
+
+	//	mSkinnedMesh->CreateBlob(vertices, indices);
+	//	mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+	//	mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
+	//}
 }
 
 void DummyApp::LoadMeshes()
@@ -1274,7 +1448,6 @@ void DummyApp::LoadMeshes()
 
 		mMeshes[swordMesh->mName] = swordMesh;
 	}
-
 
 	//Crystal Mesh
 	{
@@ -1634,11 +1807,21 @@ void DummyApp::BuildMaterials()
 	bow->Roughness = 0.1f;
 
 	mMaterials["bow"] = std::move(bow);
+
+	//auto archer = std::make_unique<Material>();
+	//archer->Name = "archerDiffuse";
+	//archer->MatCBIndex = matCBIndex++;
+	//archer->DiffuseSrvHeapIndex = SRVIndex++;
+	//archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	//archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	//archer->Roughness = 0.1f;
+
+	//mMaterials["archer"] = std::move(archer);
 }
 
 void DummyApp::BuildGameObjects()
 {
-	int objCBIndex = 0, skinnedCBIndex = 0;
+	
 	//Submesh submesh;
 
 	// ------------------------------------------
@@ -1694,6 +1877,30 @@ void DummyApp::BuildGameObjects()
 	//mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(boxGameObject);
 	//mAllGameObjects.push_back(boxGameObject);
 
+	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f, -9000.f), -9000.0f), XMMatrixIdentity());
+	crystalGameObject->SetCBIndex(objCBIndex);
+	crystalGameObject->SetMesh(mMeshes["Crystal"]);
+	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
+	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
+	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
+	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
+	mAllGameObjects.push_back(crystalGameObject);
+
+	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
+	crystalGameObject1->SetCBIndex(objCBIndex);
+	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
+	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
+	crystalGameObject1->AddSubmesh(crystalGameObject1->GetMesh()->GetSubmesh("crystal"));
+	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
+	crystalGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject1);
+	mAllGameObjects.push_back(crystalGameObject1);
+
 	GameObject* swordGameObject = new GameObject("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
@@ -1737,29 +1944,7 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(playerGameObject);
 
 
-	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f,-9000.f), -9000.0f), XMMatrixIdentity());
-	crystalGameObject->SetCBIndex(objCBIndex);
-	crystalGameObject->SetMesh(mMeshes["Crystal"]);
-	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
-	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
-	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
-	mAllGameObjects.push_back(crystalGameObject);
-
-	GameObject* crystalGameObject1 = new GameObject("crystal1", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
-	crystalGameObject1->SetCBIndex(objCBIndex);
-	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
-	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
-	crystalGameObject1->AddSubmesh(crystalGameObject1->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
-	crystalGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject1);
-	mAllGameObjects.push_back(crystalGameObject1);
 
 	// ------------------------------------------
 	// Buttobn
@@ -1865,6 +2050,60 @@ void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
 	
 
 	}
+}
+
+void DummyApp::SummonKnight()
+{
+	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+	XMFLOAT3 pos;
+	XMStoreFloat3(&pos, worldPos);
+	GameObject* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z), XMMatrixIdentity());
+	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
+	int k = 0;
+	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
+	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
+	mAllGameObjects.push_back(playerGameObject1);
+
+	mUIkey.isK = false;
+	mUIkey.isO = false;
+}
+
+void DummyApp::SummonHunter()
+{
+	//XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+	//XMFLOAT3 pos;
+	//XMStoreFloat3(&pos, worldPos);
+	//GameObject* playerGameObject2 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+	//playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	//playerGameObject2->SetMesh(mMeshes["Archer"]);
+	//playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
+	//playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
+	//playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
+	//playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	//playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	//mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
+	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+	//mAllGameObjects.push_back(playerGameObject2);
+}
+
+void DummyApp::SummonSlave()
+{
+}
+
+void DummyApp::DoUpgrade()
+{
+}
+
+void DummyApp::SetBuilding()
+{
 }
 
 void DummyApp::ReleseMemory()

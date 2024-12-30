@@ -237,6 +237,17 @@ void Camera::UpdateViewMatrix()
 	}
 }
 
+void Camera::ResetKeyInput()
+{
+	mKeyInput.isPressedW = false;
+	mKeyInput.isPressedA = false;
+	mKeyInput.isPressedS = false;
+	mKeyInput.isPressedD = false;
+	mKeyInput.isPressedQ = false;
+	mKeyInput.isPressedE = false;
+
+}
+
 void Camera::Move(const GameTimer& gt)
 {
 	float moveY = 0, moveX = 0, moveZ = 0;
@@ -289,7 +300,17 @@ void Camera::Move(const GameTimer& gt)
 	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
 
 	// 위치 변환
-	SetPosition(Vector3::Add(GetPosition3f(), Vector3::ScalarProduct(mVelocity, deltatime, false)));
+	XMFLOAT3 FinalPostion = Vector3::Add(GetPosition3f(), Vector3::ScalarProduct(mVelocity, deltatime, false));
+
+	//최대 위치 고정
+	if (FinalPostion.x > MAXPosition.x) FinalPostion.x = MAXPosition.x;
+	if (FinalPostion.y > MAXPosition.y) FinalPostion.y = MAXPosition.y;
+	if (FinalPostion.z > MAXPosition.z) FinalPostion.z = MAXPosition.z;
+	if (FinalPostion.x < MINPosition.x) FinalPostion.x = MINPosition.x;
+	if (FinalPostion.y < MINPosition.y) FinalPostion.y = MINPosition.y;
+	if (FinalPostion.z < MINPosition.z) FinalPostion.z = MINPosition.z;
+	
+	SetPosition(FinalPostion);
 
 	mViewDirty = true;
 
