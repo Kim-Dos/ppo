@@ -11,7 +11,6 @@
 #include "GameObject.h"
 #include "SkinnedMesh.h"
 #include "Player.h"
-#include "MeshSlice.h"
 #include "PhysicsHelper.h"
 
 #include "Button.h"
@@ -184,11 +183,11 @@ private:
 	
 	bool mDebugMode = false;
 
-	SkinnedMesh* mSkinnedMesh;
+	//SkinnedMesh* mSkinnedMesh;
 
 	Player* mPlayer = nullptr;
 
-	bool mFPSmode = true;
+	bool mFPSmode = false;
 	//CamInput input;
 	
 	

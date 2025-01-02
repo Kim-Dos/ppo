@@ -69,10 +69,11 @@ void DummyApp::Update(const GameTimer& gt)
 {
 	//OnKeyboardInput(gt);
 
-	float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
+	//float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 	//DebugPrint("height: %f\n", terrainY);
 	//std::cout << terrainY << std::endl;
 	for (auto& x : mAllGameObjects) {
+		float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 		if (x->GetPosition().y < terrainY) {
 			x->SetPosition(x->GetPosition().x, terrainY, x->GetPosition().z);
 			if (x->GetObjType() == ObjectsType::CHARACTER) {
@@ -1276,7 +1277,7 @@ void DummyApp::BuildShapeGeometry()
 void DummyApp::LoadSkinnedMesh()
 {
 	{
-		mSkinnedMesh = new SkinnedMesh;
+		auto mSkinnedMesh = new SkinnedMesh;
 
 		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
 		mSkinnedMesh->LoadMesh("Models/Character/Paladin.fbx");
@@ -1878,33 +1879,10 @@ void DummyApp::BuildGameObjects()
 	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(terrainGameObject);
 	mAllGameObjects.push_back(terrainGameObject);
 
+
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	//GameObject* gridGameObject = new GameObject("grid", XMMatrixScaling(10.0f, 1.0f, 10.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f), XMMatrixScaling(3.0f, 4.0f, 1.0f));
-	//gridGameObject->SetCBIndex(objCBIndex);
-	//gridGameObject->SetMesh(mMeshes["shapeGeo"]);
-	//gridGameObject->SetMaterial(mMaterials["tile0"].get());
-	//gridGameObject->AddSubmesh(gridGameObject->GetMesh()->GetSubmesh("grid"));
-	//gridGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(10.0f, 1.0f, 15.0f));
-	//gridGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	//mRenderLayer[(int)RenderLayer::Opaque].push_back(gridGameObject);
-	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(gridGameObject);
-	//mAllGameObjects.push_back(gridGameObject);
-
-	//GameObject* boxGameObject = new GameObject("box", ObjectsType::ENVIRONMENT,XMMatrixScaling(100.0f, 100.0f, 100.0f) * XMMatrixTranslation(11500.0f, 800.0f, 0.0f), XMMatrixIdentity());
-	//boxGameObject->SetCBIndex(objCBIndex);
-	//boxGameObject->SetMesh(mMeshes["shapeGeo"]);
-	//boxGameObject->SetMaterial(mMaterials["bricks0"].get());
-	//boxGameObject->AddSubmesh(boxGameObject->GetMesh()->GetSubmesh("box"));
-	//boxGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
-	//boxGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-	// 
-	//mRenderLayer[(int)RenderLayer::Opaque].push_back(boxGameObject);
-	//mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(boxGameObject);
-	//mAllGameObjects.push_back(boxGameObject);
-
 	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f, -9000.f), -9000.0f), XMMatrixIdentity());
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
@@ -1972,7 +1950,18 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(playerGameObject);
 
 
+	GameObject* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
+	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
+	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
+	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
+	mAllGameObjects.push_back(playerGameObject1);
 
 	// ------------------------------------------
 	// Buttobn
@@ -1983,10 +1972,10 @@ void DummyApp::BuildGameObjects()
 
 
 	mPlayer = playerGameObject;
-	if (mMainCamera) {
-		delete mMainCamera;
-		mMainCamera = nullptr;
-	}
+	//if (mMainCamera) {
+	//	delete mMainCamera;
+	//	mMainCamera = nullptr;
+	//}
 
 	Camera* m = new Camera();
 	//m->SetPlayerDirections(mPlayer);
@@ -1995,13 +1984,15 @@ void DummyApp::BuildGameObjects()
 	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
-	mMainCamera = mPlayer->GetCamera();
+	if (mFPSmode) mMainCamera = mPlayer->GetCamera();
+	else mMainCamera = m;
+	;
 	
 
 	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 	
 
-	mPlayer->SetWeapon(swordGameObject);
+	playerGameObject->SetWeapon(swordGameObject);
 
 
 }
@@ -2025,7 +2016,7 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 
 		if (gameObj->GetSkinnedCBIndex() != -1) {
 			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
-			std::cout<< gameObj->GetName() << ", skinnedCBAddress : " << skinnedCBAddress << std::endl;
+			//std::cout<< gameObj->GetName() << ", skinnedCBAddress : " << skinnedCBAddress << std::endl;
 
 			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
 		}
