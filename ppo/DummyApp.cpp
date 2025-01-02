@@ -741,31 +741,59 @@ void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 
 	std::vector<XMFLOAT4X4> boneTransforms;
+	SkinnedConstants skinnedConstants;
 	//mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName());
 	//mSkinnedMesh->GetBoneTransforms(mPlayer->GetLowerAnimationTime(), boneTransforms, mPlayer->GetAnimationName(), 0.5f, true);
-	mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(), 
-		boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
-	SkinnedConstants skinnedConstants;
-
-	int numBones = boneTransforms.size();
-	for (int i = 0; i < numBones; i++)
+	int k = 0;
+	for (auto& x : mRenderLayer[(int)RenderLayer::SkinnedOpaque])
 	{
-		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
-	}
-
-	// 최소한 4개의 행렬을 초기화함
-	if (numBones < 4) {
-		for (int i = numBones; i < 4; i++)
+		auto mSkinnedMesh = dynamic_cast<SkinnedMesh*>(x->GetMesh());
+		auto mPlayer = dynamic_cast<Player*>(x);
+		mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(),
+			boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
+		int numBones = boneTransforms.size();
+		for (int i = 0; i < numBones; i++)
+		{
+			skinnedConstants.BoneTransforms[i] = boneTransforms[i];
+		}
+		// 최소한 4개의 행렬을 초기화함
+		if (numBones < 4) {
+			for (int i = numBones; i < 4; i++)
+				skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+		}
+		/*
+		for (int i = 0; i < 96; i++)
+		{
 			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+		}
+		*/
+		currSkinnedCB->CopyData(k, skinnedConstants);
+		++k;
 	}
+	//{
+	//	mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(),
+	//		boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
 
-	/*
-	for (int i = 0; i < 96; i++)
-	{
-		skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-	}
-	*/
-	currSkinnedCB->CopyData(0, skinnedConstants);
+	//	int numBones = boneTransforms.size();
+	//	for (int i = 0; i < numBones; i++)
+	//	{
+	//		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
+	//	}
+
+	//	// 최소한 4개의 행렬을 초기화함
+	//	if (numBones < 4) {
+	//		for (int i = numBones; i < 4; i++)
+	//			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+	//	}
+
+	//	/*
+	//	for (int i = 0; i < 96; i++)
+	//	{
+	//		skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+	//	}
+	//	*/
+	//	currSkinnedCB->CopyData(0, skinnedConstants);
+	//}
 }
 
 void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
@@ -864,7 +892,7 @@ void DummyApp::LoadTextures()
 		"terrainDiffuseMap",
 		"crystalDiffuse",
 		"bowDiffuse",
-		//"archerDiffuse"
+		"archerDiffuse"
 	};
 	
 	std::vector<std::wstring> texFilenames =
@@ -877,8 +905,8 @@ void DummyApp::LoadTextures()
 		L"Textures/tile.dds",
 		L"Textures/Environment/Python.dds",
 		L"Textures/Environment/crystal.dds",
-		L"Textures/Weapon/Bow/BowDiffuse.dds"
-		//L"Textures/Character/Archer_diffuse.dds"
+		L"Textures/Weapon/Bow/BowDiffuse.dds",
+		L"Textures/Character/Archer_diffuse.dds"
 	};
 
 
@@ -971,7 +999,7 @@ void DummyApp::BuildDescriptorHeaps()
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 	
-	//auto archerTex = mTextures["archerDiffuse"]->Resource;
+	auto archerTex = mTextures["archerDiffuse"]->Resource;
 
 
 
@@ -1069,11 +1097,11 @@ void DummyApp::BuildDescriptorHeaps()
 	md3dDevice->CreateShaderResourceView(bowTex.Get(), &srvDesc, hDescriptor);
 
 	//// 다음 서술자로 넘어간다.
-	//hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	//srvDesc.Format = archerTex->GetDesc().Format;
-	//srvDesc.Texture2D.MipLevels = archerTex->GetDesc().MipLevels;
-	//md3dDevice->CreateShaderResourceView(archerTex.Get(), &srvDesc, hDescriptor);
+	srvDesc.Format = archerTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = archerTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(archerTex.Get(), &srvDesc, hDescriptor);
 
 }
 
@@ -1316,80 +1344,80 @@ void DummyApp::LoadSkinnedMesh()
 		mSkinnedMesh->CreateBlob(vertices, indices);
 		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-		mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
+		mMeshes[mSkinnedMesh->mName] = std::move(mSkinnedMesh);
 	}
 
-	//{
-	//	mSkinnedMesh = new SkinnedMesh;
+	{
+		auto mSkinnedMesh = new SkinnedMesh;
 
-	//	mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-	//	mSkinnedMesh->LoadMesh("Models/Character/Archer.fbx");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-	//	mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
+		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+		mSkinnedMesh->LoadMesh("Models/Character/Archer.fbx");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
-	//	UINT vcount = 0;
-	//	UINT tcount = 0;
-	//	std::vector<SkinnedVertex> vertices;
-	//	std::vector<UINT> indices;
-	//	UINT index;
-	//	UINT dindex = 0;
+		UINT vcount = 0;
+		UINT tcount = 0;
+		std::vector<SkinnedVertex> vertices;
+		std::vector<UINT> indices;
+		UINT index;
+		UINT dindex = 0;
 
-	//	UINT numVertices = mSkinnedMesh->mPositions.size();
-	//	for (int j = 0; j < numVertices; j++)
-	//	{
-	//		SkinnedVertex vertex;
-	//		vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
-	//		vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
-	//		vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+		UINT numVertices = mSkinnedMesh->mPositions.size();
+		for (int j = 0; j < numVertices; j++)
+		{
+			SkinnedVertex vertex;
+			vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+			vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+			vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
 
-	//		vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
-	//		vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
-	//		vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+			vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+			vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+			vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
 
-	//		vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
-	//		vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+			vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+			vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
 
-	//		vertices.push_back(vertex);
-	//	}
+			vertices.push_back(vertex);
+		}
 
-	//	for (int i = 0; i < numVertices; i++)
-	//	{
-	//		vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
-	//		vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
-	//		vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
-	//		vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+		for (int i = 0; i < numVertices; i++)
+		{
+			vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+			vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+			vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+			vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
 
-	//		float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+			float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
 
-	//		vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
-	//		vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
-	//		vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
-	//	}
+			vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+			vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+			vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+		}
 
-	//	UINT numIndices = mSkinnedMesh->mIndices.size();
-	//	for (UINT i = 0; i < numIndices; i++)
-	//	{
-	//		indices.push_back(mSkinnedMesh->mIndices[i]);
-	//	}
+		UINT numIndices = mSkinnedMesh->mIndices.size();
+		for (UINT i = 0; i < numIndices; i++)
+		{
+			indices.push_back(mSkinnedMesh->mIndices[i]);
+		}
 
-	//	mSkinnedMesh->mName = "Archer";
+		mSkinnedMesh->mName = "Archer";
 
-	//	mSkinnedMesh->CreateBlob(vertices, indices);
-	//	mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+		mSkinnedMesh->CreateBlob(vertices, indices);
+		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-	//	mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
-	//}
+		mMeshes[mSkinnedMesh->mName] = std::move(mSkinnedMesh);
+	}
 }
 
 void DummyApp::LoadMeshes()
@@ -1704,8 +1732,8 @@ void DummyApp::BuildFrameResources()
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
 			1, 
-			numObjCBs + 10,
-			(UINT)mGameObjectLayer[(int)RenderLayer::SkinnedOpaque].size(), // skinned obj
+			numObjCBs + 800,
+			800, // skinned obj
 			(UINT)mMaterials.size()));
 	}
 }
@@ -1808,15 +1836,15 @@ void DummyApp::BuildMaterials()
 
 	mMaterials["bow"] = std::move(bow);
 
-	//auto archer = std::make_unique<Material>();
-	//archer->Name = "archerDiffuse";
-	//archer->MatCBIndex = matCBIndex++;
-	//archer->DiffuseSrvHeapIndex = SRVIndex++;
-	//archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	//archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	//archer->Roughness = 0.1f;
+	auto archer = std::make_unique<Material>();
+	archer->Name = "archerDiffuse";
+	archer->MatCBIndex = matCBIndex++;
+	archer->DiffuseSrvHeapIndex = SRVIndex++;
+	archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	archer->Roughness = 0.1f;
 
-	//mMaterials["archer"] = std::move(archer);
+	mMaterials["archer"] = std::move(archer);
 }
 
 void DummyApp::BuildGameObjects()
@@ -1997,6 +2025,8 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 
 		if (gameObj->GetSkinnedCBIndex() != -1) {
 			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
+			std::cout<< gameObj->GetName() << ", skinnedCBAddress : " << skinnedCBAddress << std::endl;
+
 			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
 		}
 		else {
@@ -2059,7 +2089,6 @@ void DummyApp::SummonKnight()
 	XMStoreFloat3(&pos, worldPos);
 	GameObject* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z), XMMatrixIdentity());
 	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
-	int k = 0;
 	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
 	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
@@ -2077,21 +2106,24 @@ void DummyApp::SummonKnight()
 
 void DummyApp::SummonHunter()
 {
-	//XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
-	//XMFLOAT3 pos;
-	//XMStoreFloat3(&pos, worldPos);
-	//GameObject* playerGameObject2 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
-	//playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	//playerGameObject2->SetMesh(mMeshes["Archer"]);
-	//playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
-	//playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
-	//playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
-	//playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	//playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+	XMFLOAT3 pos;
+	XMStoreFloat3(&pos, worldPos);
+	GameObject* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject2->SetMesh(mMeshes["Archer"]);
+	playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
+	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
+	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
+	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	//mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
-	//mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
-	//mAllGameObjects.push_back(playerGameObject2);
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+	mAllGameObjects.push_back(playerGameObject2);
+
+	mUIkey.isN = false;
+	mUIkey.isO = false;
 }
 
 void DummyApp::SummonSlave()
