@@ -195,7 +195,7 @@ void DummyApp::Update(const GameTimer& gt)
 	// mCurrFrameResource의 자원 갱신
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
-	UpdateSkinnedCBs(gt);
+	//UpdateSkinnedCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
 }
@@ -714,6 +714,11 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 
 	for (auto& e : mAllGameObjects)
 	{
+		// 무기의 경우 무기의 주인의 cbuffer를 업데이트한다.
+		if (e->GetObjType() == ObjectsType::WEAPON) {
+			auto k = dynamic_cast<Weapon*>(e);
+			UpdateSkinnedCB(gt, k->GetOwner());
+			}
 		// 상수들이 바뀌었을 때에만 cbuffer 자료를 갱신한다.
 		// 이러한 갱신을 프레임 자원마다 수행해야한다.
 		if (e->GetFramesDirty() > 0)
@@ -737,64 +742,31 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 	}
 }
 
-void DummyApp::UpdateSkinnedCBs(const GameTimer& gt)
+void DummyApp::UpdateSkinnedCB(const GameTimer& gt, GameObject* skinnobj)
 {
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
-
 	std::vector<XMFLOAT4X4> boneTransforms;
 	SkinnedConstants skinnedConstants;
-	//mSkinnedMesh.GetBoneTransforms(mPlayer->GetAnimationTime(), boneTransforms, mPlayer->GetAnimationName());
-	//mSkinnedMesh->GetBoneTransforms(mPlayer->GetLowerAnimationTime(), boneTransforms, mPlayer->GetAnimationName(), 0.5f, true);
-	int k = 0;
-	for (auto& x : mRenderLayer[(int)RenderLayer::SkinnedOpaque])
+
+	// 스킨 메쉬의 경우 뼈의 변환 행렬을 계산한다.
+	auto mSkinnedMesh = dynamic_cast<SkinnedMesh*>(skinnobj->GetMesh());
+	auto mPlayer = dynamic_cast<Player*>(skinnobj);
+	mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(),
+		boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
+
+	// 가지고있는 무기의 matrix 업데이트
+	mPlayer->SetWeaponMatrix();
+	int numBones = boneTransforms.size();
+	for (int i = 0; i < numBones; i++)
 	{
-		auto mSkinnedMesh = dynamic_cast<SkinnedMesh*>(x->GetMesh());
-		auto mPlayer = dynamic_cast<Player*>(x);
-		mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(),
-			boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
-		int numBones = boneTransforms.size();
-		for (int i = 0; i < numBones; i++)
-		{
-			skinnedConstants.BoneTransforms[i] = boneTransforms[i];
-		}
-		// 최소한 4개의 행렬을 초기화함
-		if (numBones < 4) {
-			for (int i = numBones; i < 4; i++)
-				skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-		}
-		/*
-		for (int i = 0; i < 96; i++)
-		{
-			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-		}
-		*/
-		currSkinnedCB->CopyData(k, skinnedConstants);
-		++k;
+		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
 	}
-	//{
-	//	mSkinnedMesh->GetCombinationBoneTransforms(mPlayer->GetUpperAnimationTime(), mPlayer->GetLowerAnimationTime(),
-	//		boneTransforms, mPlayer->GetUpperAnimationName(), mPlayer->GetLowerAnimationName());
-
-	//	int numBones = boneTransforms.size();
-	//	for (int i = 0; i < numBones; i++)
-	//	{
-	//		skinnedConstants.BoneTransforms[i] = boneTransforms[i];
-	//	}
-
-	//	// 최소한 4개의 행렬을 초기화함
-	//	if (numBones < 4) {
-	//		for (int i = numBones; i < 4; i++)
-	//			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-	//	}
-
-	//	/*
-	//	for (int i = 0; i < 96; i++)
-	//	{
-	//		skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
-	//	}
-	//	*/
-	//	currSkinnedCB->CopyData(0, skinnedConstants);
-	//}
+	// 최소한 4개의 행렬을 초기화함
+	if (numBones < 4) {
+		for (int i = numBones; i < 4; i++)
+			skinnedConstants.BoneTransforms[i] = Matrix4x4::Identity();
+	}
+	currSkinnedCB->CopyData(mPlayer->GetSkinnedCBIndex(), skinnedConstants);
 }
 
 void DummyApp::UpdateMaterialCBs(const GameTimer& gt)
@@ -1271,7 +1243,7 @@ void DummyApp::BuildShapeGeometry()
 	ShapeGeometryMesh->mSubmeshes[2] = sphereSubmesh;
 	ShapeGeometryMesh->mSubmeshes[3] = cylinderSubmesh;
 
-	mMeshes[ShapeGeometryMesh->mName] = ShapeGeometryMesh;
+	mMeshes[ShapeGeometryMesh->mName] = (ShapeGeometryMesh);
 }
 
 void DummyApp::LoadSkinnedMesh()
@@ -1345,7 +1317,7 @@ void DummyApp::LoadSkinnedMesh()
 		mSkinnedMesh->CreateBlob(vertices, indices);
 		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
-		mMeshes[mSkinnedMesh->mName] = std::move(mSkinnedMesh);
+		mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
 	}
 
 	{
@@ -1907,7 +1879,7 @@ void DummyApp::BuildGameObjects()
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject1);
 	mAllGameObjects.push_back(crystalGameObject1);
 
-	GameObject* swordGameObject = new GameObject("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
+	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
 	swordGameObject->SetMaterial(mMaterials["sword"].get());
@@ -1920,7 +1892,7 @@ void DummyApp::BuildGameObjects()
 	mAllGameObjects.push_back(swordGameObject);
 
 
-	GameObject* bowGameObject = new GameObject("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
 	bowGameObject->SetCBIndex(objCBIndex);
 	bowGameObject->SetMesh(mMeshes["Bow"]);
 	bowGameObject->SetMaterial(mMaterials["bow"].get());
@@ -1936,32 +1908,32 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Skinned objects - player
 	// ------------------------------------------
-	Player* playerGameObject = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	playerGameObject->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject->SetMesh(mMeshes["Vanguard"]);
-	playerGameObject->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[0]);
-	playerGameObject->AddSubmesh(playerGameObject->GetMesh()->mSubmeshes[1]);
-	playerGameObject->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	Player* Skinned1 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
+	Skinned1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	Skinned1->SetMesh(mMeshes["Vanguard"]);
+	Skinned1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[0]);
+	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[1]);
+	Skinned1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	Skinned1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject);
-	mAllGameObjects.push_back(playerGameObject);
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
+	mAllGameObjects.push_back(Skinned1);
 
 
-	GameObject* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
-	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
-	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
-	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	Player* Knight = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
+	Knight->SetMesh(mMeshes["Vanguard"]);
+	Knight->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	Knight->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[0]);
+	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[1]);
+	Knight->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	Knight->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
-	mAllGameObjects.push_back(playerGameObject1);
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
+	mAllGameObjects.push_back(Knight);
 
 	// ------------------------------------------
 	// Buttobn
@@ -1971,7 +1943,7 @@ void DummyApp::BuildGameObjects()
 	//mButtons.push_back(test1);
 
 
-	mPlayer = playerGameObject;
+	mPlayer = Skinned1;
 	//if (mMainCamera) {
 	//	delete mMainCamera;
 	//	mMainCamera = nullptr;
@@ -1992,8 +1964,11 @@ void DummyApp::BuildGameObjects()
 	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 	
 
-	playerGameObject->SetWeapon(swordGameObject);
+	Skinned1->SetWeapon(swordGameObject);
+	swordGameObject->SetOwner(Skinned1);
 
+	Knight->SetWeapon(bowGameObject);
+	bowGameObject->SetOwner(Knight);
 
 }
 
@@ -2075,10 +2050,24 @@ void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
 
 void DummyApp::SummonKnight()
 {
+	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	swordGameObject->SetCBIndex(objCBIndex);
+	swordGameObject->SetMesh(mMeshes["Sword"]);
+	swordGameObject->SetMaterial(mMaterials["sword"].get());
+	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
+	mAllGameObjects.push_back(swordGameObject);
+
+
 	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
 	XMFLOAT3 pos;
 	XMStoreFloat3(&pos, worldPos);
-	GameObject* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z), XMMatrixIdentity());
+
+	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z), XMMatrixIdentity());
 	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
 	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
@@ -2091,16 +2080,31 @@ void DummyApp::SummonKnight()
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
 	mAllGameObjects.push_back(playerGameObject1);
 
+	playerGameObject1->SetWeapon(swordGameObject);
+	swordGameObject->SetOwner(playerGameObject1);
+
 	mUIkey.isK = false;
 	mUIkey.isO = false;
 }
 
 void DummyApp::SummonHunter()
 {
+	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	bowGameObject->SetCBIndex(objCBIndex);
+	bowGameObject->SetMesh(mMeshes["Bow"]);
+	bowGameObject->SetMaterial(mMaterials["bow"].get());
+	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
+	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+	mAllGameObjects.push_back(bowGameObject);
+
 	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
 	XMFLOAT3 pos;
 	XMStoreFloat3(&pos, worldPos);
-	GameObject* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
 	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject2->SetMesh(mMeshes["Archer"]);
 	playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
@@ -2112,6 +2116,9 @@ void DummyApp::SummonHunter()
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
 	mAllGameObjects.push_back(playerGameObject2);
+
+	playerGameObject2->SetWeapon(bowGameObject);
+	bowGameObject->SetOwner(playerGameObject2);
 
 	mUIkey.isN = false;
 	mUIkey.isO = false;

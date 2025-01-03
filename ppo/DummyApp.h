@@ -102,6 +102,8 @@ private:
 	void AnimateMaterials(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
 	void UpdateSkinnedCBs(const GameTimer& gt);
+	void UpdateSkinnedCB(const GameTimer& gt, GameObject* skinnobj);
+
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	

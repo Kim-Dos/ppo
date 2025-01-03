@@ -110,6 +110,7 @@ public:
 	bool IsAttacking() { return mIsAttacking; }
 
 	void SetWeapon(GameObject* weapon) { mWeapon = weapon; }
+	void SetWeaponMatrix();
 	GameObject* GetWeapon() { return mWeapon; }
 
 	float GetPitch() { return mPitch; }
@@ -144,6 +145,8 @@ private:
 
 	GameObject* mWeapon = nullptr;
 	XMFLOAT4X4 mWeaponOffsetMat = Matrix4x4::Identity();
+
+	XMFLOAT4X4 mRightHandMatrix = Matrix4x4::Identity();
 };
 
 class OnGroundPlayerState : public PlayerState {

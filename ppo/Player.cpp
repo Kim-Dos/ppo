@@ -99,12 +99,13 @@ void Player::Update(const GameTimer& gt)
 	// 카메라 이동
 	UpdateCamera();
 	//printf("%f\n", mPitch);
-	if (mWeapon) {
-		XMFLOAT4X4 rightHandMat = dynamic_cast<SkinnedMesh*>(GetMesh())->GetRightHandMatrix();
-		XMFLOAT4X4 swordMat;
-		XMStoreFloat4x4(&swordMat, XMLoadFloat4x4(&mWeaponOffsetMat) * XMLoadFloat4x4(&rightHandMat) * XMLoadFloat4x4(&GetWorld()));
-		mWeapon->SetWorldMat(swordMat);
-	}
+	//if (mWeapon) {
+	//	SkinnedMesh* tmp = dynamic_cast<SkinnedMesh*>(GetMesh());
+	//	mRightHandMatrix = tmp->GetRightHandMatrix();
+	//	XMFLOAT4X4 swordMat;
+	//	XMStoreFloat4x4(&swordMat, XMLoadFloat4x4(&mWeaponOffsetMat) * XMLoadFloat4x4(&mRightHandMatrix) * XMLoadFloat4x4(&GetWorld()));
+	//	mWeapon->SetWorldMat(swordMat);
+	//}
 
 	SetFrameDirty();
 }
@@ -314,6 +315,15 @@ vector<string> Player::GetAnimationName()
 	}
 
 	return mCurrentLowerState->GetAnimationName();
+}
+
+void Player::SetWeaponMatrix()
+{
+	if (!mWeapon) return;
+	mRightHandMatrix = dynamic_cast<SkinnedMesh*>(GetMesh())->GetRightHandMatrix();
+	XMFLOAT4X4 swordMat;
+	XMStoreFloat4x4(&swordMat, XMLoadFloat4x4(&mWeaponOffsetMat) * XMLoadFloat4x4(&mRightHandMatrix) * XMLoadFloat4x4(&GetWorld()));
+	mWeapon->SetWorldMat(swordMat);
 }
 
 void Player::InitPlayer()

@@ -47,7 +47,7 @@ bool SkinnedMesh::LoadMesh(const std::string& Filename)
 
 bool SkinnedMesh::LoadAnimation(const std::string& Filename, const string animationName)
 {
-    //Clear();
+    Clear();
 
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(Filename.c_str(),

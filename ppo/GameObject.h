@@ -103,3 +103,16 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferUploader = nullptr;
 };
 
+class Weapon : public GameObject
+{
+public:
+	Weapon() : GameObject() {}
+	Weapon(const string name, ObjectsType type, XMFLOAT4X4 world, XMFLOAT4X4 texTransform) : GameObject(name, type, world, texTransform) {}
+	Weapon(const string name, ObjectsType type, XMMATRIX world, XMMATRIX texTransform) : GameObject(name, type, world, texTransform) {}
+	~Weapon() {}
+
+	void SetOwner(GameObject* owner) { mOwner = owner; }
+	GameObject* GetOwner() { return mOwner; }
+private:
+	GameObject* mOwner = nullptr;
+};
