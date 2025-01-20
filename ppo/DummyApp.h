@@ -166,7 +166,8 @@ private:
 	bool mDragFlag = false;
 	bool mRoateFlag = true;
 
-	int objCBIndex = 0, skinnedCBIndex = 0;
+	int objCBIndex = 0;
+	int skinnedCBIndex = 0;
 	
 	FollowerKeyInput mFollowerinput = FollowerKeyInput::None;
 

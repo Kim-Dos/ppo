@@ -301,7 +301,7 @@ void DummyApp::DrawBoundingBox()
 {
 	mCommandList->SetPipelineState(mPSOs["debug"].Get());
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
-	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
+	//DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
 }
 
 void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
@@ -466,7 +466,7 @@ void DummyApp::AddPicking()
 
 	// near plane과 살짝 더 먼 거리만 사용
 	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.1f, 1.0f);    // near plane
-	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 20000.f, 1.0f);    // far plane
+	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 30000.f, 1.0f);    // far plane
 
 	XMMATRIX invViewProj = XMMatrixInverse(nullptr, XMMatrixMultiply(mMainCamera->GetView(), mMainCamera->GetProj()));
 	XMVECTOR worldRayOrigin = XMVector3TransformCoord(rayOrigin, invViewProj);
@@ -483,12 +483,14 @@ void DummyApp::AddPicking()
 	GameObject* closestObject = nullptr;
 
 	// 모든 게임 오브젝트에 대해 레이 충돌 검사
+	float dist = 0.f;
+
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
-		float dist = 0.f;
 
 		if (obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist))
 		{
+			
 			// 가장 가까운 오브젝트 찾기
 			if (dist < closestDist)
 			{
@@ -526,7 +528,7 @@ void DummyApp::PickingMove()
 			// 바운딩 박스도 함께 업데이트
 			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
 		}
-		for (const auto& x : mAllGameObjects) {
+		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
 			std::cout << x->GetName() << ", ";
 		}
 		std::cout << std::endl;

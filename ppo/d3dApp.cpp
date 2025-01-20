@@ -356,6 +356,14 @@ void D3DApp::OnResize()
 	mScreenViewport.MaxDepth = 1.0f;
 
 	mScissorRect = { 0, 0, mClientWidth, mClientHeight };
+
+	RECT rect;
+	// 클라이언트 영역의 좌표를 얻습니다.
+	GetClientRect(mhMainWnd, &rect);
+	// 윈도우 좌표로 변환합니다.
+	MapWindowPoints(mhMainWnd, nullptr, (POINT*)&rect, 2);
+	// 커서가 이 사각형을 벗어나지 않도록 설정합니다.
+	ClipCursor(&rect);
 }
 
 bool D3DApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
