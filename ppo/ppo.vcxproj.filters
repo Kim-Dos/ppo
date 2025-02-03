@@ -90,7 +90,13 @@
     <ClInclude Include="Actor.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
-    <ClInclude Include="Protocol.h">
+    <ClInclude Include="..\..\Grad\GRClient\GRClient\UDPClient.hpp">
+      <Filter>Net</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Grad\GRServer\GRServer\Protocol.h">
+      <Filter>Net</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Grad\GRClient\GRClient\TCPClient.hpp">
       <Filter>Net</Filter>
     </ClInclude>
   </ItemGroup>
@@ -157,6 +163,12 @@
     </ClCompile>
     <ClCompile Include="Actor.cpp">
       <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Grad\GRClient\GRClient\UDPClient.cpp">
+      <Filter>Net</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Grad\GRClient\GRClient\TCPClient.cpp">
+      <Filter>Net</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

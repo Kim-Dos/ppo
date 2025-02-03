@@ -1,6 +1,6 @@
 #pragma once
 
-//#include "stdafx.h"
+#include "stdafx.h"
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
@@ -101,7 +101,7 @@ private:
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
-	void UpdateSkinnedCBs(const GameTimer& gt);
+	//void UpdateSkinnedCBs(const GameTimer& gt);
 	void UpdateSkinnedCB(const GameTimer& gt, GameObject* skinnobj);
 
 	void UpdateMaterialCBs(const GameTimer& gt);
@@ -123,6 +123,8 @@ private:
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
 	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
+
+
 
 	void SummonKnight();
 	void SummonHunter();
@@ -203,6 +205,9 @@ private:
 
 
 	UINT mSkyTexHeapIndex = 0;
+	
+	UDPC upd_client;
+	TCPC tcp_client;
 };
 
 

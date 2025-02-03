@@ -24,7 +24,10 @@
 #include <DirectXColors.h>
 #include <DirectXCollision.h>
 #include <DXGIDebug.h>
-#include "Protocol.h"
+
+#include "../../Grad/GRServer/GRServer/Protocol.h"
+#include "../../Grad/GRClient/GRClient/UDPClient.hpp"
+#include "../../Grad/GRClient/GRClient/TCPClient.hpp"
 
 using namespace DirectX;
 using namespace DirectX::PackedVector;
