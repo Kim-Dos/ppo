@@ -6,6 +6,7 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	// Forward hwnd on because we can get messages (e.g., WM_CREATE)
@@ -15,12 +16,15 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 D3DApp* D3DApp::mApp = nullptr;
 
-D3DApp::D3DApp(HINSTANCE hInstance)
+D3DApp::D3DApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
 {
 	mhAppInst = hInstance;
 	// 하나의 D3DApp만 만들어 지도록 한다
 	assert(mApp == nullptr);
 	mApp = this;
+
+	udp_client = new UDPC{ IOContext };
+	tcp_client = new TCPC{ IOContext };
 }
 
 D3DApp::~D3DApp()

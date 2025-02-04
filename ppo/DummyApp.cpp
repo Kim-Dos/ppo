@@ -3,8 +3,8 @@
 const int gNumFrameResources = 3;
 
 
-DummyApp::DummyApp(HINSTANCE hInstance)
-	: D3DApp(hInstance)
+DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
+	: D3DApp(hInstance, IOContext)
 {
 	
 }
@@ -354,7 +354,7 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 				SummonObject();
 			}
 			else {
-				std::cout << mDragFlag << std::endl;
+				std::cout << "DragFlag - " << mDragFlag << std::endl;
 				ShowCursor(true);
 				//드래그 이벤트 입력
 				if (mDragFlag) DragEvent();
@@ -453,7 +453,7 @@ void DummyApp::DragEvent()
 
 #ifdef _DEBUG
 	for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
-		cout << x->GetName() << endl;
+		cout << "Pickings - " << x->GetName() << endl;
 #endif
 }
 
@@ -465,8 +465,8 @@ void DummyApp::AddPicking()
 	float ndcY = 1.0f - (2.0f * mLastMousePos.y) / mClientHeight;
 
 	// near plane과 살짝 더 먼 거리만 사용
-	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.1f, 1.0f);    // near plane
-	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 30000.f, 1.0f);    // far plane
+	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.1f, 1.f);    // near plane
+	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 0.11f, 1.f);    // far plane
 
 	XMMATRIX invViewProj = XMMatrixInverse(nullptr, XMMatrixMultiply(mMainCamera->GetView(), mMainCamera->GetProj()));
 	XMVECTOR worldRayOrigin = XMVector3TransformCoord(rayOrigin, invViewProj);
@@ -487,14 +487,16 @@ void DummyApp::AddPicking()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
-
-		if (obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist))
+		bool xo = obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist);
+		std::cout << "BBIntersectOX - " << xo << std::endl;
+		if (xo)
 		{
-			
+
+			std::cout << "dist - " << dist << std::endl;
 			// 가장 가까운 오브젝트 찾기
 			if (dist < closestDist)
 			{
-				std::cout << dist << std::endl;
+				std::cout << "dist - " << dist << std::endl; 
 				closestDist = dist;
 				closestObject = obj;
 			}
@@ -505,7 +507,7 @@ void DummyApp::AddPicking()
 		mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(closestObject);
 
 #ifdef _DEBUG
-		std::cout << "Picked Object: " << closestObject->GetName() << "\n";
+		std::cout << "Picked Object - " << closestObject->GetName() << "\n";
 #endif
 	}
 
@@ -529,7 +531,7 @@ void DummyApp::PickingMove()
 			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
 		}
 		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
-			std::cout << x->GetName() << ", ";
+			std::cout << "Moves - " << x->GetName() << ", ";
 		}
 		std::cout << std::endl;
 	}

@@ -31,11 +31,11 @@ public:
 
 	virtual ButtonPack& ButtonAction() override;
 
-	ButtonPack& LoginActing();
-	ButtonPack& LogOutActing();
-	ButtonPack& QuickMatchingActing();
-	ButtonPack& EnterRoomCode();
-	ButtonPack& GameStart(); 
+	//ButtonPack& LoginActing();
+	//ButtonPack& LogOutActing();
+	//ButtonPack& QuickMatchingActing();
+	//ButtonPack& EnterRoomCode();
+	//ButtonPack& GameStart(); 
 
 private:
 	int texID;

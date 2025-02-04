@@ -1,6 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
@@ -67,7 +66,7 @@ class DummyApp : public D3DApp
 {
 public:
 
-	DummyApp(HINSTANCE hInstance);
+	DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext);
 	DummyApp(const DummyApp& rhs) = delete;
 	DummyApp& operator=(const DummyApp& rhs) = delete;
 	~DummyApp();
@@ -206,8 +205,6 @@ private:
 
 	UINT mSkyTexHeapIndex = 0;
 	
-	UDPC upd_client;
-	TCPC tcp_client;
 };
 
 

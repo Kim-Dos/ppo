@@ -30,7 +30,7 @@ LobbyButton::LobbyButton(const POINT& cen, const SIZE& siz, const int& textureID
 ButtonPack& LobbyButton::ButtonAction()
 {
 
-	switch (texID)
+	/*switch (texID)
 	{
 	case CL_LOGIN:
 		LoginActing();
@@ -51,44 +51,45 @@ ButtonPack& LobbyButton::ButtonAction()
 		printf("Other Texture\n");
 		exit(-1);
 		break;
-	}
-	
+	}*/
+	ButtonPack p;
 
+	return p;
 }
-
-ButtonPack& LobbyButton::LoginActing()
-{
-	CLLobbyLogin packet;
-
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogin) };
-	return *p;
-}
-
-ButtonPack& LobbyButton::LogOutActing()
-{
-	CLLobbyLogOut packet;
-
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogOut) };
-	return *p;
-}
-
-ButtonPack& LobbyButton::QuickMatchingActing()
-{
-	CLClickMatching packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLClickMatching) };
-	return *p;
-}
-
-ButtonPack& LobbyButton::EnterRoomCode()
-{
-	CLEnterRoomCode packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLEnterRoomCode) };
-	return *p;
-}
-
-ButtonPack& LobbyButton::GameStart()
-{
-	CLStartGame packet;
-	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLStartGame) };
-	return *p;
-}
+//
+//ButtonPack& LobbyButton::LoginActing()
+//{
+//	CLLobbyLogin packet;
+//
+//	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogin) };
+//	return *p;
+//}
+//
+//ButtonPack& LobbyButton::LogOutActing()
+//{
+//	CLLobbyLogOut packet;
+//
+//	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLLobbyLogOut) };
+//	return *p;
+//}
+//
+//ButtonPack& LobbyButton::QuickMatchingActing()
+//{
+//	CLClickMatching packet;
+//	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLClickMatching) };
+//	return *p;
+//}
+//
+//ButtonPack& LobbyButton::EnterRoomCode()
+//{
+//	CLEnterRoomCode packet;
+//	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLEnterRoomCode) };
+//	return *p;
+//}
+//
+//ButtonPack& LobbyButton::GameStart()
+//{
+//	CLStartGame packet;
+//	ButtonPack* p = new ButtonPack{ &packet, sizeof(CLStartGame) };
+//	return *p;
+//}

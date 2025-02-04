@@ -5,6 +5,7 @@
 #include <crtdbg.h>
 #endif
 
+#include "stdafx.h"
 #include "d3dUtil.h"
 #include "GameTimer.h"
 #include "Resource.h"
@@ -17,7 +18,7 @@ class D3DApp
 {
 protected:
 
-	D3DApp(HINSTANCE hInstance);
+	D3DApp(HINSTANCE hInstance, boost::asio::io_context& IOContext);
 	D3DApp(const D3DApp& rhs) = delete;
 	D3DApp& operator=(const D3DApp& rhs) = delete;
 	virtual ~D3DApp();
@@ -122,5 +123,8 @@ protected:
 	DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	int mClientWidth = 1200;
 	int mClientHeight = 800;
+
+	UDPC* udp_client;
+	TCPC* tcp_client;
 };
 
