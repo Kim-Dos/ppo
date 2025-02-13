@@ -185,7 +185,7 @@ private:
 
 	PassConstants mMainPassCB;
 	
-	bool mDebugMode = false;
+	bool mDebugMode = true;
 
 	//SkinnedMesh* mSkinnedMesh;
 

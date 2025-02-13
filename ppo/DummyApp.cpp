@@ -2,6 +2,33 @@
 
 const int gNumFrameResources = 3;
 
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <iostream>
+
+//void CheckResourceBindingTier(ID3D12Device* device) {
+//	D3D12_FEATURE_DATA_D3D12_OPTIONS featureOptions;
+//	if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &featureOptions, sizeof(featureOptions)))) {
+//		switch (featureOptions.ResourceBindingTier) {
+//		case D3D12_RESOURCE_BINDING_TIER_1:
+//			std::cout << "Resource Binding Tier 1 supported." << std::endl;
+//			break;
+//		case D3D12_RESOURCE_BINDING_TIER_2:
+//			std::cout << "Resource Binding Tier 2 supported." << std::endl;
+//			break;
+//		case D3D12_RESOURCE_BINDING_TIER_3:
+//			std::cout << "Resource Binding Tier 3 supported." << std::endl;
+//			break;
+//		default:
+//			std::cout << "Unknown Resource Binding Tier." << std::endl;
+//			break;
+//		}
+//	}
+//	else {
+//		std::cout << "Failed to check feature support." << std::endl;
+//	}
+//}
+
 
 DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
 	: D3DApp(hInstance, IOContext)
@@ -28,6 +55,7 @@ bool DummyApp::Initialize()
 	// 이 힙 유형에 있는 설명자의 증분 크기를 가져옵니다. 이는 하드웨어에 따라 다르다.
 	mCbvSrvDescriptorSize = md3dDevice->
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
 
 	LoadTextures();
 	BuildRootSignature();
@@ -299,6 +327,7 @@ void DummyApp::DrawDebug()
 
 void DummyApp::DrawBoundingBox()
 {
+	//std::cout << "Debug draw" << std::endl;
 	mCommandList->SetPipelineState(mPSOs["debug"].Get());
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
 	//DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
@@ -354,7 +383,7 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 				SummonObject();
 			}
 			else {
-				std::cout << "DragFlag - " << mDragFlag << std::endl;
+				//std::cout << "DragFlag - " << mDragFlag << std::endl;
 				ShowCursor(true);
 				//드래그 이벤트 입력
 				if (mDragFlag) DragEvent();
@@ -452,14 +481,14 @@ void DummyApp::DragEvent()
 	mPicking = true;
 
 #ifdef _DEBUG
-	for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
-		cout << "Pickings - " << x->GetName() << endl;
+	//for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
+		//cout << "Pickings - " << x->GetName() << endl;
 #endif
 }
 
 void DummyApp::AddPicking()
 {
-	std::cout << "AddPicking" << std::endl;
+	//std::cout << "AddPicking" << std::endl;
 
 	float ndcX = (2.0f * mLastMousePos.x) / mClientWidth - 1.0f;
 	float ndcY = 1.0f - (2.0f * mLastMousePos.y) / mClientHeight;
@@ -488,7 +517,7 @@ void DummyApp::AddPicking()
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
 		bool xo = obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist);
-		std::cout << "BBIntersectOX - " << xo << std::endl;
+		//std::cout << "BBIntersectOX - " << xo << std::endl;
 		if (xo)
 		{
 
@@ -507,7 +536,7 @@ void DummyApp::AddPicking()
 		mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(closestObject);
 
 #ifdef _DEBUG
-		std::cout << "Picked Object - " << closestObject->GetName() << "\n";
+		//std::cout << "Picked Object - " << closestObject->GetName() << "\n";
 #endif
 	}
 
@@ -531,9 +560,9 @@ void DummyApp::PickingMove()
 			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
 		}
 		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
-			std::cout << "Moves - " << x->GetName() << ", ";
+			//std::cout << "Moves - " << x->GetName() << ", ";
 		}
-		std::cout << std::endl;
+		//std::cout << std::endl;
 	}
 }
 void DummyApp::PickingAttackMove()
@@ -648,7 +677,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		{
 		case '1':
 			mDebugMode = !mDebugMode;
-			return(false);
+			break;
 		case VK_TAB:
 			if (mFPSmode) {
 				mFPSmode = false;
