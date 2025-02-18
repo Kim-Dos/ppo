@@ -25,9 +25,11 @@
 #include <DirectXCollision.h>
 #include <DXGIDebug.h>
 
-#include "../../Grad/GRServer/GRServer/Protocol.h"
-#include "../../Grad/GRClient/GRClient/UDPClient.hpp"
+//#include "../../Grad/GRServer/GRServer/Protocol.h"
+//#include "../../Grad/GRClient/GRClient/UDPClient.hpp"
 #include "../../Grad/GRClient/GRClient/TCPClient.hpp"
+
+//#include <cmath>
 
 using namespace DirectX;
 using namespace DirectX::PackedVector;

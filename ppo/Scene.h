@@ -3,11 +3,14 @@
 #include "GameObject.h"
 #include "GameTimer.h"
 #include "Camera.h"
+//#include "DummyApp.h"
+
+class DummyApp;
 
 class Scene
 {
 public:
-    Scene();
+    Scene(DummyApp* gametool);
     ~Scene();
 
     void Update();
@@ -25,7 +28,9 @@ public:
     void DeleteAllGameObjects();
 
 private:
+
     GameObject* mAllGameObjects;
+    DummyApp* mGameTool;
 
 };
 

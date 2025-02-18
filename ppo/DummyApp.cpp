@@ -2,9 +2,7 @@
 
 const int gNumFrameResources = 3;
 
-#include <d3d12.h>
-#include <dxgi1_4.h>
-#include <iostream>
+
 
 //void CheckResourceBindingTier(ID3D12Device* device) {
 //	D3D12_FEATURE_DATA_D3D12_OPTIONS featureOptions;
@@ -904,7 +902,7 @@ void DummyApp::LoadTextures()
 	std::vector<std::wstring> texFilenames =
 	{	
 		L"Textures/Environment/grasscube1024.dds",
-		L"Textures/Character/paladin_diffuse.dds",
+		L"Textures/Character/Vanguard_diffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
 		L"Textures/bricks.dds",
 		L"Textures/stone.dds",
@@ -1285,7 +1283,7 @@ void DummyApp::LoadSkinnedMesh()
 		auto mSkinnedMesh = new SkinnedMesh;
 
 		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-		mSkinnedMesh->LoadMesh("Models/Character/Paladin.fbx");
+		mSkinnedMesh->LoadMesh("Models/Character/Vanguard.fbx");
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
@@ -1888,17 +1886,6 @@ void DummyApp::BuildGameObjects()
 	// ------------------------------------------
 	// Opaque objects
 	// ------------------------------------------
-	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-9000.0f, mTerrain.GetHeight(-9000.f, -9000.f), -9000.0f), XMMatrixIdentity());
-	crystalGameObject->SetCBIndex(objCBIndex);
-	crystalGameObject->SetMesh(mMeshes["Crystal"]);
-	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
-	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
-	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
-	mAllGameObjects.push_back(crystalGameObject);
 
 	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
 	crystalGameObject1->SetCBIndex(objCBIndex);
@@ -1936,6 +1923,8 @@ void DummyApp::BuildGameObjects()
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
 	mAllGameObjects.push_back(bowGameObject);
+	
+
 
 
 	// ------------------------------------------
@@ -1986,12 +1975,14 @@ void DummyApp::BuildGameObjects()
 	//m->SetPlayerDirections(mPlayer);
 	//mMainCamera = m;
 	m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
+	//auto tmppos = crystalGameObject->GetPosition();
+	//m->SetPosition(tmppos.x, tmppos.y+1000, tmppos.z);
 	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
 	if (mFPSmode) mMainCamera = mPlayer->GetCamera();
 	else mMainCamera = m;
-	;
+	
 	
 
 	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
@@ -2003,6 +1994,22 @@ void DummyApp::BuildGameObjects()
 	Knight->SetWeapon(bowGameObject);
 	bowGameObject->SetOwner(Knight);
 
+}
+
+void DummyApp::BuildCrystals()
+{
+	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-8900.0f, mTerrain.GetHeight(-8900.f, -9350.f), -9350.0f), XMMatrixIdentity());
+	crystalGameObject->Rotate(0.f, XM_PI, 0.f);
+	crystalGameObject->SetCBIndex(objCBIndex);
+	crystalGameObject->SetMesh(mMeshes["Crystal"]);
+	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
+	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
+	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
+	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
+	mAllGameObjects.push_back(crystalGameObject);
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
@@ -2132,10 +2139,10 @@ void DummyApp::SummonHunter()
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
-	mAllGameObjects.push_back(bowGameObject);
 
 	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
 	XMFLOAT3 pos;
+
 	XMStoreFloat3(&pos, worldPos);
 	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
 	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);

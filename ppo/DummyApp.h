@@ -118,6 +118,7 @@ private:
 	void BuildFrameResources();
 	void BuildMaterials();
 	void BuildGameObjects();
+	void BuildCrystals();
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
