@@ -2,32 +2,6 @@
 
 const int gNumFrameResources = 3;
 
-
-
-//void CheckResourceBindingTier(ID3D12Device* device) {
-//	D3D12_FEATURE_DATA_D3D12_OPTIONS featureOptions;
-//	if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &featureOptions, sizeof(featureOptions)))) {
-//		switch (featureOptions.ResourceBindingTier) {
-//		case D3D12_RESOURCE_BINDING_TIER_1:
-//			std::cout << "Resource Binding Tier 1 supported." << std::endl;
-//			break;
-//		case D3D12_RESOURCE_BINDING_TIER_2:
-//			std::cout << "Resource Binding Tier 2 supported." << std::endl;
-//			break;
-//		case D3D12_RESOURCE_BINDING_TIER_3:
-//			std::cout << "Resource Binding Tier 3 supported." << std::endl;
-//			break;
-//		default:
-//			std::cout << "Unknown Resource Binding Tier." << std::endl;
-//			break;
-//		}
-//	}
-//	else {
-//		std::cout << "Failed to check feature support." << std::endl;
-//	}
-//}
-
-
 DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
 	: D3DApp(hInstance, IOContext)
 {
@@ -514,6 +488,11 @@ void DummyApp::AddPicking()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
+		auto k = obj->GetBoundingBox().Center;
+		auto j = obj->GetBoundingBox().Extents;
+		std::cout << obj->GetName() << std::endl;
+		std::cout << "Center" << k.x << ", " << k.y << ", " << k.z << std::endl;
+		std::cout << "Extents" << j.x << ", " << j.y << ", " << j.z << std::endl;
 		bool xo = obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist);
 		//std::cout << "BBIntersectOX - " << xo << std::endl;
 		if (xo)
@@ -1279,6 +1258,7 @@ void DummyApp::BuildShapeGeometry()
 
 void DummyApp::LoadSkinnedMesh()
 {
+	//Attacker
 	{
 		auto mSkinnedMesh = new SkinnedMesh;
 
@@ -1887,6 +1867,42 @@ void DummyApp::BuildGameObjects()
 	// Opaque objects
 	// ------------------------------------------
 
+	BuildCrystal(-8900, -9350, 180);
+	BuildCrystal(-8700, -9500, 180);
+	BuildCrystal(-8500, -9500, 180);
+	BuildCrystal(-8300, -9350, 180);
+
+	BuildCrystal(-9500, -8580, 180);
+	BuildCrystal(-9630, -8780, 180);
+	BuildCrystal(-9630, -8980, 180);
+	BuildCrystal(-9500, -9180, 180);
+
+	BuildCrystal(-3920, -8080, 180);
+	BuildCrystal(-4060, -8280, 180);
+	BuildCrystal(-4260, -8280, 0);
+	BuildCrystal(-4060, -8430, 0);
+
+	BuildCrystal(-4080, -8950, 180);
+	BuildCrystal(-4250, -9120, 180);
+	BuildCrystal(-4080, -9090, 0);
+
+	BuildCrystal(-4060, -9580, 180);
+	BuildCrystal(-3920, -9730, 180);
+
+	BuildCrystal(1750, -9530, 180);
+	BuildCrystal(1980, -9680, 180);
+	BuildCrystal(2180, -9530, 180);
+	BuildCrystal(2380, -9700, 180);
+	BuildCrystal(2600, -9700, 180);
+	BuildCrystal(2780, -9530, 180);
+	BuildCrystal(2900, -9330, 180);
+
+
+	BuildCrystal(8100, -9530, 180);
+	BuildCrystal(8280, -9700, 180);
+	BuildCrystal(8550, -9700, 180);
+	BuildCrystal(8820, -9500, 180);
+
 	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
 	crystalGameObject1->SetCBIndex(objCBIndex);
 	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
@@ -1974,9 +1990,9 @@ void DummyApp::BuildGameObjects()
 	Camera* m = new Camera();
 	//m->SetPlayerDirections(mPlayer);
 	//mMainCamera = m;
-	m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
-	//auto tmppos = crystalGameObject->GetPosition();
-	//m->SetPosition(tmppos.x, tmppos.y+1000, tmppos.z);
+	//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
+
+	m->SetPosition(9000, mTerrain.GetHeight(9000,-9000)+1000, -9000);
 	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
@@ -1996,10 +2012,10 @@ void DummyApp::BuildGameObjects()
 
 }
 
-void DummyApp::BuildCrystals()
+void DummyApp::BuildCrystal(const float& x, const float& y, const float& degree)
 {
-	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(-8900.0f, mTerrain.GetHeight(-8900.f, -9350.f), -9350.0f), XMMatrixIdentity());
-	crystalGameObject->Rotate(0.f, XM_PI, 0.f);
+	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(x, mTerrain.GetHeight(x, y), y), XMMatrixIdentity());
+	crystalGameObject->Rotate(0.f, degree*XM_PI/180, 0.f);
 	crystalGameObject->SetCBIndex(objCBIndex);
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());

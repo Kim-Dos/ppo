@@ -71,6 +71,14 @@ public:
 	DummyApp& operator=(const DummyApp& rhs) = delete;
 	~DummyApp();
 
+	void SummonKnight();
+	void SummonHunter();
+	void SummonSlave();
+
+	void DoUpgrade();
+	void SetBuilding();
+
+
 	virtual bool Initialize()override;
 
 private:
@@ -118,7 +126,9 @@ private:
 	void BuildFrameResources();
 	void BuildMaterials();
 	void BuildGameObjects();
-	void BuildCrystals();
+
+	void BuildCrystal(const float& x, const float& y, const float& degree);
+
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
@@ -126,12 +136,7 @@ private:
 
 
 
-	void SummonKnight();
-	void SummonHunter();
-	void SummonSlave();
-	
-	void DoUpgrade();
-	void SetBuilding();
+
 
 	void ReleseMemory();
 
@@ -161,7 +166,9 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
 
 	// List of all the render items.
-	//std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+	//std::vector<std::unique_ptr<RenderItem>> mAllRi
+	// 
+	// tems;
 	std::vector<GameObject*> mAllGameObjects;
 
 	bool mPicking = false;

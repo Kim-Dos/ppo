@@ -114,5 +114,7 @@ public:
 	void SetOwner(GameObject* owner) { mOwner = owner; }
 	GameObject* GetOwner() { return mOwner; }
 private:
+
+
 	GameObject* mOwner = nullptr;
 };

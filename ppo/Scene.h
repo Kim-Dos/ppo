@@ -29,7 +29,6 @@ public:
 
 private:
 
-    GameObject* mAllGameObjects;
     DummyApp* mGameTool;
 
 };
