@@ -1903,6 +1903,40 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(8550, -9700, 180);
 	BuildCrystal(8820, -9500, 180);
 
+	BuildCrystal(9450, -9000, 0);
+	BuildCrystal(9700, -9000, 180);
+	BuildCrystal(9650, -8550, 0);
+	BuildCrystal(9550, -8600, 180);
+
+	BuildCrystal(-5000, -4800, 180);
+	BuildCrystal(-5170, -5100, 180);
+	BuildCrystal(-5080, -5100, 0);
+	
+	BuildCrystal(-4500, -5550, 180);
+	BuildCrystal(-4450, -5580, 0);
+	BuildCrystal(-3900, -5600, 180);
+
+	BuildCrystal(-9500, -3250, 180);
+	BuildCrystal(-9700, -3400, 180);
+	BuildCrystal(-9600, -3410, 0);
+	BuildCrystal(-9750, -3600, 0);
+
+	BuildCrystal(-9600, -4050, 180);
+	BuildCrystal(-9520, -4200, 180);
+	BuildCrystal(-9500, -4200, 0);
+	BuildCrystal(-9400, -4350, 0);
+	BuildCrystal(-9150, -4350, 0);
+
+	BuildCrystal(-9450, 200, 180);
+	BuildCrystal(-9650, 350, 180);
+	BuildCrystal(-9450, 500, 180);
+	BuildCrystal(-9450, 650, 180);
+	BuildCrystal(-9650, 850, 180);
+	BuildCrystal(-9450, 1000, 180);
+	BuildCrystal(-9650, 1200, 180);
+
+	BuildCrystal(9650, 100, 180);
+
 	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
 	crystalGameObject1->SetCBIndex(objCBIndex);
 	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
@@ -1992,7 +2026,7 @@ void DummyApp::BuildGameObjects()
 	//mMainCamera = m;
 	//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
 
-	m->SetPosition(9000, mTerrain.GetHeight(9000,-9000)+1000, -9000);
+	m->SetPosition(9500, mTerrain.GetHeight(9500,-2000)+1000, -2000);
 	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
