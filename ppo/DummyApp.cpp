@@ -302,7 +302,7 @@ void DummyApp::DrawBoundingBox()
 	//std::cout << "Debug draw" << std::endl;
 	mCommandList->SetPipelineState(mPSOs["debug"].Get());
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Object]);
-	//DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
+	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
 }
 
 void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
@@ -1679,6 +1679,23 @@ void DummyApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()), mShaders["skyPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
 
+
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC cursorPsoDesc = opaquePsoDesc;
+	cursorPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	cursorPsoDesc.pRootSignature = mRootSignature.Get();
+	cursorPsoDesc.VS = { mShaders["cursorVS"]->GetBufferPointer(),
+						 mShaders["cursorVS"]->GetBufferSize() };
+	cursorPsoDesc.PS = { mShaders["cursorPS"]->GetBufferPointer(),
+						 mShaders["cursorPS"]->GetBufferSize() };
+
+	cursorPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	cursorPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	cursorPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	cursorPsoDesc.DepthStencilState.DepthEnable = FALSE;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cursorPsoDesc, IID_PPV_ARGS(&mPSOs["cursor"])));
+
 	//
 	// PSO for debug(line)
 	//
@@ -1693,6 +1710,7 @@ void DummyApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
 		IID_PPV_ARGS(&mPSOs["debug"])));
+
 
 	//// 
 	//// ui
@@ -1867,6 +1885,8 @@ void DummyApp::BuildGameObjects()
 	// Opaque objects
 	// ------------------------------------------
 
+	//1----------------------------------------------
+
 	BuildCrystal(-8900, -9350, 180);
 	BuildCrystal(-8700, -9500, 180);
 	BuildCrystal(-8500, -9500, 180);
@@ -1876,6 +1896,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-9630, -8780, 180);
 	BuildCrystal(-9630, -8980, 180);
 	BuildCrystal(-9500, -9180, 180);
+
+	//2----------------------------------------------
 
 	BuildCrystal(-3920, -8080, 180);
 	BuildCrystal(-4060, -8280, 180);
@@ -1889,6 +1911,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-4060, -9580, 180);
 	BuildCrystal(-3920, -9730, 180);
 
+	//3----------------------------------------------
+
 	BuildCrystal(1750, -9530, 180);
 	BuildCrystal(1980, -9680, 180);
 	BuildCrystal(2180, -9530, 180);
@@ -1897,6 +1921,7 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(2780, -9530, 180);
 	BuildCrystal(2900, -9330, 180);
 
+	//4----------------------------------------------
 
 	BuildCrystal(8100, -9530, 180);
 	BuildCrystal(8280, -9700, 180);
@@ -1908,6 +1933,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(9650, -8550, 0);
 	BuildCrystal(9550, -8600, 180);
 
+	//5----------------------------------------------
+
 	BuildCrystal(-5000, -4800, 180);
 	BuildCrystal(-5170, -5100, 180);
 	BuildCrystal(-5080, -5100, 0);
@@ -1915,6 +1942,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-4500, -5550, 180);
 	BuildCrystal(-4450, -5580, 0);
 	BuildCrystal(-3900, -5600, 180);
+
+	//6----------------------------------------------
 
 	BuildCrystal(-9500, -3250, 180);
 	BuildCrystal(-9700, -3400, 180);
@@ -1926,6 +1955,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-9500, -4200, 0);
 	BuildCrystal(-9400, -4350, 0);
 	BuildCrystal(-9150, -4350, 0);
+	
+	//7----------------------------------------------
 
 	BuildCrystal(-9450, 200, 180);
 	BuildCrystal(-9650, 350, 180);
@@ -1935,6 +1966,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-9450, 1000, 180);
 	BuildCrystal(-9650, 1200, 180);
 
+	//8----------------------------------------------
+
 	BuildCrystal(9550, -250, 180);
 	BuildCrystal(9650, -250, 0);
 	BuildCrystal(9550, -600, 180);
@@ -1942,6 +1975,8 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(9550, -950, 180);
 	BuildCrystal(9600, -950, 0);
 	BuildCrystal(9600, -1150, 0);
+
+	//9----------------------------------------------
 
 	BuildCrystal(9400, 4200, 180);
 	BuildCrystal(9600, 4000, 180);
@@ -1963,6 +1998,7 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(4000, 5350, 0);
 	BuildCrystal(3850, 5350, 180);
 
+	//10----------------------------------------------
 
 	BuildCrystal(-9550, 8750, 0);
 	BuildCrystal(-9700, 8900, 0);
@@ -1974,19 +2010,48 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(-8550, 9850, 0);
 	BuildCrystal(-8300, 9850, 0);
 	BuildCrystal(-8050, 9700, 0);
+	
+	//11----------------------------------------------
+	
+	BuildCrystal(-3200, 9650, 0);
+	BuildCrystal(-3050, 9850, 0);
+	BuildCrystal(-2750, 9850, 0);
+	BuildCrystal(-2550, 9650, 0);
+	BuildCrystal(-2450, 9850, 0);
+	BuildCrystal(-2200, 9850, 0);
+	BuildCrystal(-2000, 9650, 0);
+	
+	//12----------------------------------------------
 
-	GameObject* crystalGameObject1 = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(10000.0f, mTerrain.GetHeight(10000.f, 10000.f), 10000.f), XMMatrixIdentity());
-	crystalGameObject1->SetCBIndex(objCBIndex);
-	crystalGameObject1->SetMesh(mMeshes["Crystal"]);
-	crystalGameObject1->SetMaterial(mMaterials["crystal"].get());
-	crystalGameObject1->AddSubmesh(crystalGameObject1->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
-	crystalGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	BuildCrystal(4100, 9500, 180);
+	BuildCrystal(4250, 9300, 180);
+	BuildCrystal(4350, 9300, 0);
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject1);
-	mAllGameObjects.push_back(crystalGameObject1);
+	BuildCrystal(4350, 9000, 0);
+	BuildCrystal(4200, 8800, 0);
+	BuildCrystal(4350, 8600, 0);
+	BuildCrystal(4200, 8400, 0);
 
+
+	BuildCrystal(4250, 7900, 180);
+	BuildCrystal(4100, 7700, 180);
+
+
+	//13----------------------------------------------
+
+
+	BuildCrystal(7900, 9600, 0);
+	BuildCrystal(8100, 9800, 0);
+	BuildCrystal(8350, 9800, 0);
+	BuildCrystal(8500, 9600, 0);
+
+	BuildCrystal(9350, 9400, 0);
+	BuildCrystal(9500, 9250, 0);
+
+	BuildCrystal(9600, 8750, 180);
+	BuildCrystal(9400, 8600, 180);
+
+	//----------------------------------------------
 	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
@@ -2064,7 +2129,7 @@ void DummyApp::BuildGameObjects()
 	//mMainCamera = m;
 	//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
 
-	m->SetPosition(-9500, mTerrain.GetHeight(-9500,9000)+2000, 9000);
+	m->SetPosition(9500, mTerrain.GetHeight(9500,9000)+2000, 9000);
 	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
 	mSubCamera.push_back(m);
 	 
@@ -2092,7 +2157,7 @@ void DummyApp::BuildCrystal(const float& x, const float& y, const float& degree)
 	crystalGameObject->SetMesh(mMeshes["Crystal"]);
 	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
 	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(.5f, .5f, .5f));
+	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 10.f, -10.0f), XMFLOAT3(10.f, 10.f, 10.f));
 	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);

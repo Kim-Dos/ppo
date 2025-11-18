@@ -73,6 +73,10 @@ public:
 	D3D12_VERTEX_BUFFER_VIEW BoundingBoxVertexBufferView() const;
 	D3D12_INDEX_BUFFER_VIEW BoundingBoxIndexBufferView() const;
 
+	// draw BoundingBox
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
+
 private:
 	
 	bool mWorldMatDirty = true;
@@ -95,9 +99,7 @@ private:
 	UINT mNumSubmeshes = 0;
 	DrawIndex mDrawIndex[MAX_NUM_SUBMESHES];
 
-	// draw BoundingBox
-	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferGPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
+
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferUploader = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferUploader = nullptr;
