@@ -4,6 +4,20 @@
 #include "MathHelper.h"
 #include "UploadBuffer.h"
 
+
+struct SelectionConstants
+{
+    XMFLOAT2 PosNDC;   
+    XMFLOAT2 SizeNDC;  
+    XMFLOAT4 Color;    
+};
+
+struct CursorConstants
+{
+    XMFLOAT2 CursorPosNDC;
+    XMFLOAT2 CursorSizeNDC;
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
@@ -148,6 +162,9 @@ public:
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<SkinnedConstants>> SkinnedCB = nullptr;
+
+    std::unique_ptr<UploadBuffer<CursorConstants>> CursorCB;
+    std::unique_ptr<UploadBuffer<SelectionConstants>> SelectionCB;
 
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 

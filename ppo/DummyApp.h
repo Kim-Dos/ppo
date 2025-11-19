@@ -86,6 +86,10 @@ private:
 	virtual void OnResize()override;
 	virtual void Update(const GameTimer& gt)override;
 	virtual void Draw(const GameTimer& gt)override;
+
+	void DrawCursor();
+	void DrawSelectionRect();
+
 	void DrawDebug();
 	void DrawBoundingBox();
 
@@ -127,6 +131,8 @@ private:
 	void BuildMaterials();
 	void BuildGameObjects();
 
+	void BuildUICursor();
+
 	void BuildCrystal(const float& x, const float& y, const float& degree);
 
 	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
@@ -164,6 +170,9 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mColorInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
+
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mUIInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mSelectionInputLayout;
 
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRi
@@ -213,6 +222,30 @@ private:
 
 	UINT mSkyTexHeapIndex = 0;
 	
+	UINT mCursorTexHeapIndex = 0;
+
+	ComPtr<ID3D12Resource> mCursorVB;
+	ComPtr<ID3D12Resource> mCursorIB;
+	ComPtr<ID3D12Resource> mCursorVBUpload;
+	ComPtr<ID3D12Resource> mCursorIBUpload;
+
+	D3D12_VERTEX_BUFFER_VIEW mCursorVBView;
+	D3D12_INDEX_BUFFER_VIEW  mCursorIBView;
+
+	RECT GetDragRect() const;
+
+
+	// --- 선택 박스용 버퍼 ---
+	ComPtr<ID3D12Resource> mSelectionVB;
+	ComPtr<ID3D12Resource> mSelectionIB;
+	ComPtr<ID3D12Resource> mSelectionVBUpload;
+	ComPtr<ID3D12Resource> mSelectionIBUpload;
+
+	D3D12_VERTEX_BUFFER_VIEW mSelectionVBView;
+	D3D12_INDEX_BUFFER_VIEW  mSelectionIBView;
+
+	void BuildSelectionGeometry();  // 선택 박스용 지오메트리
+
 };
 
 
