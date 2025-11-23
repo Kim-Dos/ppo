@@ -76,6 +76,8 @@ public:
 	void Pitch(float angle);
 	void RotateY(float angle);
 
+	void SetNormal();
+
 
 	void SetVelocity(XMFLOAT3 velocity) { mVelocity = velocity; }
 	XMFLOAT3 GetVelocity() { return mVelocity; }

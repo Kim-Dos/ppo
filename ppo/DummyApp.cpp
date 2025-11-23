@@ -1,5 +1,4 @@
 ﻿#include "DummyApp.h"
-
 const int gNumFrameResources = 3;
 
 DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
@@ -28,6 +27,7 @@ bool DummyApp::Initialize()
 	mCbvSrvDescriptorSize = md3dDevice->
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+	ShowCursor(false);
 
 	LoadTextures();
 	BuildRootSignature();
@@ -35,9 +35,14 @@ bool DummyApp::Initialize()
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildSelectionGeometry();
+	BuildDarknessGeometry();
 	BuildUICursor();
 	LoadMeshes();
 	LoadTerrain();
+	
+	InitFog();
+	BuildFogResources();
+
 	BuildMaterials();
 	BuildGameObjects();
 	BuildFrameResources();
@@ -86,8 +91,6 @@ void DummyApp::Update(const GameTimer& gt)
 			}
 		}
 	}
-	if (mRoateFlag) ShowCursor(false);
-	else ShowCursor(true);
 
 	if (mFPSmode) {
 	}
@@ -200,6 +203,16 @@ void DummyApp::Update(const GameTimer& gt)
 	//UpdateSkinnedCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
+
+	mFogUpdateTime += gt.DeltaTime();
+	if (mFogUpdateTime >= mFogUpdateInterval)
+	{
+		UpdateFogOfWar();
+		mFogUpdateTime = 0.0f;
+	}
+
+
+	UpdateDarknessCB(gt);
 }
 
 void DummyApp::Draw(const GameTimer& gt)
@@ -267,6 +280,8 @@ void DummyApp::Draw(const GameTimer& gt)
 	if (mDebugMode)
 		DrawDebug();
 	
+	if(mFogFlag) DrawDarkness();
+
 	DrawSelectionRect();
 	if (! mSpecialKeyinput.isCtrl) { DrawCursor(); }
 
@@ -460,6 +475,32 @@ void DummyApp::DrawSelectionRect()
 	cmdList->DrawIndexedInstanced(8, 1, 0, 0, 0);
 }
 
+void DummyApp::DrawDarkness()
+{
+	auto cmdList = mCommandList.Get();
+	cmdList->SetPipelineState(mPSOs["darkness"].Get());
+
+	// ★ FogTex가 들어있는 SRV 힙 바인딩
+	ID3D12DescriptorHeap* heaps[] = { mFogSrvHeap.Get() };
+	cmdList->SetDescriptorHeaps(1, heaps);
+
+	// DarknessCB (b1)
+	auto darknessCBAddress =
+		mCurrFrameResource->DarknessCB->Resource()->GetGPUVirtualAddress();
+	cmdList->SetGraphicsRootConstantBufferView(1, darknessCBAddress);
+
+	// ★ FogTex(t0, space2) 바인딩
+	cmdList->SetGraphicsRootDescriptorTable(
+		6, mFogSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+	// 풀스크린 quad 그리기 (Darkness geometry)
+	cmdList->IASetVertexBuffers(0, 1, &mDarknessVBView);
+	cmdList->IASetIndexBuffer(&mDarknessIBView);
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	cmdList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+}
+
 RECT DummyApp::GetDragRect() const
 {
 	RECT dragRect;
@@ -543,12 +584,9 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 	
 	if (mFPSmode) {
-		ShowCursor(false);
 	}
 	else {
 		if (msg == WM_RBUTTONDOWN) {
-			ShowCursor(false);
-			
 			//std::cout << x << ", " << y << std::endl;
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
@@ -578,21 +616,19 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
 
-		ShowCursor(true);
 		if (msg == WM_LBUTTONUP) {
 			if (mUIkey.isO || mUIkey.isB) {
 				SummonObject();
 			}
 			else {
 				//std::cout << "DragFlag - " << mDragFlag << std::endl;
-				ShowCursor(true);
 				//드래그 이벤트 입력
 				if (mDragFlag) DragEvent();
 				else FollowerKeyEvent();
 				mDragFlag = false;
 			}
 		}
-		else if (msg == WM_RBUTTONUP && mRoateFlag == false) {
+		else if (msg == WM_RBUTTONUP && mRoateFlag == false && !mSpecialKeyinput.isCtrl) {
 			if (mPicking) {
 				mFollowerinput = FollowerKeyInput::Move;
 				FollowerKeyEvent();
@@ -619,7 +655,7 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 	if ((btnState & MK_RBUTTON) != 0)
 	{
-		if(!mFPSmode) {
+		if((!mFPSmode)&& mSpecialKeyinput.isCtrl) {
 			mRoateFlag = true;
 			mMainCamera->Pitch(dy);
 			mMainCamera->RotateY(dx);
@@ -714,9 +750,9 @@ void DummyApp::AddPicking()
 	{
 		auto k = obj->GetBoundingBox().Center;
 		auto j = obj->GetBoundingBox().Extents;
-		std::cout << obj->GetName() << std::endl;
-		std::cout << "Center" << k.x << ", " << k.y << ", " << k.z << std::endl;
-		std::cout << "Extents" << j.x << ", " << j.y << ", " << j.z << std::endl;
+		//std::cout << obj->GetName() << std::endl;
+		//std::cout << "Center" << k.x << ", " << k.y << ", " << k.z << std::endl;
+		//std::cout << "Extents" << j.x << ", " << j.y << ", " << j.z << std::endl;
 		bool xo = obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist);
 		//std::cout << "BBIntersectOX - " << xo << std::endl;
 		if (xo)
@@ -837,6 +873,364 @@ void DummyApp::SummonObject()
 	}
 
 }
+
+void DummyApp::InitFog()
+{
+	float mapWidth = mTerrain.GetWidth();   // X 방향 길이
+	float mapLength = mTerrain.GetLength();  // Z 방향 길이
+
+	mFog.cellSize = 20.f; // 해상도 조금 낮춰서 성능도 같이 올리자
+
+	mFog.gridX = (int)(mapWidth / mFog.cellSize);
+	mFog.gridZ = (int)(mapLength / mFog.cellSize);
+
+	const int count = mFog.gridX * mFog.gridZ;
+
+	mFog.tiles.resize(count, FogState::Hidden);
+	mFog.prevTiles.resize(count, FogState::Hidden);
+	mFog.heights.resize(count, 0.0f);   // ★ 꼭 해줘야 함
+
+	// ★ 여기서 한 번만 Terrain 높이 캐시를 채움
+	for (int gz = 0; gz < mFog.gridZ; ++gz)
+	{
+		for (int gx = 0; gx < mFog.gridX; ++gx)
+		{
+			float wx, wz;
+
+			float nx = (gx + 0.5f) / mFog.gridX;
+			float nz = (gz + 0.5f) / mFog.gridZ;
+
+			wx = nx * mapWidth - mapWidth * 0.5f;
+			wz = mapLength - nz * mapLength - mapLength * 0.5f;
+
+			float h = mTerrain.GetHeight(wx, wz); // y 높이
+			mFog.heights[mFog.Index(gx, gz)] = h;
+		}
+	}
+}
+
+void DummyApp::WorldToFog(float wx, float wz, int& gx, int& gz)
+{
+	float mapWidth = mTerrain.GetWidth();
+	float mapLength = mTerrain.GetLength();
+
+	float nx = (wx + mapWidth * 0.5f) / mapWidth;
+	float nz = (mapLength - (wz + mapLength * 0.5f)) / mapLength;
+
+	gx = (int)(nx * mFog.gridX);
+	gz = (int)(nz * mFog.gridZ);
+
+	// clamp
+	gx = MathHelper::Clamp(gx, 0, mFog.gridX - 1);
+	gz = MathHelper::Clamp(gz, 0, mFog.gridZ - 1);
+}
+
+void DummyApp::CastLight(
+	int cx, int cz, int row,
+	float startSlope, float endSlope,
+	int radius,
+	int octant,
+	float unitHeight,
+	float maxSlope)
+{
+	if (startSlope < endSlope) return;
+	if (row > radius) return;
+
+	bool prevBlocked = false;
+	float newStart = startSlope;
+
+	for (int col = row; col >= 0; --col)
+	{
+		int dx = col;
+		int dz = row;
+
+		int gx = cx;
+		int gz = cz;
+
+		switch (octant)
+		{
+		case 0: gx = cx + dx; gz = cz - dz; break;
+		case 1: gx = cx + dz; gz = cz - dx; break;
+		case 2: gx = cx + dz; gz = cz + dx; break;
+		case 3: gx = cx + dx; gz = cz + dz; break;
+		case 4: gx = cx - dx; gz = cz + dz; break;
+		case 5: gx = cx - dz; gz = cz + dx; break;
+		case 6: gx = cx - dz; gz = cz - dx; break;
+		case 7: gx = cx - dx; gz = cz - dz; break;
+		}
+
+		float leftSlope = (col - 0.5f) / (row + 0.5f);
+		float rightSlope = (col + 0.5f) / (row - 0.5f);
+
+		if (rightSlope > startSlope) continue;
+		if (leftSlope < endSlope)   break;
+
+		if (!mFog.InBounds(gx, gz)) continue;
+
+		int dist2 = dx * dx + dz * dz;
+		if (dist2 <= radius * radius)
+			mFog.At(gx, gz) = FogState::Visible;
+
+		// --- 타일 고도 check
+		float wx, wz;
+		FogTileToWorld(gx, gz, wx, wz);       // 그리드 -> 월드 XZ
+		float terrainH = mFog.HeightAt(gx, gz);
+
+		bool blocked = (terrainH - unitHeight > maxSlope);
+
+		if (blocked)
+		{
+			if (!prevBlocked)
+				CastLight(cx, cz, row + 1, newStart, rightSlope,
+					radius, octant, unitHeight, maxSlope);
+
+			prevBlocked = true;
+			newStart = leftSlope;
+		}
+		else
+		{
+			if (prevBlocked)
+			{
+				prevBlocked = false;
+				newStart = leftSlope;
+			}
+		}
+	}
+
+	if (!prevBlocked)
+		CastLight(cx, cz, row + 1, newStart, endSlope,
+			radius, octant, unitHeight, maxSlope);
+}
+
+void DummyApp::ComputeFOVForUnit(GameObject* unit)
+{
+	XMFLOAT3 pos = unit->GetPosition();
+	float ux = pos.x;
+	float uz = pos.z;
+	float uy = pos.y;
+
+	int gx, gz;
+	WorldToFog(ux, uz, gx, gz);
+
+	if (!mFog.InBounds(gx, gz)) return;
+
+	float visionRadiusWorld = 30.0f; // 유닛 시야 반경 (월드 단위)
+	int radius = (int)(visionRadiusWorld / mFog.cellSize);
+
+	float maxSlope = 1.5f; // 언덕이 이 값보다 높으면 가려짐
+
+	mFog.At(gx, gz) = FogState::Visible;
+
+	for (int oct = 0; oct < 8; ++oct)
+		CastLight(gx, gz, 1, 1.0f, 0.0f,
+			radius, oct, uy, maxSlope);
+}
+
+void DummyApp::UpdateFogOfWar()
+{
+	    std::vector<uint8_t> fogData(mFog.gridX * mFog.gridZ);
+
+    for (int z = 0; z < mFog.gridZ; ++z)
+    {
+        for (int x = 0; x < mFog.gridX; ++x)
+        {
+            int idx = z * mFog.gridX + x;
+            switch (mFog.tiles[idx])
+            {
+            case FogState::Hidden:   fogData[idx] = 0;   break;
+            case FogState::Seen:     fogData[idx] = 128; break;
+            case FogState::Visible:  fogData[idx] = 255; break;
+            }
+        }
+    }
+
+    D3D12_SUBRESOURCE_DATA subRes{};
+    subRes.pData      = fogData.data();
+    subRes.RowPitch   = mFog.gridX;
+    subRes.SlicePitch = mFog.gridX * mFog.gridZ;
+
+    UpdateSubresources(
+        mCommandList.Get(),
+        mFogTex.Get(),
+        mFogUpload.Get(),
+        0, 0, 1,
+        &subRes);
+
+    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        mFogTex.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    mCommandList->ResourceBarrier(1, &barrier);
+	UpdateFogTexture();
+}
+
+void DummyApp::UpdateFogTexture()
+{
+	std::vector<uint8_t> fogData(mFog.gridX * mFog.gridZ);
+
+	for (int z = 0; z < mFog.gridZ; ++z)
+	{
+		for (int x = 0; x < mFog.gridX; ++x)
+		{
+			int idx = z * mFog.gridX + x;
+			switch (mFog.tiles[idx])
+			{
+			case FogState::Hidden:  fogData[idx] = 0;   break;
+			case FogState::Seen:    fogData[idx] = 128; break;
+			case FogState::Visible: fogData[idx] = 255; break;
+			}
+		}
+	}
+
+	D3D12_SUBRESOURCE_DATA subRes{};
+	subRes.pData = fogData.data();
+	subRes.RowPitch = mFog.gridX;
+	subRes.SlicePitch = mFog.gridX * mFog.gridZ;
+
+	UpdateSubresources(
+		mCommandList.Get(),
+		mFogTex.Get(),
+		mFogUpload.Get(),
+		0, 0, 1,
+		&subRes);
+
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		mFogTex.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	mCommandList->ResourceBarrier(1, &barrier);
+}
+
+void DummyApp::BuildFogResources()
+{
+	UINT w = mFog.gridX;
+	UINT h = mFog.gridZ;
+
+	DXGI_FORMAT format = DXGI_FORMAT_R8_UNORM;
+
+	D3D12_RESOURCE_DESC texDesc{};
+	texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	texDesc.Width = w;
+	texDesc.Height = h;
+	texDesc.DepthOrArraySize = 1;
+	texDesc.MipLevels = 1;
+	texDesc.Format = format;
+	texDesc.SampleDesc.Count = 1;
+	texDesc.SampleDesc.Quality = 0;
+	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+	CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+
+	// Fog 텍스처
+	ThrowIfFailed(md3dDevice->CreateCommittedResource(
+		&defaultHeap,
+		D3D12_HEAP_FLAG_NONE,
+		&texDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&mFogTex)));
+
+	// 업로드 버퍼
+	UINT64 uploadSize = GetRequiredIntermediateSize(mFogTex.Get(), 0, 1);
+	ThrowIfFailed(md3dDevice->CreateCommittedResource(
+		&uploadHeap,
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(uploadSize),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&mFogUpload)));
+
+	// Fog 전용 SRV 힙 (1개짜리)
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+	heapDesc.NumDescriptors = 1;
+	heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&heapDesc, IID_PPV_ARGS(&mFogSrvHeap)));
+
+	// FogTex SRV 생성 (t0, space2)
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = format;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = 1;
+	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+	md3dDevice->CreateShaderResourceView(
+		mFogTex.Get(), &srvDesc,
+		mFogSrvHeap->GetCPUDescriptorHandleForHeapStart());
+}
+
+
+void DummyApp::UpdateDarknessCB(const GameTimer& gt)
+{
+	DarknessConstants dc = {};
+
+	const float visionRadiusWorld = 600.f; // 유닛 시야 반경 (월드 단위, 숫자는 맘대로 튜닝)
+
+	dc.DarkColor = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.85f);
+
+	int count = 0;
+
+	for (auto& obj : mTeamObjects)
+	{
+		if (count >= MaxFogUnits)
+			break;
+
+		XMFLOAT3 posW = obj->GetPosition();
+
+		dc.Units[count].CenterPosRadius =
+			XMFLOAT4(posW.x, posW.y, posW.z, visionRadiusWorld);
+
+		++count;
+	}
+
+	dc.UnitCount = count;
+
+	mCurrFrameResource->DarknessCB->CopyData(0, dc);
+}
+
+void DummyApp::BuildDarknessGeometry()
+{
+	struct DarkVertex
+	{
+		XMFLOAT2 Pos;
+	};
+
+	DarkVertex vertices[4] =
+	{
+		{ XMFLOAT2(-1.0f, -1.0f) }, // 좌하
+		{ XMFLOAT2(-1.0f,  1.0f) }, // 좌상
+		{ XMFLOAT2(1.0f,  1.0f) }, // 우상
+		{ XMFLOAT2(1.0f, -1.0f) }, // 우하
+	};
+
+	uint16_t indices[6] = { 0,1,2, 0,2,3 };
+
+	const UINT vbByteSize = sizeof(vertices);
+	const UINT ibByteSize = sizeof(indices);
+
+	mDarknessVB = d3dUtil::CreateDefaultBuffer(
+		md3dDevice.Get(), mCommandList.Get(),
+		vertices, vbByteSize, mDarknessVBUpload);
+
+	mDarknessIB = d3dUtil::CreateDefaultBuffer(
+		md3dDevice.Get(), mCommandList.Get(),
+		indices, ibByteSize, mDarknessIBUpload);
+
+	mDarknessVBView.BufferLocation = mDarknessVB->GetGPUVirtualAddress();
+	mDarknessVBView.StrideInBytes = sizeof(DarkVertex);
+	mDarknessVBView.SizeInBytes = vbByteSize;
+
+	mDarknessIBView.BufferLocation = mDarknessIB->GetGPUVirtualAddress();
+	mDarknessIBView.Format = DXGI_FORMAT_R16_UINT;
+	mDarknessIBView.SizeInBytes = ibByteSize;
+}
+
 void DummyApp::FollowerKeyEvent()
 {
 	switch (mFollowerinput)
@@ -887,7 +1281,6 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 				mMainCamera->ResetKeyInput();
 				mMainCamera->SetPosition(Vector3::Add(XMFLOAT3(0.f, 1000.f, 0.f), mPlayer->GetPosition()));
 				//mMainCamera->LookAt(mMainCamera->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
-				ShowCursor(true);
 				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
 			}
 			else {
@@ -905,6 +1298,14 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case VK_LSHIFT:
 			mSpecialKeyinput.isShift = true;
 			break;
+		case VK_SPACE:
+			if (mFPSmode) {
+
+			}
+			else {
+
+			}
+			break;
 		default:
 			UIPicking(wParam);
 			break;
@@ -914,7 +1315,6 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		switch (wParam)
 		{
 		case VK_F1:
-			mDebugMode = !mDebugMode;
 			break;
 		case VK_CONTROL:
 			mSpecialKeyinput.isCtrl = false;
@@ -1066,6 +1466,36 @@ void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 	
+	//// ============================
+	//// 2) 유닛 시야용 Point Light들
+	//// ============================
+	//const float visionWorldRadius = 800.0f;  // 유닛이 보는 월드 거리(암흑시야랑 맞추기)
+	//const float pointHeight = 5.0f;    // 라이트를 살짝 위로 올려서
+
+	//int pointIndex = 3;         // 3부터 시작
+
+	//for (GameObject* obj : mTeamObjects)
+	//{
+	//	if (!obj) continue;
+	//	if (pointIndex >= 3 + 32)
+	//		break;
+
+	//	// 여기서 "내 유닛만" 골라야 함 (팀/진영 조건은 프로젝트 enum에 맞게)
+	//	// 예:
+	//	// if (obj->GetObjectType() != ObjectsType::ALLY_UNIT) continue;
+
+	//	XMFLOAT3 pos = obj->GetPosition();
+
+	//	Light& L = mMainPassCB.Lights[pointIndex++];
+
+	//	L.Strength = XMFLOAT3(1.0f, 1.0f, 0.9f);      // 약간 노란 불
+	//	L.FalloffStart = visionWorldRadius * 0.3f;       // 이 거리부터 서서히 어두워지고
+	//	L.FalloffEnd = visionWorldRadius;              // 이 거리에서 0이 됨
+	//	L.Position = XMFLOAT3(pos.x, pos.y + pointHeight, pos.z);
+	//}
+
+	//auto currPassCB = mCurrFrameResource->PassCB.get();
+	//currPassCB->CopyData(0, mMainPassCB);
 	/*
 	for (int i = 0; i < 5; i++)
 	{
@@ -1155,8 +1585,11 @@ void DummyApp::BuildRootSignature()
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
 	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 20, 1, 0);
 
+	CD3DX12_DESCRIPTOR_RANGE fogRange;
+	fogRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2); // t0, space2
+
 	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
 
 	// 루트 CBV 생성한다.
 	// 성능 팁: 사용빈도가 높은것에서 낮은것 순서대로 배열한다.
@@ -1166,11 +1599,12 @@ void DummyApp::BuildRootSignature()
 	slotRootParameter[3].InitAsShaderResourceView(0, 1);
 	slotRootParameter[4].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
 	slotRootParameter[5].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[6].InitAsDescriptorTable(1, &fogRange, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	// 루트 서명은 루트 매개변수들의 배열이다.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(6, slotRootParameter, 
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(7, slotRootParameter, 
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1198,7 +1632,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = mTextures.size();
+	srvHeapDesc.NumDescriptors = mTextures.size() + 2; // 1은 Fog용;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -1322,6 +1756,25 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = cursorTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = cursorTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(cursorTex.Get(), &srvDesc, hDescriptor);
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	// 힙 시작 GPU 핸들
+	auto srvStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+	// 예를 들어 FogTex는 “마지막에서 2번째 슬롯”
+	CD3DX12_GPU_DESCRIPTOR_HANDLE fogHandle(
+		srvStart,
+		(INT)mTextures.size(),        // 인덱스
+		mCbvSrvDescriptorSize);
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	// DepthTex는 “마지막 슬롯”
+	CD3DX12_GPU_DESCRIPTOR_HANDLE depthHandle(
+		srvStart,
+		(INT)mTextures.size() + 1,
+		mCbvSrvDescriptorSize);
+																// 인덱스 == 기존 텍스쳐 개수
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -1356,7 +1809,9 @@ void DummyApp::BuildShadersAndInputLayout()
 	mShaders["selectionVS"] = d3dUtil::CompileShader(L"Shaders/SelectionRect.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["selectionPS"] = d3dUtil::CompileShader(L"Shaders/SelectionRect.hlsl", nullptr, "PS", "ps_5_1");
 
-
+	mShaders["darknessVS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["darknessPS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "PS", "ps_5_1");
+	
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1381,8 +1836,8 @@ void DummyApp::BuildShadersAndInputLayout()
 	};
 
 	mUIInputLayout = {
-	{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 	};
 
 	mSelectionInputLayout =
@@ -1390,6 +1845,13 @@ void DummyApp::BuildShadersAndInputLayout()
 		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,
 		  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 	};
+
+	mDarknessInputLayout =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,
+		  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+	};
+
 }
 
 void DummyApp::BuildShapeGeometry()
@@ -1845,7 +2307,7 @@ void DummyApp::LoadTerrain()
 	std::vector<uint32_t> indices(tcount);
 
 	mTerrain.CreateTerrain(20000.0f, 20000.f, vertices, indices);
-	
+	std::cout << mTerrain.GetSize() << std::endl;
 	Mesh* terrainMesh = new Mesh;
 	terrainMesh->mName = "terrain";
 
@@ -2021,6 +2483,43 @@ void DummyApp::BuildPSOs()
 	//skyPsoDesc.PS = {
 	//	reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
 	//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC darknessPsoDesc = {};
+	darknessPsoDesc.InputLayout = { mDarknessInputLayout.data(), (UINT)mDarknessInputLayout.size() };
+	darknessPsoDesc.pRootSignature = mRootSignature.Get();
+	darknessPsoDesc.VS = {
+		mShaders["darknessVS"]->GetBufferPointer(),
+		mShaders["darknessVS"]->GetBufferSize() };
+	darknessPsoDesc.PS = {
+		mShaders["darknessPS"]->GetBufferPointer(),
+		mShaders["darknessPS"]->GetBufferSize() };
+
+	darknessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+
+	// ★ 알파 블렌딩 켜기
+	auto blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	blendDesc.RenderTarget[0].BlendEnable = TRUE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	darknessPsoDesc.BlendState = blendDesc;
+
+	darknessPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	darknessPsoDesc.DepthStencilState.DepthEnable = FALSE; // UI처럼 깊이 끔
+	darknessPsoDesc.SampleMask = UINT_MAX;
+	darknessPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	darknessPsoDesc.NumRenderTargets = 1;
+	darknessPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	darknessPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	darknessPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	darknessPsoDesc.DSVFormat = mDepthStencilFormat;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&darknessPsoDesc, IID_PPV_ARGS(&mPSOs["darkness"])));
+
 }
 
 void DummyApp::BuildFrameResources()
@@ -2396,7 +2895,7 @@ void DummyApp::BuildGameObjects()
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
 	mAllGameObjects.push_back(Skinned1);
-
+	mTeamObjects.push_back(Skinned1);
 
 	Player* Knight = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
 	Knight->SetMesh(mMeshes["Vanguard"]);
@@ -2410,6 +2909,7 @@ void DummyApp::BuildGameObjects()
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
 	mAllGameObjects.push_back(Knight);
+	mTeamObjects.push_back(Knight);
 
 	// ------------------------------------------
 	// Buttobn
@@ -2626,6 +3126,7 @@ void DummyApp::SummonKnight()
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
 	mAllGameObjects.push_back(playerGameObject1);
+	mTeamObjects.push_back(playerGameObject1);
 
 	playerGameObject1->SetWeapon(swordGameObject);
 	swordGameObject->SetOwner(playerGameObject1);
@@ -2663,6 +3164,7 @@ void DummyApp::SummonHunter()
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
 	mAllGameObjects.push_back(playerGameObject2);
+	mTeamObjects.push_back(playerGameObject2);
 
 	playerGameObject2->SetWeapon(bowGameObject);
 	bowGameObject->SetOwner(playerGameObject2);

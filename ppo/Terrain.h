@@ -14,6 +14,10 @@ public:
 
 	HeightMapImage GetHeightMapImage() { return mHeightImage; }
 	float GetHeight(float x, float y);
+	float GetWidth() { return mWidth; };
+	float GetLength() { return mLength; };
+	size_t GetSize() { return mHeight.size(); };
+
 private:
 	HeightMapImage mHeightImage;
 

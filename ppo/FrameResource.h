@@ -4,6 +4,23 @@
 #include "MathHelper.h"
 #include "UploadBuffer.h"
 
+static const int MaxFogUnits = 64;
+
+struct DarknessUnit
+{
+    DirectX::XMFLOAT4 CenterPosRadius;
+    // x,y,z : 유닛 월드 위치(PosW)
+    // w     : 시야 반경(월드 단위)
+};
+
+struct DarknessConstants
+{
+    DarknessUnit Units[MaxFogUnits];
+    int UnitCount;           // 실제 사용 유닛 수
+    DirectX::XMFLOAT3 Pad;   // 패딩
+    DirectX::XMFLOAT4 DarkColor; // 암흑 색상/알파
+    DirectX::XMFLOAT4 GlowColor;
+};
 
 struct SelectionConstants
 {
@@ -165,6 +182,7 @@ public:
 
     std::unique_ptr<UploadBuffer<CursorConstants>> CursorCB;
     std::unique_ptr<UploadBuffer<SelectionConstants>> SelectionCB;
+    std::unique_ptr<UploadBuffer<DarknessConstants>> DarknessCB;
 
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 

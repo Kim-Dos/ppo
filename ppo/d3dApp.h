@@ -127,9 +127,5 @@ protected:
 	UDPC* udp_client;
 	TCPC* tcp_client;
 
-	bool  mIsSelecting = false;
-	POINT mSelectStart = { 0, 0 };
-	POINT mSelectEnd = { 0, 0 };
-
 };
 

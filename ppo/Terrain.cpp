@@ -132,39 +132,53 @@ void Terrain::CreateTerrain(float width, float length, std::vector<Vertex>& vert
 
 float Terrain::GetHeight(float x, float z)
 {
-	float baseX = (x + mWidth / 2);
-	float baseZ = mLength - (z + mLength / 2);
+	// -------------------------------------
+	// 1. 월드(x,z) → heightmap 좌표 변환
+	// -------------------------------------
+	float baseX = (x + mWidth * 0.5f);
+	float baseZ = (mLength - (z + mLength * 0.5f));
 
+	// heightmap 범위 밖이면 클램프
+	if (baseX < 0.0f) baseX = 0.0f;
+	if (baseZ < 0.0f) baseZ = 0.0f;
+	if (baseX > mWidth)  baseX = mWidth;
+	if (baseZ > mLength) baseZ = mLength;
+
+	// 정규화 (0~1)
 	float dWidth = baseX / mWidth;
 	float dLength = baseZ / mLength;
 
-	int indexX = int(mImageWidth * dWidth);
-	int indexZ = int(mImageLength * dLength);
+	// heightmap 인덱스
+	float fx = dWidth * (mImageWidth - 1);
+	float fz = dLength * (mImageLength - 1);
 
-	float dIndexX = (mImageWidth * dWidth) - indexX;
-	float dIndexZ = (mImageWidth * dLength) - indexZ;
+	int ix = (int)fx;
+	int iz = (int)fz;
 
-	// 높이 보간
-	float height = mHeight[indexX + indexZ * mImageWidth];
-	float finalheight = height;
+	// -------------------------------------
+	// 2. 인덱스 경계 안전 처리
+	// -------------------------------------
+	if (ix < 0) ix = 0;
+	if (iz < 0) iz = 0;
+	if (ix > mImageWidth - 2) ix = mImageWidth - 2;
+	if (iz > mImageLength - 2) iz = mImageLength - 2;
 
-	float heightX = mHeight[(indexX + 1) + indexZ * mImageWidth];
-	float heightY = mHeight[indexX + (indexZ - 1) * mImageWidth];
+	// 보간 비율
+	float tx = fx - ix;
+	float tz = fz - iz;
 
-	finalheight += (heightX - height) * dIndexX;
-	finalheight += (heightY - height) * dIndexZ;
-	/*
-	if (dIndexX + dIndexZ >= 1.0f) {
-		
-	}
-	else {
-		height = mHeight[(indexX + 1) + (indexZ - 1) * mImageWidth];
-		float heightX = mHeight[(indexX + 1) + indexZ * mImageWidth];
-		float heightY = mHeight[indexX + (indexZ - 1) * mImageWidth];
+	// heightmap 값 읽기 (네트워크 모양: 4개)
+	float h00 = mHeight[ix + (iz)*mImageWidth];
+	float h10 = mHeight[(ix + 1) + (iz)*mImageWidth];
+	float h01 = mHeight[ix + (iz + 1) * mImageWidth];
+	float h11 = mHeight[(ix + 1) + (iz + 1) * mImageWidth];
 
-		finalheight += (heightX - height) * (1.0f - dIndexX);
-		finalheight += (heightY - height) * (1.0f - dIndexZ);
-	}
-	*/
-	return finalheight;
+	// -------------------------------------
+	// 3. Bilinear interpolation
+	// -------------------------------------
+	float h0 = h00 + (h10 - h00) * tx;
+	float h1 = h01 + (h11 - h01) * tx;
+	float height = h0 + (h1 - h0) * tz;
+
+	return height;
 }

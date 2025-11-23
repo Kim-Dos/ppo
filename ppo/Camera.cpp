@@ -202,6 +202,11 @@ void Camera::RotateY(float radian)
 	mViewDirty = true;
 }
 
+void Camera::SetNormal()
+{
+
+}
+
 void Camera::UpdateViewMatrix()
 {
 	if (mViewDirty)

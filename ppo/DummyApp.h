@@ -14,12 +14,51 @@
 
 #include "Button.h"
 
-
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
 extern const int gNumFrameResources;
+
+enum class FogState : uint8_t
+{
+	Hidden = 0,    // 완전 암흑
+	Seen = 1,    // 과거에 봤지만 지금은 아님
+	Visible = 2    // 현재 보이는 영역
+};
+
+struct FogSystem
+{
+	int gridX = 0;      // X 방향 타일 수
+	int gridZ = 0;      // Z 방향 타일 수
+	float cellSize = 4.0f; // 타일 한 칸 크기
+
+	std::vector<FogState> tiles;
+	std::vector<FogState> prevTiles;
+
+	// ★ 각 타일에 대한 Terrain 높이(y) 캐시
+	std::vector<float> heights;
+
+	inline bool InBounds(int gx, int gz) const
+	{
+		return gx >= 0 && gz >= 0 && gx < gridX && gz < gridZ;
+	}
+
+	inline int Index(int gx, int gz) const
+	{
+		return gz * gridX + gx;
+	}
+
+	inline FogState& At(int gx, int gz)
+	{
+		return tiles[Index(gx, gz)];
+	}
+
+	inline float HeightAt(int gx, int gz) const
+	{
+		return heights[Index(gx, gz)];
+	}
+};
 
 enum class RenderLayer : int
 {
@@ -89,7 +128,7 @@ private:
 
 	void DrawCursor();
 	void DrawSelectionRect();
-
+	void DrawDarkness();
 	void DrawDebug();
 	void DrawBoundingBox();
 
@@ -108,6 +147,18 @@ private:
 	void UIPicking(WPARAM wParam);
 	void RsetUIInput();
 	void SummonObject();
+
+	void InitFog();
+	void WorldToFog(float wx, float wz, int& gx, int& gz);
+	void CastLight(int cx, int cz, int row, float startSlope, float endSlope,
+		int radius, int octant,	float unitHeight, float maxSlope);
+	void ComputeFOVForUnit(GameObject* unit);
+	void UpdateFogOfWar();
+	void UpdateFogTexture();
+	void BuildFogResources();
+
+	void UpdateDarknessCB(const GameTimer& gt);
+	void BuildDarknessGeometry();
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
@@ -148,6 +199,21 @@ private:
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
+
+	inline void FogTileToWorld(int gx, int gz, float& wx, float& wz)
+	{
+		float mapWidth = mTerrain.GetWidth();
+		float mapLength = mTerrain.GetLength();
+
+		float nx = (gx + 0.5f) / mFog.gridX;
+		float nz = (gz + 0.5f) / mFog.gridZ;
+
+		wx = nx * mapWidth - mapWidth * 0.5f;
+
+		wz = mapLength - nz * mapLength - mapLength * 0.5f;
+	}
+
+
 private:
 
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
@@ -173,13 +239,18 @@ private:
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mUIInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSelectionInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mDarknessInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mFogInputLayout;
 
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRi
 	// 
 	// tems;
 	std::vector<GameObject*> mAllGameObjects;
+	std::vector<GameObject*> mTeamObjects;
+	std::vector<GameObject*> mEnemyObjects;
 
+	bool mFogFlag = true;
 	bool mPicking = false;
 	bool mDragFlag = false;
 	bool mRoateFlag = true;
@@ -211,7 +282,11 @@ private:
 	bool mFPSmode = false;
 	//CamInput input;
 	
+	FogSystem mFog;
 	
+	float mFogUpdateTime = 0.0f;
+	float mFogUpdateInterval = 0.2f; // 0.2초마다 한 번 (원하면 0.1f로 줄여도 됨)
+
 	Camera* mMainCamera = nullptr;
 	
 	
@@ -245,6 +320,25 @@ private:
 	D3D12_INDEX_BUFFER_VIEW  mSelectionIBView;
 
 	void BuildSelectionGeometry();  // 선택 박스용 지오메트리
+
+
+	ComPtr<ID3D12Resource> mDarknessVB;
+	ComPtr<ID3D12Resource> mDarknessIB;
+	ComPtr<ID3D12Resource> mDarknessVBUpload;
+	ComPtr<ID3D12Resource> mDarknessIBUpload;
+
+	D3D12_VERTEX_BUFFER_VIEW mDarknessVBView;
+	D3D12_INDEX_BUFFER_VIEW  mDarknessIBView;
+
+	ComPtr<ID3D12Resource> mFogTex;      // GPU texture
+	ComPtr<ID3D12Resource> mFogUpload;   // Upload heap
+	ComPtr<ID3D12DescriptorHeap> mFogSrvHeap; // SRV heap (필요하다면)
+
+	// FogTex가 올라간 SRV 위치 기억용
+	D3D12_CPU_DESCRIPTOR_HANDLE mFogSrvCpuHandle{};
+	D3D12_GPU_DESCRIPTOR_HANDLE mFogSrvGpuHandle{};
+
+
 
 };
 

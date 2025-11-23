@@ -209,6 +209,12 @@
     <FxCompile Include="Shaders\SelectionRect.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="Darkness.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\FOW.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
