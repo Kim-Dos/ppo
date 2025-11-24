@@ -504,9 +504,9 @@ void DummyApp::DrawDarkness()
 RECT DummyApp::GetDragRect() const
 {
 	RECT dragRect;
-	dragRect.left = std::min(mStartMousePos.x, mLastMousePos.x);
+	dragRect.left = min(mStartMousePos.x, mLastMousePos.x);
 	dragRect.right = max(mStartMousePos.x, mLastMousePos.x);
-	dragRect.top = std::min(mStartMousePos.y, mLastMousePos.y);
+	dragRect.top = min(mStartMousePos.y, mLastMousePos.y);
 	dragRect.bottom = max(mStartMousePos.y, mLastMousePos.y);
 	return dragRect;
 }
@@ -1273,6 +1273,9 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case VK_F1:
 			mDebugMode = !mDebugMode;
 			break;
+		case VK_F2:
+			mFogFlag = !mFogFlag;
+			break;
 		case VK_TAB:
 			if (mFPSmode) {
 				mFPSmode = false;
@@ -1632,7 +1635,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = mTextures.size() + 2; // 1은 Fog용;
+	srvHeapDesc.NumDescriptors = mTextures.size() + 1; // 1은 Fog용;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -1641,6 +1644,8 @@ void DummyApp::BuildDescriptorHeaps()
 
 	// 힙의 시작을 가리키는 포인터를 얻는다.
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
@@ -1760,19 +1765,27 @@ void DummyApp::BuildDescriptorHeaps()
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
 	// 힙 시작 GPU 핸들
-	auto srvStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	//auto srvStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 
-	// 예를 들어 FogTex는 “마지막에서 2번째 슬롯”
-	CD3DX12_GPU_DESCRIPTOR_HANDLE fogHandle(
-		srvStart,
-		(INT)mTextures.size(),        // 인덱스
-		mCbvSrvDescriptorSize);
+	if (mFogTex != nullptr)
+	{
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Format = DXGI_FORMAT_R8_UNORM; // FogTex는 R8_UNORM으로 만들었을 거라고 가정
+		srvDesc.Texture2D.MostDetailedMip = 0;
+		srvDesc.Texture2D.MipLevels = 1;
+		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-	// DepthTex는 “마지막 슬롯”
-	CD3DX12_GPU_DESCRIPTOR_HANDLE depthHandle(
-		srvStart,
-		(INT)mTextures.size() + 1,
+		md3dDevice->CreateShaderResourceView(
+			mFogTex.Get(),
+			&srvDesc,
+			hDescriptor);
+	}
+
+	// FogTex가 힙에서 몇 번째 슬롯인지 GPU 핸들 저장
+	// 인덱스 = 기존 텍스처 개수 (0-based라서 정확히 +mTextures.size())
+	mFogSrvGpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(
+		gDescriptor,
+		(INT)mTextures.size(),
 		mCbvSrvDescriptorSize);
 																// 인덱스 == 기존 텍스쳐 개수
 }
