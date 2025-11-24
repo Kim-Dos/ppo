@@ -96,6 +96,7 @@ void DummyApp::Update(const GameTimer& gt)
 	}
 	else {
 		mMainCamera->Move(gt);
+		mMainCamera->UpdateViewMatrix();
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
 	}
 
@@ -283,7 +284,7 @@ void DummyApp::Draw(const GameTimer& gt)
 	if(mFogFlag) DrawDarkness();
 
 	DrawSelectionRect();
-	if (! mSpecialKeyinput.isCtrl) { DrawCursor(); }
+	if (!(mSpecialKeyinput.isCtrl || mFPSmode)) { DrawCursor(); }
 
 	// test
 	DrawButtons(mCommandList.Get());
@@ -478,22 +479,25 @@ void DummyApp::DrawSelectionRect()
 void DummyApp::DrawDarkness()
 {
 	auto cmdList = mCommandList.Get();
+
+	// Darkness PSO 설정
 	cmdList->SetPipelineState(mPSOs["darkness"].Get());
 
-	// ★ FogTex가 들어있는 SRV 힙 바인딩
-	ID3D12DescriptorHeap* heaps[] = { mFogSrvHeap.Get() };
+	// SRV/CBV heap 설정
+	ID3D12DescriptorHeap* heaps[] = { mSrvDescriptorHeap.Get() };
 	cmdList->SetDescriptorHeaps(1, heaps);
 
-	// DarknessCB (b1)
-	auto darknessCBAddress =
-		mCurrFrameResource->DarknessCB->Resource()->GetGPUVirtualAddress();
-	cmdList->SetGraphicsRootConstantBufferView(1, darknessCBAddress);
+	// b1 = DarknessCB
+	cmdList->SetGraphicsRootConstantBufferView(
+		1, mCurrFrameResource->DarknessCB->Resource()->GetGPUVirtualAddress()
+	);
 
-	// ★ FogTex(t0, space2) 바인딩
-	cmdList->SetGraphicsRootDescriptorTable(
-		6, mFogSrvHeap->GetGPUDescriptorHandleForHeapStart());
+	// b2(PassCB)는 Draw() 상단에서 이미 설정됨
 
-	// 풀스크린 quad 그리기 (Darkness geometry)
+	// ★ slot = 6번 → 깊이버퍼 SRV 테이블
+	cmdList->SetGraphicsRootDescriptorTable(6, mDepthSrvGpuHandle);
+
+	// 풀스크린 quad
 	cmdList->IASetVertexBuffers(0, 1, &mDarknessVBView);
 	cmdList->IASetIndexBuffer(&mDarknessIBView);
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1170,29 +1174,36 @@ void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 {
 	DarknessConstants dc = {};
 
-	const float visionRadiusWorld = 600.f; // 유닛 시야 반경 (월드 단위, 숫자는 맘대로 튜닝)
+	// 어두운 색, 가장자리 발광 색은 네가 쓰던 값으로
+	dc.DarkColor = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 0.85f);
+	dc.GlowColor = DirectX::XMFLOAT4(1.2f, 1.1f, 0.9f, 0.4f);
 
-	dc.DarkColor = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.85f);
+	// 월드 기준 시야 반경 (맵 스케일에 맞춰 값 조정)
+	const float visionRadiusWorld = 800.0f;
 
 	int count = 0;
 
-	for (auto& obj : mTeamObjects)
+	// 네가 실제로 관리하는 유닛 리스트에 맞게 변경
+	for (GameObject* obj : mAllGameObjects)
 	{
 		if (count >= MaxFogUnits)
 			break;
 
-		XMFLOAT3 posW = obj->GetPosition();
+		// 유닛의 월드 좌표
+		DirectX::XMFLOAT3 pos = obj->GetPosition();
 
 		dc.Units[count].CenterPosRadius =
-			XMFLOAT4(posW.x, posW.y, posW.z, visionRadiusWorld);
+			DirectX::XMFLOAT4(pos.x, pos.y, pos.z, visionRadiusWorld);
 
 		++count;
 	}
 
 	dc.UnitCount = count;
 
+	// FrameResource 안의 DarknessCB 업로드
 	mCurrFrameResource->DarknessCB->CopyData(0, dc);
 }
+
 
 void DummyApp::BuildDarknessGeometry()
 {
@@ -1582,46 +1593,62 @@ void DummyApp::BuildRootSignature()
 	// 셰이더 프로그램은 본질적으로 하나의 함수이고 셰이더에 입력되는 자원들은 
 	// 함수의 매개변수들에 해당하므로, 루트 서명은 곧 함수 서명을 정의하는 수단이라 할 수 있다.
 
+// SkyCubeMap용 SRV 테이블 (t0, space0)
 	CD3DX12_DESCRIPTOR_RANGE texTable0;
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
+	// Diffuse 텍스처들용 SRV 테이블 (t1~t20, space0)
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
 	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 20, 1, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE fogRange;
-	fogRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2); // t0, space2
+	// 깊이 텍스처용 SRV 테이블 (t0, space2)
+	CD3DX12_DESCRIPTOR_RANGE depthTable;
+	depthTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
-	// 루트 매개변수는 서술자 테이블이거나 루트 서술자 또는 루트 상수이다.
+	// 루트 파라미터는 총 7개
 	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
 
-	// 루트 CBV 생성한다.
-	// 성능 팁: 사용빈도가 높은것에서 낮은것 순서대로 배열한다.
+	// 0: ObjectCB (b0)
 	slotRootParameter[0].InitAsConstantBufferView(0);
+
+	// 1: DarknessCB / MaterialCB 등 (b1) – Darkness에서는 b1을 사용
 	slotRootParameter[1].InitAsConstantBufferView(1);
+
+	// 2: PassCB (b2) – gInvViewProj 사용
 	slotRootParameter[2].InitAsConstantBufferView(2);
+
+	// 3: StructuredBuffer 등용 SRV (t0, space1) – 기존 그대로
 	slotRootParameter[3].InitAsShaderResourceView(0, 1);
-	slotRootParameter[4].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[5].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[6].InitAsDescriptorTable(1, &fogRange, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// 4: SkyCubeMap (t0, space0)
+	slotRootParameter[4].InitAsDescriptorTable(
+		1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// 5: Diffuse 텍스처 배열 (t1~, space0)
+	slotRootParameter[5].InitAsDescriptorTable(
+		1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// 6: 깊이 텍스처 (t0, space2) – Darkness.hlsl 의 gDepthTex 와 연결됨
+	slotRootParameter[6].InitAsDescriptorTable(
+		1, &depthTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
-	// 루트 서명은 루트 매개변수들의 배열이다.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(7, slotRootParameter, 
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
+		7, slotRootParameter,
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-	// 상수 버퍼 하나로 구성된 서술자 구간을 가리키는
-	// 슬롯 하나로 이루어진 루트 서명을 생성한다.
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+	HRESULT hr = D3D12SerializeRootSignature(
+		&rootSigDesc,
+		D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(),
+		errorBlob.GetAddressOf());
 
 	if (errorBlob != nullptr)
-	{
 		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-	}
 	ThrowIfFailed(hr);
 
 	ThrowIfFailed(md3dDevice->CreateRootSignature(
@@ -1764,30 +1791,25 @@ void DummyApp::BuildDescriptorHeaps()
 
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	// 힙 시작 GPU 핸들
-	//auto srvStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	D3D12_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
+	depthSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // D24S8용 SRV 포맷 예시
+	depthSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	depthSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	depthSrvDesc.Texture2D.MostDetailedMip = 0;
+	depthSrvDesc.Texture2D.MipLevels = 1;
 
-	if (mFogTex != nullptr)
-	{
-		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-		srvDesc.Format = DXGI_FORMAT_R8_UNORM; // FogTex는 R8_UNORM으로 만들었을 거라고 가정
-		srvDesc.Texture2D.MostDetailedMip = 0;
-		srvDesc.Texture2D.MipLevels = 1;
-		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+	md3dDevice->CreateShaderResourceView(
+		mDepthStencilBuffer.Get(), // D3DApp 안에 있는 깊이 리소스 이름에 맞춰 수정
+		&depthSrvDesc,
+		hDescriptor);
 
-		md3dDevice->CreateShaderResourceView(
-			mFogTex.Get(),
-			&srvDesc,
-			hDescriptor);
-	}
-
-	// FogTex가 힙에서 몇 번째 슬롯인지 GPU 핸들 저장
-	// 인덱스 = 기존 텍스처 개수 (0-based라서 정확히 +mTextures.size())
-	mFogSrvGpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(
-		gDescriptor,
+	// GPU 핸들 저장 (인덱스 = mTextures.size())
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gHandle(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 		(INT)mTextures.size(),
 		mCbvSrvDescriptorSize);
-																// 인덱스 == 기존 텍스쳐 개수
+
+	mDepthSrvGpuHandle = gHandle; 
 }
 
 void DummyApp::BuildShadersAndInputLayout()
@@ -2509,7 +2531,7 @@ void DummyApp::BuildPSOs()
 
 	darknessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 
-	// ★ 알파 블렌딩 켜기
+	// 알파 블렌딩 켜기
 	auto blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	blendDesc.RenderTarget[0].BlendEnable = TRUE;
 	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;

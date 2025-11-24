@@ -16,9 +16,9 @@ struct DarknessUnit
 struct DarknessConstants
 {
     DarknessUnit Units[MaxFogUnits];
-    int UnitCount;           // 실제 사용 유닛 수
-    DirectX::XMFLOAT3 Pad;   // 패딩
-    DirectX::XMFLOAT4 DarkColor; // 암흑 색상/알파
+    int UnitCount;
+    DirectX::XMFLOAT3 Pad;
+    DirectX::XMFLOAT4 DarkColor;
     DirectX::XMFLOAT4 GlowColor;
 };
 

@@ -334,6 +334,8 @@ private:
 	ComPtr<ID3D12Resource> mFogUpload;   // Upload heap
 	ComPtr<ID3D12DescriptorHeap> mFogSrvHeap; // SRV heap (필요하다면)
 
+	D3D12_GPU_DESCRIPTOR_HANDLE mDepthSrvGpuHandle{};
+
 	// FogTex가 올라간 SRV 위치 기억용
 	D3D12_CPU_DESCRIPTOR_HANDLE mFogSrvCpuHandle{};
 	D3D12_GPU_DESCRIPTOR_HANDLE mFogSrvGpuHandle{};
