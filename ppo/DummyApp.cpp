@@ -108,82 +108,6 @@ void DummyApp::Update(const GameTimer& gt)
 	cooltime -= gt.DeltaTime();
 	static int b = 0;
 
-	//if (mPlayer->IsAttacking()) {
-	//	if (PhysicsHelper::CheckTransformedBoundingBoxCollision(
-	//		mPlayer->GetWeapon()->GetBoundingBox(), XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), 
-	//		mBox->GetBoundingBox(), XMLoadFloat4x4(&mBox->GetWorld())) && cooltime <= 0.0f) {
-	//		// 충돌했다면?
-	//		cooltime = 1.0f;
-	//		if (mCutBox[0]) {
-	//			mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
-	//				mRenderLayer[(int)RenderLayer::Opaque].begin(), 
-	//				mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[0]),
-	//				mRenderLayer[(int)RenderLayer::Opaque].end());
-	//			mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[0]), mAllGameObjects.end());
-	//			mRenderLayer[(int)RenderLayer::Opaque].erase(std::remove(
-	//				mRenderLayer[(int)RenderLayer::Opaque].begin(),
-	//				mRenderLayer[(int)RenderLayer::Opaque].end(), mCutBox[1]),
-	//				mRenderLayer[(int)RenderLayer::Opaque].end());
-	//			mAllGameObjects.erase(std::remove(mAllGameObjects.begin(), mAllGameObjects.end(), mCutBox[1]), mAllGameObjects.end());
-	//			delete mCutBox[0];
-	//			delete mCutBox[1];
-	//			mCutBox[0] = nullptr;
-	//			mCutBox[1] = nullptr;
-	//		}
-	//		b++;
-	//		XMFLOAT3 position;
-	//		XMStoreFloat3(&position, XMLoadFloat3(&mBox->GetPosition()));
-	//		vector<vector<Vertex>> vertices;
-	//		vector<vector<UINT>> indices;
-	//		
-	//		XMFLOAT3 normal = PhysicsHelper::GetCollisionNormal(XMLoadFloat4x4(&mPlayer->GetWeapon()->GetWorld()), XMLoadFloat4x4(&mBox->GetWorld()));
-	//		// 메시 절단
-	//		int numMeshes = MeshSlice::MeshCompleteSlice(mMeshes["shapeGeo"], mMeshes["shapeGeo"]->mSubmeshes[0], XMFLOAT4(normal.x, normal.y, normal.z, 0.0f), vertices, indices);
-	//		// 초기화 명령을 위해 명령목록을 재설정하다.
-	//		ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-	//		// 생성된 정점과 인덱스로 메시 생성
-	//		for (int i = 0; i < numMeshes; i++)
-	//		{
-	//			const UINT vbByteSize = (UINT)vertices[i].size() * sizeof(Vertex);
-	//			const UINT ibByteSize = (UINT)indices[i].size() * sizeof(UINT);
-	//			Mesh* geo = new Mesh;
-	//			geo->mName = "slicingMesh" + to_string(i);
-	//			geo->CreateBlob(vertices[i], indices[i]);
-	//			geo->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices[i], indices[i]);
-	//			Submesh submesh;
-	//			submesh.name = "box";
-	//			submesh.baseVertex = 0;
-	//			submesh.baseIndex = 0;
-	//			submesh.numIndices = indices[i].size();
-	//			geo->mSubmeshes.push_back(submesh);
-	//			mMeshes[geo->mName] = geo;
-	//			mCutBoxMesh[i] = geo;
-	//		}
-	//		// 초기화 명령 실행
-	//		ThrowIfFailed(mCommandList->Close());
-	//		ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	//		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-	//		// 초기화 명령들이 모두 처리되기 기다린다.
-	//		FlushCommandQueue();
-	//		int a = 7;
-	//		for (int i = 0; i < 2; i++)
-	//		{
-	//			XMFLOAT3 boxPostion;
-	//			XMStoreFloat3(&boxPostion, XMLoadFloat3(&position) + XMVector3Normalize(XMLoadFloat3(&normal)) * (i == 0 ? 100.0f : -100.0f));
-	//			GameObject* gameObject = new GameObject("box", XMMatrixScaling(100.f, 100.f, 100.f) * XMMatrixTranslation(boxPostion.x, boxPostion.y, boxPostion.z), XMMatrixIdentity());
-	//			gameObject->SetCBIndex(a);
-	//			string meshName = "slicingMesh" + to_string(i);
-	//			gameObject->SetMesh(mMeshes[meshName]);
-	//			gameObject->SetMaterial(mMaterials["bricks0"].get());
-	//			gameObject->AddSubmesh(gameObject->GetMesh()->GetSubmesh("box"));
-	//			gameObject->SetFrameDirty();
-	//			mCutBox[i] = gameObject;
-	//			mRenderLayer[(int)RenderLayer::Opaque].push_back(gameObject);
-	//			mAllGameObjects.push_back(gameObject);
-	//		}
-	//	}
-	//}
-	
 	// 순환적으로 자원 프레임 배열의 다음 원소에 접근한다.
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
@@ -367,65 +291,6 @@ void DummyApp::DrawCursor()
 
 	cmdList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 }
-//
-//void DummyApp::DrawSelectionRect()
-//{
-//	if (!mIsSelecting)
-//		return;
-//
-//	auto cmdList = mCommandList.Get();
-//
-//	// 1. 화면 좌표 → NDC로 변환
-//	float w = (float)mClientWidth;
-//	float h = (float)mClientHeight;
-//
-//	// 시작점 / 끝점 (screen)
-//	float x0 = (float)mStartMousePos.x;
-//	float y0 = (float)mStartMousePos.y;
-//	float x1 = (float)mLastMousePos.x;
-//	float y1 = (float)mLastMousePos.y;
-//
-//	// 좌우/위아래 정렬 (드래그 방향 상관 없이)
-//	float left = std::min(x0, x1);
-//	float right = ｓｔｄ：：ｍａｘ(x0, x1);
-//	float top = std::min(y0, y1);
-//	float bottom = std::max(y0, y1);
-//
-//	// center, size (screen space)
-//	float cx = (left + right) * 0.5f;
-//	float cy = (top + bottom) * 0.5f;
-//	float sx = (right - left);
-//	float sy = (bottom - top);
-//
-//	// screen → NDC
-//	float ndcX = cx / w * 2.0f - 1.0f;
-//	float ndcY = -cy / h * 2.0f + 1.0f;
-//
-//	float sizeNDCX = sx / w * 2.0f;
-//	float sizeNDCY = sy / h * 2.0f;
-//
-//	// 2. 상수버퍼 세팅
-//	SelectionConstants selCB;
-//	selCB.PosNDC = XMFLOAT2(ndcX, ndcY);
-//	selCB.SizeNDC = XMFLOAT2(sizeNDCX, sizeNDCY);
-//	selCB.Color = XMFLOAT4(0.0f, 1.0f, 0.0f, 0.3f); // 연한 초록색 (알파 0.3)
-//
-//	mCurrFrameResource->SelectionCB->CopyData(0, selCB);
-//
-//	// 3. PSO / 루트 설정
-//	cmdList->SetPipelineState(mPSOs["selection"].Get());
-//
-//	// b1에 SelectionCB 설정
-//	auto selCBAddress = mCurrFrameResource->SelectionCB->Resource()->GetGPUVirtualAddress();
-//	cmdList->SetGraphicsRootConstantBufferView(1, selCBAddress);
-//
-//	// 4. 정점/인덱스 버퍼 & 토폴로지
-//	cmdList->IASetVertexBuffers(0, 1, &mCursorVBView); // 커서와 같은 쿼드 사용
-//	cmdList->IASetIndexBuffer(&mCursorIBView);
-//	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-//
-//	cmdList->DrawIndexedInstanced(6, 1, 0, 0, 0);
-//}
 
 void DummyApp::DrawSelectionRect()
 {
@@ -782,6 +647,7 @@ void DummyApp::AddPicking()
 	}
 
 }
+
 void DummyApp::PickingMove()
 {
 	if (mPicking)
@@ -806,12 +672,15 @@ void DummyApp::PickingMove()
 		//std::cout << std::endl;
 	}
 }
+
 void DummyApp::PickingAttackMove()
 {
 }
+
 void DummyApp::PickingPatrolMove()
 {
 }
+
 void DummyApp::UIPicking(WPARAM wParam)
 {
 	switch (wParam)
