@@ -22,22 +22,29 @@ extern const int gNumFrameResources;
 
 enum class FogState : uint8_t
 {
-	Hidden = 0,    // 완전 암흑
-	Seen = 1,    // 과거에 봤지만 지금은 아님
-	Visible = 2    // 현재 보이는 영역
+	Hidden = 0,
+	Seen = 1,
+	Visible = 2
 };
 
 struct FogSystem
 {
-	int gridX = 0;      // X 방향 타일 수
-	int gridZ = 0;      // Z 방향 타일 수
-	float cellSize = 4.0f; // 타일 한 칸 크기
+	int gridX = 0;
+	int gridZ = 0;
+	float cellSize = 4.0f;
 
-	std::vector<FogState> tiles;
-	std::vector<FogState> prevTiles;
+	// 한번이라도 본 적 있는가 (Seen+Visible)
+	std::vector<uint8_t> explored;      // 0/1
 
-	// ★ 각 타일에 대한 Terrain 높이(y) 캐시
+	// 현재 몇 개 유닛이 이 셀을 보고 있는가 (Visible 판단용)
+	std::vector<uint16_t> visibleCount; // >=0
+
+	// Terrain 높이 캐시
 	std::vector<float> heights;
+
+	// Dirty rect(변경된 영역) 누적
+	bool dirty = false;
+	int dirtyMinX = 0, dirtyMinZ = 0, dirtyMaxX = 0, dirtyMaxZ = 0; // inclusive
 
 	inline bool InBounds(int gx, int gz) const
 	{
@@ -49,15 +56,34 @@ struct FogSystem
 		return gz * gridX + gx;
 	}
 
-	inline FogState& At(int gx, int gz)
-	{
-		return tiles[Index(gx, gz)];
-	}
-
 	inline float HeightAt(int gx, int gz) const
 	{
 		return heights[Index(gx, gz)];
 	}
+
+	inline void MarkDirtyRect(int minX, int minZ, int maxX, int maxZ)
+	{
+		minX = MathHelper::Clamp(minX, 0, gridX - 1);
+		maxX = MathHelper::Clamp(maxX, 0, gridX - 1);
+		minZ = MathHelper::Clamp(minZ, 0, gridZ - 1);
+		maxZ = MathHelper::Clamp(maxZ, 0, gridZ - 1);
+
+		if (!dirty)
+		{
+			dirty = true;
+			dirtyMinX = minX; dirtyMinZ = minZ;
+			dirtyMaxX = maxX; dirtyMaxZ = maxZ;
+		}
+		else
+		{
+			dirtyMinX = (std::min)(dirtyMinX, minX);
+			dirtyMinZ = (std::min)(dirtyMinZ, minZ);
+			dirtyMaxX = (std::max)(dirtyMaxX, maxX);
+			dirtyMaxZ = (std::max)(dirtyMaxZ, maxZ);
+		}
+	}
+
+	inline void ClearDirty() { dirty = false; }
 };
 
 enum class RenderLayer : int
@@ -91,9 +117,9 @@ struct UIKeyInput
 	bool isB = false; // Build -> House or Tower
 
 	bool isU = false; // Upgrade
-	
+
 	bool isO = false; // Objects -> Hunter Knight Slave -> Summon
-	
+
 	bool isK = false; //Knight
 	bool isN = false; //Hunter
 	bool isL = false; //Slave
@@ -151,7 +177,7 @@ private:
 	void InitFog();
 	void WorldToFog(float wx, float wz, int& gx, int& gz);
 	void CastLight(int cx, int cz, int row, float startSlope, float endSlope,
-		int radius, int octant,	float unitHeight, float maxSlope);
+		int radius, int octant, float unitHeight, float maxSlope);
 	void ComputeFOVForUnit(GameObject* unit);
 	void UpdateFogOfWar();
 	void UpdateFogTexture();
@@ -168,7 +194,7 @@ private:
 
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
-	
+
 	void LoadTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
@@ -191,7 +217,8 @@ private:
 
 	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
 
-
+	void BuildCircleOffsets(int maxRadius);
+	void ApplyVisionStamp(int cx, int cz, int radius, int delta); // delta: +1 또는 -1
 
 
 
@@ -257,7 +284,7 @@ private:
 
 	int objCBIndex = 0;
 	int skinnedCBIndex = 0;
-	
+
 	FollowerKeyInput mFollowerinput = FollowerKeyInput::None;
 
 	UIKeyInput mUIkey;
@@ -272,7 +299,7 @@ private:
 	std::vector<GameObject*> mGameObjectLayer[(int)GameObjectLayer::Count];
 
 	PassConstants mMainPassCB;
-	
+
 	bool mDebugMode = true;
 
 	//SkinnedMesh* mSkinnedMesh;
@@ -281,23 +308,23 @@ private:
 
 	bool mFPSmode = false;
 	//CamInput input;
-	
+
 	FogSystem mFog;
 	bool mFogDirty = true;
-	
+
 	float mFogUpdateTime = 0.0f;
 	float mFogUpdateInterval = 0.2f; // 0.2초마다 한 번 (원하면 0.1f로 줄여도 됨)
 
 	Camera* mMainCamera = nullptr;
-	
-	
+
+
 	std::vector<Camera*> mSubCamera;
 	POINT mStartMousePos;
 	POINT mLastMousePos;
 
 
 	UINT mSkyTexHeapIndex = 0;
-	
+
 	UINT mCursorTexHeapIndex = 0;
 
 	ComPtr<ID3D12Resource> mCursorVB;
@@ -333,6 +360,9 @@ private:
 
 	ComPtr<ID3D12Resource> mFogTex;      // GPU texture
 	ComPtr<ID3D12Resource> mFogUpload;   // Upload heap
+
+	// FogTex 상태 추적(초기: COPY_DEST, 이후: PIXEL_SHADER_RESOURCE)
+	D3D12_RESOURCE_STATES mFogTexState = D3D12_RESOURCE_STATE_COPY_DEST;
 	ComPtr<ID3D12DescriptorHeap> mFogSrvHeap; // SRV heap (필요하다면)
 
 	D3D12_GPU_DESCRIPTOR_HANDLE mDepthSrvGpuHandle{};
@@ -341,7 +371,19 @@ private:
 	D3D12_CPU_DESCRIPTOR_HANDLE mFogSrvCpuHandle{};
 	D3D12_GPU_DESCRIPTOR_HANDLE mFogSrvGpuHandle{};
 
+	struct FogUnitCache
+	{
+		int gx = 0, gz = 0;
+		bool valid = false;
+	};
 
+	std::unordered_map<GameObject*, FogUnitCache> mFogUnitCache;
+
+	// 반경별 원 오프셋 LUT (radius -> (dx,dz) 리스트)
+	std::vector<std::vector<std::pair<int, int>>> mCircleOffsets;
+
+	// Fog 텍스처 업데이트용 재사용 버퍼
+	std::vector<uint8_t> mFogTexStaging;
 
 };
 

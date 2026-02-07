@@ -4,7 +4,7 @@ const int gNumFrameResources = 3;
 DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
 	: D3DApp(hInstance, IOContext)
 {
-	
+
 }
 
 DummyApp::~DummyApp()
@@ -39,7 +39,7 @@ bool DummyApp::Initialize()
 	BuildUICursor();
 	LoadMeshes();
 	LoadTerrain();
-	
+
 	InitFog();
 	BuildFogResources();
 
@@ -68,7 +68,7 @@ void DummyApp::OnResize()
 	if (!mMainCamera) {
 		mMainCamera = new Camera;
 	}
-		
+
 	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
 }
 
@@ -192,7 +192,7 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 테이블의 첫 서술자만 지정하면 된다.
 	// 테이블에 몇 개의 서술자가 있는지는 루트 서명에 설정되어 있다.
 	mCommandList->SetGraphicsRootDescriptorTable(5, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	
+
 	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
 	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Opaque]);
 
@@ -204,12 +204,29 @@ void DummyApp::Draw(const GameTimer& gt)
 
 	if (mDebugMode)
 		DrawDebug();
-	
-	if(mFogFlag) DrawDarkness();
-	
+
 	if (mFogDirty) {
 		UpdateFogTexture();
 		mFogDirty = false;
+	}
+
+	if (mFogFlag)
+	{
+		// Depth buffer는 기본적으로 DEPTH_WRITE 상태라서 픽셀 셰이더에서 샘플링 불가.
+		// Darkness 패스에서 gDepthTex를 읽기 위해 잠깐 PS_RESOURCE로 전이했다가 다시 되돌린다.
+		auto depthToSrv = CD3DX12_RESOURCE_BARRIER::Transition(
+			mDepthStencilBuffer.Get(),
+			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		mCommandList->ResourceBarrier(1, &depthToSrv);
+
+		DrawDarkness();
+
+		auto depthToWrite = CD3DX12_RESOURCE_BARRIER::Transition(
+			mDepthStencilBuffer.Get(),
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_DEPTH_WRITE);
+		mCommandList->ResourceBarrier(1, &depthToWrite);
 	}
 
 	DrawSelectionRect();
@@ -454,10 +471,10 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 {
 	mStartMousePos.x = x;
 	mStartMousePos.y = y;
-	
+
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
-	
+
 	if (mFPSmode) {
 	}
 	else {
@@ -465,7 +482,7 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 			//std::cout << x << ", " << y << std::endl;
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
-		else if (msg == WM_LBUTTONDOWN){
+		else if (msg == WM_LBUTTONDOWN) {
 		}
 
 	}
@@ -482,7 +499,7 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 
 void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 {
-	
+
 
 	if (mFPSmode) {
 
@@ -530,7 +547,7 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 	if ((btnState & MK_RBUTTON) != 0)
 	{
-		if((!mFPSmode)&& mSpecialKeyinput.isCtrl) {
+		if ((!mFPSmode) && mSpecialKeyinput.isCtrl) {
 			mRoateFlag = true;
 			mMainCamera->Pitch(dy);
 			mMainCamera->RotateY(dx);
@@ -637,7 +654,7 @@ void DummyApp::AddPicking()
 			// 가장 가까운 오브젝트 찾기
 			if (dist < closestDist)
 			{
-				std::cout << "dist - " << dist << std::endl; 
+				std::cout << "dist - " << dist << std::endl;
 				closestDist = dist;
 				closestObject = obj;
 			}
@@ -757,35 +774,101 @@ void DummyApp::SummonObject()
 
 void DummyApp::InitFog()
 {
-	float mapWidth = mTerrain.GetWidth();   // X 방향 길이
-	float mapLength = mTerrain.GetLength();  // Z 방향 길이
+	float mapWidth = mTerrain.GetWidth();
+	float mapLength = mTerrain.GetLength();
 
-	mFog.cellSize = 20.f; // 해상도 조금 낮춰서 성능도 같이 올리자
+	mFog.cellSize = 24.f; // 성능우선이면 20->24~32 추천
 
 	mFog.gridX = (int)(mapWidth / mFog.cellSize);
 	mFog.gridZ = (int)(mapLength / mFog.cellSize);
 
 	const int count = mFog.gridX * mFog.gridZ;
 
-	mFog.tiles.resize(count, FogState::Hidden);
-	mFog.prevTiles.resize(count, FogState::Hidden);
-	mFog.heights.resize(count, 0.0f);   // ★ 꼭 해줘야 함
+	mFog.explored.resize(count, 0);
+	mFog.visibleCount.resize(count, 0);
+	mFog.heights.resize(count, 0.0f);
 
-	// ★ 여기서 한 번만 Terrain 높이 캐시를 채움
+	// terrain 높이 캐시
 	for (int gz = 0; gz < mFog.gridZ; ++gz)
 	{
 		for (int gx = 0; gx < mFog.gridX; ++gx)
 		{
 			float wx, wz;
-
 			float nx = (gx + 0.5f) / mFog.gridX;
 			float nz = (gz + 0.5f) / mFog.gridZ;
 
 			wx = nx * mapWidth - mapWidth * 0.5f;
 			wz = mapLength - nz * mapLength - mapLength * 0.5f;
 
-			float h = mTerrain.GetHeight(wx, wz); // y 높이
-			mFog.heights[mFog.Index(gx, gz)] = h;
+			mFog.heights[mFog.Index(gx, gz)] = mTerrain.GetHeight(wx, wz);
+		}
+	}
+
+	// LUT 준비: 현재 너는 visionRadiusWorld=30을 쓰고 있으니 최대 반경을 거기에 맞춤
+	float visionRadiusWorld = 30.0f;
+	int maxR = (int)(visionRadiusWorld / mFog.cellSize);
+	maxR = (std::max)(maxR, 1);
+
+	BuildCircleOffsets(maxR);
+
+	// FogTex staging 버퍼(최대 dirty rect도 커질 수 있으니, 전체 크기로 하나 만들어 재사용)
+	mFogTexStaging.resize(mFog.gridX * mFog.gridZ);
+}
+
+void DummyApp::BuildCircleOffsets(int maxRadius)
+{
+	mCircleOffsets.clear();
+	mCircleOffsets.resize(maxRadius + 1);
+
+	for (int r = 0; r <= maxRadius; ++r)
+	{
+		auto& v = mCircleOffsets[r];
+		v.clear();
+		int r2 = r * r;
+		for (int dz = -r; dz <= r; ++dz)
+		{
+			for (int dx = -r; dx <= r; ++dx)
+			{
+				if (dx * dx + dz * dz <= r2)
+					v.emplace_back(dx, dz);
+			}
+		}
+	}
+}
+
+void DummyApp::ApplyVisionStamp(int cx, int cz, int radius, int delta)
+{
+	if (radius <= 0) return;
+	radius = MathHelper::Clamp(radius, 1, (int)mCircleOffsets.size() - 1);
+
+	int minX = cx - radius;
+	int maxX = cx + radius;
+	int minZ = cz - radius;
+	int maxZ = cz + radius;
+
+	mFog.MarkDirtyRect(minX, minZ, maxX, maxZ);
+
+	const auto& offsets = mCircleOffsets[radius];
+	for (auto [dx, dz] : offsets)
+	{
+		int gx = cx + dx;
+		int gz = cz + dz;
+		if (!mFog.InBounds(gx, gz)) continue;
+
+		int idx = mFog.Index(gx, gz);
+
+		if (delta > 0)
+		{
+			// visibleCount++
+			uint16_t& c = mFog.visibleCount[idx];
+			if (c != 0xFFFF) ++c;
+			mFog.explored[idx] = 1;
+		}
+		else
+		{
+			// visibleCount-- (언더플로 방지)
+			uint16_t& c = mFog.visibleCount[idx];
+			if (c > 0) --c;
 		}
 	}
 }
@@ -909,20 +992,61 @@ void DummyApp::ComputeFOVForUnit(GameObject* unit)
 
 void DummyApp::UpdateFogOfWar()
 {
-	// 1) Visible -> Seen로 다운그레이드
-	for (auto& t : mFog.tiles)
-		if (t == FogState::Visible) t = FogState::Seen;
+	float visionRadiusWorld = 30.0f;
+	int radius = (int)(visionRadiusWorld / mFog.cellSize);
+	radius = (std::max)(radius, 1);
 
-	// 2) 이번 틱의 Visible을 다시 칠함
-	//    (팀 유닛만 시야를 만든다고 가정하면 mTeamObjects가 더 적절)
-	for (GameObject* unit : mTeamObjects)
+	// 현재 팀 유닛 집합 만들기 (캐시 정리용)
+	std::unordered_set<GameObject*> alive;
+	alive.reserve(mTeamObjects.size() * 2 + 16);
+	for (GameObject* u : mTeamObjects) alive.insert(u);
+
+	// 캐시에 있는데 이번 프레임 팀 유닛 목록에 없는 유닛은 시야 제거
+	for (auto it = mFogUnitCache.begin(); it != mFogUnitCache.end(); )
 	{
-		// 필요하면 필터 조건 추가(죽음/비활성 등)
-		ComputeFOVForUnit(unit);
+		GameObject* u = it->first;
+		FogUnitCache& c = it->second;
+
+		if (alive.find(u) == alive.end())
+		{
+			if (c.valid)
+				ApplyVisionStamp(c.gx, c.gz, radius, -1);
+
+			it = mFogUnitCache.erase(it);
+		}
+		else
+		{
+			++it;
+		}
 	}
 
-	// 3) GPU 업로드 필요
-	mFogDirty = true;
+	// 팀 유닛들: 이동한 만큼만 delta 적용
+	for (GameObject* unit : mTeamObjects)
+	{
+		XMFLOAT3 pos = unit->GetPosition();
+		int gx, gz;
+		WorldToFog(pos.x, pos.z, gx, gz);
+
+		auto& cache = mFogUnitCache[unit];
+
+		if (!cache.valid)
+		{
+			cache.valid = true;
+			cache.gx = gx; cache.gz = gz;
+			ApplyVisionStamp(gx, gz, radius, +1);
+		}
+		else if (cache.gx != gx || cache.gz != gz)
+		{
+			ApplyVisionStamp(cache.gx, cache.gz, radius, -1);
+			cache.gx = gx; cache.gz = gz;
+			ApplyVisionStamp(cache.gx, cache.gz, radius, +1);
+		}
+		// 이동 안 했으면 아무 것도 안 함 (여기가 성능 핵심)
+	}
+
+	// Dirty가 있으면 GPU 업로드 필요
+	if (mFog.dirty)
+		mFogDirty = true;
 }
 
 void DummyApp::UpdateFogTexture()
@@ -944,19 +1068,15 @@ void DummyApp::UpdateFogTexture()
 		}
 	}
 
-	// (중요) PS_RESOURCE -> COPY_DEST 전이 (두 번째 업로드부터 필요)
-	auto toCopy = CD3DX12_RESOURCE_BARRIER::Transition(
-		mFogTex.Get(),
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-		D3D12_RESOURCE_STATE_COPY_DEST);
-
-	// FogTex가 아직 COPY_DEST 상태(초기 1회)일 수도 있으니, 안전하게 조건 처리
-	// 간단히 하려면 "초기 업로드는 끝난 뒤부터 PS_RESOURCE라고 가정"하고 mFogDirty=true로 1회 업로드 후 전이하면 됨.
-	// 여기서는 무조건 전이를 걸면 디버그 레이어에서 경고 날 수 있음 → 보수적으로 처리:
-	if (mFogTex->GetDesc().MipLevels >= 1) // 의미 없는 조건이지만, 네 스타일에 맞춰 상태트래킹 변수를 두는 게 정석
+	// FogTex를 COPY_DEST로 전이(필요할 때만)
+	if (mFogTexState != D3D12_RESOURCE_STATE_COPY_DEST)
 	{
-		// 상태 추적 변수가 없다면, 첫 프레임 업로드 이후부터는 항상 PS_RESOURCE라고 가정하고 사용해도 실사용에선 대개 OK
+		auto toCopy = CD3DX12_RESOURCE_BARRIER::Transition(
+			mFogTex.Get(),
+			mFogTexState,
+			D3D12_RESOURCE_STATE_COPY_DEST);
 		mCommandList->ResourceBarrier(1, &toCopy);
+		mFogTexState = D3D12_RESOURCE_STATE_COPY_DEST;
 	}
 
 	D3D12_SUBRESOURCE_DATA subRes{};
@@ -971,11 +1091,15 @@ void DummyApp::UpdateFogTexture()
 		0, 0, 1,
 		&subRes);
 
-	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(
-		mFogTex.Get(),
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	mCommandList->ResourceBarrier(1, &toSRV);
+	// PS에서 읽을 수 있게 PIXEL_SHADER_RESOURCE로 전이
+	{
+		auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(
+			mFogTex.Get(),
+			mFogTexState,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		mCommandList->ResourceBarrier(1, &toSRV);
+		mFogTexState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+	}
 }
 
 void DummyApp::BuildFogResources()
@@ -1001,6 +1125,8 @@ void DummyApp::BuildFogResources()
 		&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
 		D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
 		IID_PPV_ARGS(&mFogTex)));
+
+	mFogTexState = D3D12_RESOURCE_STATE_COPY_DEST;
 
 	UINT64 uploadSize = GetRequiredIntermediateSize(mFogTex.Get(), 0, 1);
 	ThrowIfFailed(md3dDevice->CreateCommittedResource(
@@ -1117,10 +1243,10 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 	if (mFPSmode) {
 		mPlayer->OnKeyboardMessage(nMessageID, wParam);
 	}
-	else{ //WASD QE 만 받음
+	else { //WASD QE 만 받음
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
-	
+
 	if (nMessageID == WM_KEYDOWN) {
 		switch (wParam)
 		{
@@ -1182,7 +1308,7 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		default:
 			break;
 		}
-	
+
 	}
 
 	return(false);
@@ -1212,7 +1338,7 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 		if (e->GetObjType() == ObjectsType::WEAPON) {
 			auto k = dynamic_cast<Weapon*>(e);
 			UpdateSkinnedCB(gt, k->GetOwner());
-			}
+		}
 		// 상수들이 바뀌었을 때에만 cbuffer 자료를 갱신한다.
 		// 이러한 갱신을 프레임 자원마다 수행해야한다.
 		if (e->GetFramesDirty() > 0)
@@ -1226,7 +1352,7 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 
 			for (UINT i = 0; i < e->GetNumSubmeshes(); i++)
 			{
-				objConstants.MaterialIndex = e->GetMeterial(i)->MatCBIndex; 
+				objConstants.MaterialIndex = e->GetMeterial(i)->MatCBIndex;
 				currObjectCB->CopyData(e->GetObjCBIndex(i), objConstants);
 			}
 
@@ -1322,7 +1448,7 @@ void DummyApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
 	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-	
+
 	//// ============================
 	//// 2) 유닛 시야용 Point Light들
 	//// ============================
@@ -1392,9 +1518,9 @@ void DummyApp::LoadTextures()
 		"archerDiffuse",
 		"cursor"
 	};
-	
+
 	std::vector<std::wstring> texFilenames =
-	{	
+	{
 		L"Textures/Environment/grasscube1024.dds",
 		L"Textures/Character/Vanguard_diffuse.dds",
 		L"Textures/Weapon/Sword/Sword.dds",
@@ -1418,7 +1544,7 @@ void DummyApp::LoadTextures()
 			texMap->Name = texNames[i];
 
 			//cout << texMap->Name << endl;
-			
+
 			texMap->Filename = texFilenames[i];
 			ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 				mCommandList.Get(), texMap->Filename.c_str(),
@@ -1527,7 +1653,7 @@ void DummyApp::BuildDescriptorHeaps()
 
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
-	
+
 	auto archerTex = mTextures["archerDiffuse"]->Resource;
 
 
@@ -1536,7 +1662,7 @@ void DummyApp::BuildDescriptorHeaps()
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
 	auto tileTex = mTextures["tileDiffuseMap"]->Resource;
 	auto terrainTex = mTextures["terrainDiffuseMap"]->Resource;
-	
+
 
 	auto crystalTex = mTextures["crystalDiffuse"]->Resource;
 	//auto test = mTextures["test"]->Resource;
@@ -1640,18 +1766,32 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = cursorTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(cursorTex.Get(), &srvDesc, hDescriptor);
 
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
+	// --- Depth / Fog SRV는 힙의 맨 끝 2개를 고정 인덱스로 사용한다.
+	//   depthIndex = mTextures.size()
+	//   fogIndex   = mTextures.size() + 1
+	const int depthIndex = (int)mTextures.size();
+	const int fogIndex = depthIndex + 1;
+
+	// Depth SRV (t0, space2)
 	D3D12_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
-	depthSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // D24S8용 SRV 포맷 예시
+	depthSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // D24S8 SRV 포맷
 	depthSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	depthSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	depthSrvDesc.Texture2D.MostDetailedMip = 0;
 	depthSrvDesc.Texture2D.MipLevels = 1;
 
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE depthCpu(
+		mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		depthIndex,
+		mCbvSrvDescriptorSize);
 
-	// Fog SRV 생성 (R8_UNORM)
+	md3dDevice->CreateShaderResourceView(
+		mDepthStencilBuffer.Get(),
+		&depthSrvDesc,
+		depthCpu);
+
+	// Fog SRV (t0, space3) - R8_UNORM
 	D3D12_SHADER_RESOURCE_VIEW_DESC fogSrvDesc = {};
 	fogSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	fogSrvDesc.Format = DXGI_FORMAT_R8_UNORM;
@@ -1660,29 +1800,24 @@ void DummyApp::BuildDescriptorHeaps()
 	fogSrvDesc.Texture2D.MipLevels = 1;
 	fogSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-	md3dDevice->CreateShaderResourceView(mFogTex.Get(), &fogSrvDesc, hDescriptor);
-
-	// Fog GPU handle 저장 (index = mTextures.size() + 1)
-	CD3DX12_GPU_DESCRIPTOR_HANDLE fogHandle(
-		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		(INT)mTextures.size() + 1,
+	CD3DX12_CPU_DESCRIPTOR_HANDLE fogCpu(
+		mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		fogIndex,
 		mCbvSrvDescriptorSize);
 
-	mFogSrvGpuHandle = fogHandle;
-	md3dDevice->CreateShaderResourceView(
-		mDepthStencilBuffer.Get(), // D3DApp 안에 있는 깊이 리소스 이름에 맞춰 수정
-		&depthSrvDesc,
-		hDescriptor);
+	md3dDevice->CreateShaderResourceView(mFogTex.Get(), &fogSrvDesc, fogCpu);
 
-	// GPU 핸들 저장 (인덱스 = mTextures.size())
-	CD3DX12_GPU_DESCRIPTOR_HANDLE gHandle(
+	// GPU handles 저장
+	mDepthSrvGpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(
 		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		(INT)mTextures.size(),
+		depthIndex,
 		mCbvSrvDescriptorSize);
 
-	mDepthSrvGpuHandle = gHandle; 
+	mFogSrvGpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		fogIndex,
+		mCbvSrvDescriptorSize);
 }
-
 void DummyApp::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] =
@@ -1717,7 +1852,7 @@ void DummyApp::BuildShadersAndInputLayout()
 
 	mShaders["darknessVS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["darknessPS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "PS", "ps_5_1");
-	
+
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1862,7 +1997,7 @@ void DummyApp::BuildShapeGeometry()
 
 	Mesh* ShapeGeometryMesh = new Mesh;
 	ShapeGeometryMesh->mName = "shapeGeo";
-	
+
 	ShapeGeometryMesh->CreateBlob(vertices, indices);
 	ShapeGeometryMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
 
@@ -1879,1308 +2014,1308 @@ void DummyApp::BuildShapeGeometry()
 }
 
 void DummyApp::LoadSkinnedMesh()
-{
-	//Attacker
 	{
-		auto mSkinnedMesh = new SkinnedMesh;
-
-		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-		mSkinnedMesh->LoadMesh("Models/Character/Vanguard.fbx");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
-
-		UINT vcount = 0;
-		UINT tcount = 0;
-		std::vector<SkinnedVertex> vertices;
-		std::vector<UINT> indices;
-		UINT index;
-		UINT dindex = 0;
-
-		UINT numVertices = mSkinnedMesh->mPositions.size();
-		for (int j = 0; j < numVertices; j++)
+		//Attacker
 		{
-			SkinnedVertex vertex;
-			vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
-			vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
-			vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+			auto mSkinnedMesh = new SkinnedMesh;
 
-			vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
-			vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
-			vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+			mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+			mSkinnedMesh->LoadMesh("Models/Character/Vanguard.fbx");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
-			vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
-			vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+			UINT vcount = 0;
+			UINT tcount = 0;
+			std::vector<SkinnedVertex> vertices;
+			std::vector<UINT> indices;
+			UINT index;
+			UINT dindex = 0;
 
-			vertices.push_back(vertex);
+			UINT numVertices = mSkinnedMesh->mPositions.size();
+			for (int j = 0; j < numVertices; j++)
+			{
+				SkinnedVertex vertex;
+				vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+				vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+				vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+
+				vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+				vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+				vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+
+				vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+				vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+
+				vertices.push_back(vertex);
+			}
+
+			for (int i = 0; i < numVertices; i++)
+			{
+				vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+				vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+				vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+				vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+
+				float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+
+				vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+				vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+				vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+			}
+
+			UINT numIndices = mSkinnedMesh->mIndices.size();
+			for (UINT i = 0; i < numIndices; i++)
+			{
+				indices.push_back(mSkinnedMesh->mIndices[i]);
+			}
+
+			mSkinnedMesh->mName = "Vanguard";
+
+			mSkinnedMesh->CreateBlob(vertices, indices);
+			mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+			mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
 		}
 
-		for (int i = 0; i < numVertices; i++)
 		{
-			vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
-			vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
-			vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
-			vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+			auto mSkinnedMesh = new SkinnedMesh;
 
-			float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+			mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+			mSkinnedMesh->LoadMesh("Models/Character/Archer.fbx");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
+			mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
 
-			vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
-			vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
-			vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+			UINT vcount = 0;
+			UINT tcount = 0;
+			std::vector<SkinnedVertex> vertices;
+			std::vector<UINT> indices;
+			UINT index;
+			UINT dindex = 0;
+
+			UINT numVertices = mSkinnedMesh->mPositions.size();
+			for (int j = 0; j < numVertices; j++)
+			{
+				SkinnedVertex vertex;
+				vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
+				vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
+				vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
+
+				vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
+				vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
+				vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
+
+				vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
+				vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
+
+				vertices.push_back(vertex);
+			}
+
+			for (int i = 0; i < numVertices; i++)
+			{
+				vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
+				vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
+				vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
+				vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
+
+				float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
+
+				vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
+				vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
+				vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
+			}
+
+			UINT numIndices = mSkinnedMesh->mIndices.size();
+			for (UINT i = 0; i < numIndices; i++)
+			{
+				indices.push_back(mSkinnedMesh->mIndices[i]);
+			}
+
+			mSkinnedMesh->mName = "Archer";
+
+			mSkinnedMesh->CreateBlob(vertices, indices);
+			mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+			mMeshes[mSkinnedMesh->mName] = std::move(mSkinnedMesh);
 		}
-
-		UINT numIndices = mSkinnedMesh->mIndices.size();
-		for (UINT i = 0; i < numIndices; i++)
-		{
-			indices.push_back(mSkinnedMesh->mIndices[i]);
-		}
-
-		mSkinnedMesh->mName = "Vanguard";
-
-		mSkinnedMesh->CreateBlob(vertices, indices);
-		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
-
-		mMeshes[mSkinnedMesh->mName] = mSkinnedMesh;
 	}
-
-	{
-		auto mSkinnedMesh = new SkinnedMesh;
-
-		mSkinnedMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-		mSkinnedMesh->LoadMesh("Models/Character/Archer.fbx");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Idle.fbx", "Idle");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkForward.fbx", "WalkForward");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/WalkBack.fbx", "WalkBack");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight1.fbx", "WalkRight1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeRight2.fbx", "WalkRight2");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft1.fbx", "WalkLeft1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/StrafeLeft2.fbx", "WalkLeft2");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/RunForward.fbx", "RunForward");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Jump.fbx", "Jump");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Falling.fbx", "Falling");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
-		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
-
-		UINT vcount = 0;
-		UINT tcount = 0;
-		std::vector<SkinnedVertex> vertices;
-		std::vector<UINT> indices;
-		UINT index;
-		UINT dindex = 0;
-
-		UINT numVertices = mSkinnedMesh->mPositions.size();
-		for (int j = 0; j < numVertices; j++)
-		{
-			SkinnedVertex vertex;
-			vertex.Pos.x = mSkinnedMesh->mPositions[j].x;
-			vertex.Pos.y = mSkinnedMesh->mPositions[j].y;
-			vertex.Pos.z = mSkinnedMesh->mPositions[j].z;
-
-			vertex.Normal.x = mSkinnedMesh->mNormals[j].x;
-			vertex.Normal.y = mSkinnedMesh->mNormals[j].y;
-			vertex.Normal.z = mSkinnedMesh->mNormals[j].z;
-
-			vertex.TexC.x = mSkinnedMesh->mTexCoords[j].x;
-			vertex.TexC.y = mSkinnedMesh->mTexCoords[j].y;
-
-			vertices.push_back(vertex);
-		}
-
-		for (int i = 0; i < numVertices; i++)
-		{
-			vertices[i].BoneIndices[0] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[0];
-			vertices[i].BoneIndices[1] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[1];
-			vertices[i].BoneIndices[2] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[2];
-			vertices[i].BoneIndices[3] = (BYTE)mSkinnedMesh->mBones[i].BoneIDs[3];
-
-			float weights = mSkinnedMesh->mBones[i].Weights[0] + mSkinnedMesh->mBones[i].Weights[1] + mSkinnedMesh->mBones[i].Weights[2] + mSkinnedMesh->mBones[i].Weights[3];
-
-			vertices[i].BoneWeights.x = mSkinnedMesh->mBones[i].Weights[0] / weights;
-			vertices[i].BoneWeights.y = mSkinnedMesh->mBones[i].Weights[1] / weights;
-			vertices[i].BoneWeights.z = mSkinnedMesh->mBones[i].Weights[2] / weights;
-		}
-
-		UINT numIndices = mSkinnedMesh->mIndices.size();
-		for (UINT i = 0; i < numIndices; i++)
-		{
-			indices.push_back(mSkinnedMesh->mIndices[i]);
-		}
-
-		mSkinnedMesh->mName = "Archer";
-
-		mSkinnedMesh->CreateBlob(vertices, indices);
-		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
-
-		mMeshes[mSkinnedMesh->mName] = std::move(mSkinnedMesh);
-	}
-}
 
 void DummyApp::LoadMeshes()
-{
-	//Sword Mesh
 	{
-		Mesh* swordMesh = new Mesh;
-
-		swordMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
-		swordMesh->LoadMesh("Models/Weapon/Sword.fbx");
-
-		UINT vcount = 0;
-		UINT tcount = 0;
-		std::vector<Vertex> vertices;
-		std::vector<UINT> indices;
-		UINT index;
-		UINT dindex = 0;
-
-		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
-		XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
-
-		UINT numVertices = swordMesh->mPositions.size();
-		for (int j = 0; j < numVertices; j++)
+		//Sword Mesh
 		{
-			Vertex vertex;
-			vertex.Pos.x = swordMesh->mPositions[j].x;
-			vertex.Pos.y = swordMesh->mPositions[j].y;
-			vertex.Pos.z = swordMesh->mPositions[j].z;
-			XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+			Mesh* swordMesh = new Mesh;
 
-			vertex.Normal.x = swordMesh->mNormals[j].x;
-			vertex.Normal.y = swordMesh->mNormals[j].y;
-			vertex.Normal.z = swordMesh->mNormals[j].z;
-			XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+			swordMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 180.f);
+			swordMesh->LoadMesh("Models/Weapon/Sword.fbx");
 
-			vertex.TexC.x = swordMesh->mTexCoords[j].x;
-			vertex.TexC.y = swordMesh->mTexCoords[j].y;
+			UINT vcount = 0;
+			UINT tcount = 0;
+			std::vector<Vertex> vertices;
+			std::vector<UINT> indices;
+			UINT index;
+			UINT dindex = 0;
 
-			vertices.push_back(vertex);
+			XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
+
+			UINT numVertices = swordMesh->mPositions.size();
+			for (int j = 0; j < numVertices; j++)
+			{
+				Vertex vertex;
+				vertex.Pos.x = swordMesh->mPositions[j].x;
+				vertex.Pos.y = swordMesh->mPositions[j].y;
+				vertex.Pos.z = swordMesh->mPositions[j].z;
+				XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+				vertex.Normal.x = swordMesh->mNormals[j].x;
+				vertex.Normal.y = swordMesh->mNormals[j].y;
+				vertex.Normal.z = swordMesh->mNormals[j].z;
+				XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+				vertex.TexC.x = swordMesh->mTexCoords[j].x;
+				vertex.TexC.y = swordMesh->mTexCoords[j].y;
+
+				vertices.push_back(vertex);
+			}
+
+			UINT numIndices = swordMesh->mIndices.size();
+			for (UINT i = 0; i < numIndices; i++)
+			{
+				indices.push_back(swordMesh->mIndices[i]);
+			}
+
+			//
+			// Pack the indices of all the meshes into one index buffer.
+			swordMesh->mName = "Sword";
+
+			swordMesh->CreateBlob(vertices, indices);
+			swordMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+			swordMesh->mSubmeshes[0].name = "sword";
+
+			mMeshes[swordMesh->mName] = swordMesh;
 		}
 
-		UINT numIndices = swordMesh->mIndices.size();
-		for (UINT i = 0; i < numIndices; i++)
+		//Crystal Mesh
 		{
-			indices.push_back(swordMesh->mIndices[i]);
+			Mesh* crystalMesh = new Mesh;
+
+			crystalMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 0.f);
+			crystalMesh->LoadMesh("Models/Environment/crystal.fbx");
+			//crystalMesh->LoadMesh("Models/mech.fbx");
+
+
+			UINT vcount = 0;
+			UINT tcount = 0;
+			std::vector<Vertex> vertices;
+			std::vector<UINT> indices;
+			UINT index;
+			UINT dindex = 0;
+
+			XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
+
+			UINT numVertices = crystalMesh->mPositions.size();
+			for (int j = 0; j < numVertices; j++)
+			{
+				Vertex vertex;
+				vertex.Pos.x = crystalMesh->mPositions[j].x;
+				vertex.Pos.y = crystalMesh->mPositions[j].y;
+				vertex.Pos.z = crystalMesh->mPositions[j].z;
+				XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+				vertex.Normal.x = crystalMesh->mNormals[j].x;
+				vertex.Normal.y = crystalMesh->mNormals[j].y;
+				vertex.Normal.z = crystalMesh->mNormals[j].z;
+				XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+				vertex.TexC.x = crystalMesh->mTexCoords[j].x;
+				vertex.TexC.y = crystalMesh->mTexCoords[j].y;
+
+				vertices.push_back(vertex);
+			}
+
+			UINT numIndices = crystalMesh->mIndices.size();
+			for (UINT i = 0; i < numIndices; i++)
+			{
+				indices.push_back(crystalMesh->mIndices[i]);
+			}
+
+			//
+			// Pack the indices of all the meshes into one index buffer.
+			crystalMesh->mName = "Crystal";
+
+			crystalMesh->CreateBlob(vertices, indices);
+			crystalMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+			crystalMesh->mSubmeshes[0].name = "crystal";
+
+			mMeshes[crystalMesh->mName] = crystalMesh;
 		}
 
-		//
-		// Pack the indices of all the meshes into one index buffer.
-		swordMesh->mName = "Sword";
+		//Bow Mesh
+		{
+			Mesh* bowMesh = new Mesh;
 
-		swordMesh->CreateBlob(vertices, indices);
-		swordMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+			bowMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 90.f);
+			bowMesh->LoadMesh("Models/Weapon/WoodenBow.fbx");
 
-		swordMesh->mSubmeshes[0].name = "sword";
+			UINT vcount = 0;
+			UINT tcount = 0;
+			std::vector<Vertex> vertices;
+			std::vector<UINT> indices;
+			UINT index;
+			UINT dindex = 0;
 
-		mMeshes[swordMesh->mName] = swordMesh;
+			XMMATRIX offsetMat = XMMatrixScaling(100.0f, 100.0f, 100.0f);
+
+			UINT numVertices = bowMesh->mPositions.size();
+			for (int j = 0; j < numVertices; j++)
+			{
+				Vertex vertex;
+				vertex.Pos.x = bowMesh->mPositions[j].x;
+				vertex.Pos.y = bowMesh->mPositions[j].y;
+				vertex.Pos.z = bowMesh->mPositions[j].z;
+				XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+				vertex.Normal.x = bowMesh->mNormals[j].x;
+				vertex.Normal.y = bowMesh->mNormals[j].y;
+				vertex.Normal.z = bowMesh->mNormals[j].z;
+				XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+				vertex.TexC.x = bowMesh->mTexCoords[j].x;
+				vertex.TexC.y = bowMesh->mTexCoords[j].y;
+
+				vertices.push_back(vertex);
+			}
+
+			UINT numIndices = bowMesh->mIndices.size();
+			for (UINT i = 0; i < numIndices; i++)
+			{
+				indices.push_back(bowMesh->mIndices[i]);
+			}
+
+			//
+			// Pack the indices of all the meshes into one index buffer.
+			bowMesh->mName = "Bow";
+
+			bowMesh->CreateBlob(vertices, indices);
+			bowMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+			bowMesh->mSubmeshes[0].name = "bow";
+
+			mMeshes[bowMesh->mName] = bowMesh;
+		}
+
+
+		LoadSkinnedMesh();
 	}
-
-	//Crystal Mesh
-	{
-		Mesh* crystalMesh = new Mesh;
-
-		crystalMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 0.f);
-		crystalMesh->LoadMesh("Models/Environment/crystal.fbx");
-		//crystalMesh->LoadMesh("Models/mech.fbx");
-
-
-		UINT vcount = 0;
-		UINT tcount = 0;
-		std::vector<Vertex> vertices;
-		std::vector<UINT> indices;
-		UINT index;
-		UINT dindex = 0;
-
-		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
-		XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
-
-		UINT numVertices = crystalMesh->mPositions.size();
-		for (int j = 0; j < numVertices; j++)
-		{
-			Vertex vertex;
-			vertex.Pos.x = crystalMesh->mPositions[j].x;
-			vertex.Pos.y = crystalMesh->mPositions[j].y;
-			vertex.Pos.z = crystalMesh->mPositions[j].z;
-			XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
-
-			vertex.Normal.x = crystalMesh->mNormals[j].x;
-			vertex.Normal.y = crystalMesh->mNormals[j].y;
-			vertex.Normal.z = crystalMesh->mNormals[j].z;
-			XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
-
-			vertex.TexC.x = crystalMesh->mTexCoords[j].x;
-			vertex.TexC.y = crystalMesh->mTexCoords[j].y;
-
-			vertices.push_back(vertex);
-		}
-
-		UINT numIndices = crystalMesh->mIndices.size();
-		for (UINT i = 0; i < numIndices; i++)
-		{
-			indices.push_back(crystalMesh->mIndices[i]);
-		}
-
-		//
-		// Pack the indices of all the meshes into one index buffer.
-		crystalMesh->mName = "Crystal";
-
-		crystalMesh->CreateBlob(vertices, indices);
-		crystalMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
-
-		crystalMesh->mSubmeshes[0].name = "crystal";
-
-		mMeshes[crystalMesh->mName] = crystalMesh;
-	}
-
-	//Bow Mesh
-	{
-		Mesh* bowMesh = new Mesh;
-
-		bowMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 90.f);
-		bowMesh->LoadMesh("Models/Weapon/WoodenBow.fbx");
-
-		UINT vcount = 0;
-		UINT tcount = 0;
-		std::vector<Vertex> vertices;
-		std::vector<UINT> indices;
-		UINT index;
-		UINT dindex = 0;
-
-		XMMATRIX offsetMat = XMMatrixScaling(100.0f, 100.0f, 100.0f);
-
-		UINT numVertices = bowMesh->mPositions.size();
-		for (int j = 0; j < numVertices; j++)
-		{
-			Vertex vertex;
-			vertex.Pos.x = bowMesh->mPositions[j].x;
-			vertex.Pos.y = bowMesh->mPositions[j].y;
-			vertex.Pos.z = bowMesh->mPositions[j].z;
-			XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
-
-			vertex.Normal.x = bowMesh->mNormals[j].x;
-			vertex.Normal.y = bowMesh->mNormals[j].y;
-			vertex.Normal.z = bowMesh->mNormals[j].z;
-			XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
-
-			vertex.TexC.x = bowMesh->mTexCoords[j].x;
-			vertex.TexC.y = bowMesh->mTexCoords[j].y;
-
-			vertices.push_back(vertex);
-		}
-
-		UINT numIndices = bowMesh->mIndices.size();
-		for (UINT i = 0; i < numIndices; i++)
-		{
-			indices.push_back(bowMesh->mIndices[i]);
-		}
-
-		//
-		// Pack the indices of all the meshes into one index buffer.
-		bowMesh->mName = "Bow";
-
-		bowMesh->CreateBlob(vertices, indices);
-		bowMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
-
-		bowMesh->mSubmeshes[0].name = "bow";
-
-		mMeshes[bowMesh->mName] = bowMesh;
-	}
-
-
-	LoadSkinnedMesh();
-}
 
 void DummyApp::LoadTerrain()
-{
-	mTerrain.LoadHeightMap(L"HeightMap/1sec127.r16", 1017, 1017, 1.f);
-	
-	UINT vcount = 1017 * 1017;
-	UINT tcount = 1017 * 1017 * 2 * 3;
-	
-	//
-	// Pack the indices of all the meshes into one index buffer.
-	//
-	
-	std::vector<Vertex> vertices(vcount);
-	std::vector<uint32_t> indices(tcount);
+	{
+		mTerrain.LoadHeightMap(L"HeightMap/1sec127.r16", 1017, 1017, 1.f);
 
-	mTerrain.CreateTerrain(20000.0f, 20000.f, vertices, indices);
-	std::cout << mTerrain.GetSize() << std::endl;
-	Mesh* terrainMesh = new Mesh;
-	terrainMesh->mName = "terrain";
+		UINT vcount = 1017 * 1017;
+		UINT tcount = 1017 * 1017 * 2 * 3;
 
-	terrainMesh->CreateBlob(vertices, indices);
-	terrainMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+		//
+		// Pack the indices of all the meshes into one index buffer.
+		//
 
-	terrainMesh->AddSubmesh("terrain", indices.size());
-	
-	mMeshes[terrainMesh->mName] = terrainMesh;
-}
+		std::vector<Vertex> vertices(vcount);
+		std::vector<uint32_t> indices(tcount);
+
+		mTerrain.CreateTerrain(20000.0f, 20000.f, vertices, indices);
+		std::cout << mTerrain.GetSize() << std::endl;
+		Mesh* terrainMesh = new Mesh;
+		terrainMesh->mName = "terrain";
+
+		terrainMesh->CreateBlob(vertices, indices);
+		terrainMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+		terrainMesh->AddSubmesh("terrain", indices.size());
+
+		mMeshes[terrainMesh->mName] = terrainMesh;
+	}
 
 void DummyApp::BuildPSOs()
-{
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
-
-	//
-	// PSO for opaque objects.
-	//
-	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.VS = {
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()), mShaders["standardVS"]->GetBufferSize() };
-	opaquePsoDesc.PS = {
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
-	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, 
-		IID_PPV_ARGS(&mPSOs["opaque"])));
-
-	//
-	// PSO for opaque wireframe objects.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc = opaquePsoDesc;
-	opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, 
-		IID_PPV_ARGS(&mPSOs["opaque_wireframe"])));
-	
-	//
-	// PSO for skinned pass.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedOpaquePsoDesc = opaquePsoDesc;
-	skinnedOpaquePsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
-	skinnedOpaquePsoDesc.VS = {
-		reinterpret_cast<BYTE*>(mShaders["skinnedVS"]->GetBufferPointer()), mShaders["skinnedVS"]->GetBufferSize() };
-	skinnedOpaquePsoDesc.PS = {
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skinnedOpaquePsoDesc, IID_PPV_ARGS(&mPSOs["skinnedOpaque"])));
-
-	//
-	// PSO for toon shading.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC toonShadingPsoDesc = opaquePsoDesc;
-	toonShadingPsoDesc.PS =
 	{
-		reinterpret_cast<BYTE*>(mShaders["toonLightingOpaquePS"]->GetBufferPointer()),
-		mShaders["toonLightingOpaquePS"]->GetBufferSize()
-	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&toonShadingPsoDesc,
-		IID_PPV_ARGS(&mPSOs["opaque_toonShading"])));
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
-	//
-	// PSO for sky.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = opaquePsoDesc;
+		//
+		// PSO for opaque objects.
+		//
+		ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+		opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+		opaquePsoDesc.pRootSignature = mRootSignature.Get();
+		opaquePsoDesc.VS = {
+			reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()), mShaders["standardVS"]->GetBufferSize() };
+		opaquePsoDesc.PS = {
+			reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
+		opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		opaquePsoDesc.SampleMask = UINT_MAX;
+		opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		opaquePsoDesc.NumRenderTargets = 1;
+		opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
+		opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+		opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+		opaquePsoDesc.DSVFormat = mDepthStencilFormat;
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc,
+			IID_PPV_ARGS(&mPSOs["opaque"])));
 
-	// 카메라가 스카이 박스 안에 있기때문에 컬링을 비활성화한다.
-	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+		//
+		// PSO for opaque wireframe objects.
+		//
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc = opaquePsoDesc;
+		opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc,
+			IID_PPV_ARGS(&mPSOs["opaque_wireframe"])));
 
-	// 깊이 판정 통과를 위해 깊이비교를 LESS_EQUAL로 설정한다.
-	// LESS가 아닌 이유: 만약 깊이 버퍼를 1로 지우는 경우 z = 1에서 정규화된 깊이값이 깊이 판정에 실패한다.
-	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyPsoDesc.pRootSignature = mRootSignature.Get();
-	skyPsoDesc.VS = { 
-		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()), mShaders["skyVS"]->GetBufferSize() };
-	skyPsoDesc.PS = {
-		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()), mShaders["skyPS"]->GetBufferSize() };
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+		//
+		// PSO for skinned pass.
+		//
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedOpaquePsoDesc = opaquePsoDesc;
+		skinnedOpaquePsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
+		skinnedOpaquePsoDesc.VS = {
+			reinterpret_cast<BYTE*>(mShaders["skinnedVS"]->GetBufferPointer()), mShaders["skinnedVS"]->GetBufferSize() };
+		skinnedOpaquePsoDesc.PS = {
+			reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skinnedOpaquePsoDesc, IID_PPV_ARGS(&mPSOs["skinnedOpaque"])));
 
+		//
+		// PSO for toon shading.
+		//
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC toonShadingPsoDesc = opaquePsoDesc;
+		toonShadingPsoDesc.PS =
+		{
+			reinterpret_cast<BYTE*>(mShaders["toonLightingOpaquePS"]->GetBufferPointer()),
+			mShaders["toonLightingOpaquePS"]->GetBufferSize()
+		};
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&toonShadingPsoDesc,
+			IID_PPV_ARGS(&mPSOs["opaque_toonShading"])));
 
+		//
+		// PSO for sky.
+		//
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = opaquePsoDesc;
 
-	//D3D12_GRAPHICS_PIPELINE_STATE_DESC cursorPsoDesc = opaquePsoDesc;
-	//cursorPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	//cursorPsoDesc.pRootSignature = mRootSignature.Get();
-	//cursorPsoDesc.VS = { mShaders["UIVS"]->GetBufferPointer(),
-	//					 mShaders["UIVS"]->GetBufferSize() };
-	//cursorPsoDesc.PS = { mShaders["UIPS"]->GetBufferPointer(),
-	//					 mShaders["UIPS"]->GetBufferSize() };
+		// 카메라가 스카이 박스 안에 있기때문에 컬링을 비활성화한다.
+		skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
-	//cursorPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	//cursorPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	//cursorPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	//cursorPsoDesc.DepthStencilState.DepthEnable = FALSE;
-
-	//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cursorPsoDesc, IID_PPV_ARGS(&mPSOs["cursor"])));
-
-	//
-	// PSO for debug(line)
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
-	debugPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	debugPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-	debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-	debugPsoDesc.InputLayout = { mColorInputLayout.data(), (UINT)mColorInputLayout.size() };
-	debugPsoDesc.VS = {
-		reinterpret_cast<BYTE*>(mShaders["colorVS"]->GetBufferPointer()), mShaders["colorVS"]->GetBufferSize() };
-	debugPsoDesc.PS = {
-		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
-		IID_PPV_ARGS(&mPSOs["debug"])));
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC uiPsoDesc = {};
-	uiPsoDesc.InputLayout = { mUIInputLayout.data(), (UINT)mUIInputLayout.size() };
-	uiPsoDesc.pRootSignature = mRootSignature.Get();
-	uiPsoDesc.VS = { mShaders["UIVS"]->GetBufferPointer(), mShaders["UIVS"]->GetBufferSize() };
-	uiPsoDesc.PS = { mShaders["UIPS"]->GetBufferPointer(), mShaders["UIPS"]->GetBufferSize() };
-	uiPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	uiPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	uiPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	uiPsoDesc.DepthStencilState.DepthEnable = FALSE; // ★ 깊이 끔
-	uiPsoDesc.SampleMask = UINT_MAX;
-	uiPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	uiPsoDesc.NumRenderTargets = 1;
-	uiPsoDesc.RTVFormats[0] = mBackBufferFormat;
-	uiPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	uiPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&uiPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+		// 깊이 판정 통과를 위해 깊이비교를 LESS_EQUAL로 설정한다.
+		// LESS가 아닌 이유: 만약 깊이 버퍼를 1로 지우는 경우 z = 1에서 정규화된 깊이값이 깊이 판정에 실패한다.
+		skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		skyPsoDesc.pRootSignature = mRootSignature.Get();
+		skyPsoDesc.VS = {
+			reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()), mShaders["skyVS"]->GetBufferSize() };
+		skyPsoDesc.PS = {
+			reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()), mShaders["skyPS"]->GetBufferSize() };
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
 
 
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC selPsoDesc = {};
-	selPsoDesc.InputLayout = { mSelectionInputLayout.data(),
-							   (UINT)mSelectionInputLayout.size() };
-	selPsoDesc.pRootSignature = mRootSignature.Get();
-	selPsoDesc.VS = { mShaders["selectionVS"]->GetBufferPointer(),
-					  mShaders["selectionVS"]->GetBufferSize() };
-	selPsoDesc.PS = { mShaders["selectionPS"]->GetBufferPointer(),
-					  mShaders["selectionPS"]->GetBufferSize() };
-	selPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	// selPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME; // 이건 필요 없음
-	selPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	selPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	selPsoDesc.DepthStencilState.DepthEnable = FALSE;
-	selPsoDesc.SampleMask = UINT_MAX;
+		//D3D12_GRAPHICS_PIPELINE_STATE_DESC cursorPsoDesc = opaquePsoDesc;
+		//cursorPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+		//cursorPsoDesc.pRootSignature = mRootSignature.Get();
+		//cursorPsoDesc.VS = { mShaders["UIVS"]->GetBufferPointer(),
+		//					 mShaders["UIVS"]->GetBufferSize() };
+		//cursorPsoDesc.PS = { mShaders["UIPS"]->GetBufferPointer(),
+		//					 mShaders["UIPS"]->GetBufferSize() };
 
-	// ★ 여기! 라인용으로 변경
-	selPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+		//cursorPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		//cursorPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		//cursorPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		//cursorPsoDesc.DepthStencilState.DepthEnable = FALSE;
 
-	selPsoDesc.NumRenderTargets = 1;
-	selPsoDesc.RTVFormats[0] = mBackBufferFormat;
-	selPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	selPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+		//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cursorPsoDesc, IID_PPV_ARGS(&mPSOs["cursor"])));
 
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
-		&selPsoDesc, IID_PPV_ARGS(&mPSOs["selection"])));
+		//
+		// PSO for debug(line)
+		//
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
+		debugPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+		debugPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+		debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+		debugPsoDesc.InputLayout = { mColorInputLayout.data(), (UINT)mColorInputLayout.size() };
+		debugPsoDesc.VS = {
+			reinterpret_cast<BYTE*>(mShaders["colorVS"]->GetBufferPointer()), mShaders["colorVS"]->GetBufferSize() };
+		debugPsoDesc.PS = {
+			reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
+			IID_PPV_ARGS(&mPSOs["debug"])));
 
-	//// 
-	//// ui
-	////
-	//skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	//skyPsoDesc.pRootSignature = mRootSignature.Get();
-	//skyPsoDesc.VS = {
-	//	reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
-	//skyPsoDesc.PS = {
-	//	reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
-	//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC uiPsoDesc = {};
+		uiPsoDesc.InputLayout = { mUIInputLayout.data(), (UINT)mUIInputLayout.size() };
+		uiPsoDesc.pRootSignature = mRootSignature.Get();
+		uiPsoDesc.VS = { mShaders["UIVS"]->GetBufferPointer(), mShaders["UIVS"]->GetBufferSize() };
+		uiPsoDesc.PS = { mShaders["UIPS"]->GetBufferPointer(), mShaders["UIPS"]->GetBufferSize() };
+		uiPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		uiPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		uiPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		uiPsoDesc.DepthStencilState.DepthEnable = FALSE; // ★ 깊이 끔
+		uiPsoDesc.SampleMask = UINT_MAX;
+		uiPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		uiPsoDesc.NumRenderTargets = 1;
+		uiPsoDesc.RTVFormats[0] = mBackBufferFormat;
+		uiPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+		uiPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC darknessPsoDesc = {};
-	darknessPsoDesc.InputLayout = { mDarknessInputLayout.data(), (UINT)mDarknessInputLayout.size() };
-	darknessPsoDesc.pRootSignature = mRootSignature.Get();
-	darknessPsoDesc.VS = {
-		mShaders["darknessVS"]->GetBufferPointer(),
-		mShaders["darknessVS"]->GetBufferSize() };
-	darknessPsoDesc.PS = {
-		mShaders["darknessPS"]->GetBufferPointer(),
-		mShaders["darknessPS"]->GetBufferSize() };
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&uiPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
 
-	darknessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 
-	// 알파 블렌딩 켜기
-	auto blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	blendDesc.RenderTarget[0].BlendEnable = TRUE;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	darknessPsoDesc.BlendState = blendDesc;
 
-	darknessPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	darknessPsoDesc.DepthStencilState.DepthEnable = FALSE; // UI처럼 깊이 끔
-	darknessPsoDesc.SampleMask = UINT_MAX;
-	darknessPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	darknessPsoDesc.NumRenderTargets = 1;
-	darknessPsoDesc.RTVFormats[0] = mBackBufferFormat;
-	darknessPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	darknessPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	darknessPsoDesc.DSVFormat = mDepthStencilFormat;
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC selPsoDesc = {};
+		selPsoDesc.InputLayout = { mSelectionInputLayout.data(),
+								   (UINT)mSelectionInputLayout.size() };
+		selPsoDesc.pRootSignature = mRootSignature.Get();
+		selPsoDesc.VS = { mShaders["selectionVS"]->GetBufferPointer(),
+						  mShaders["selectionVS"]->GetBufferSize() };
+		selPsoDesc.PS = { mShaders["selectionPS"]->GetBufferPointer(),
+						  mShaders["selectionPS"]->GetBufferSize() };
+		selPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		// selPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME; // 이건 필요 없음
+		selPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		selPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		selPsoDesc.DepthStencilState.DepthEnable = FALSE;
+		selPsoDesc.SampleMask = UINT_MAX;
 
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
-		&darknessPsoDesc, IID_PPV_ARGS(&mPSOs["darkness"])));
+		// ★ 여기! 라인용으로 변경
+		selPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
 
-}
+		selPsoDesc.NumRenderTargets = 1;
+		selPsoDesc.RTVFormats[0] = mBackBufferFormat;
+		selPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+		selPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+			&selPsoDesc, IID_PPV_ARGS(&mPSOs["selection"])));
+
+		//// 
+		//// ui
+		////
+		//skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		//skyPsoDesc.pRootSignature = mRootSignature.Get();
+		//skyPsoDesc.VS = {
+		//	reinterpret_cast<BYTE*>(mShaders["UIVS"]->GetBufferPointer()), mShaders["UIVS"]->GetBufferSize() };
+		//skyPsoDesc.PS = {
+		//	reinterpret_cast<BYTE*>(mShaders["UIPS"]->GetBufferPointer()), mShaders["UIPS"]->GetBufferSize() };
+		//ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["ui"])));
+
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC darknessPsoDesc = {};
+		darknessPsoDesc.InputLayout = { mDarknessInputLayout.data(), (UINT)mDarknessInputLayout.size() };
+		darknessPsoDesc.pRootSignature = mRootSignature.Get();
+		darknessPsoDesc.VS = {
+			mShaders["darknessVS"]->GetBufferPointer(),
+			mShaders["darknessVS"]->GetBufferSize() };
+		darknessPsoDesc.PS = {
+			mShaders["darknessPS"]->GetBufferPointer(),
+			mShaders["darknessPS"]->GetBufferSize() };
+
+		darknessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+
+		// 알파 블렌딩 켜기
+		auto blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		blendDesc.RenderTarget[0].BlendEnable = TRUE;
+		blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+		blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+		blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+		darknessPsoDesc.BlendState = blendDesc;
+
+		darknessPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		darknessPsoDesc.DepthStencilState.DepthEnable = FALSE; // UI처럼 깊이 끔
+		darknessPsoDesc.SampleMask = UINT_MAX;
+		darknessPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		darknessPsoDesc.NumRenderTargets = 1;
+		darknessPsoDesc.RTVFormats[0] = mBackBufferFormat;
+		darknessPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+		darknessPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+		darknessPsoDesc.DSVFormat = mDepthStencilFormat;
+
+		ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+			&darknessPsoDesc, IID_PPV_ARGS(&mPSOs["darkness"])));
+
+	}
 
 void DummyApp::BuildFrameResources()
-{
-	UINT numObjCBs = 0;
-	for (auto& gameObj : mAllGameObjects)
-		numObjCBs += gameObj->GetNumSubmeshes();
-
-	for (int i = 0; i < gNumFrameResources; ++i)
 	{
-		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-			1, 
-			numObjCBs + 800,
-			800, // skinned obj
-			(UINT)mMaterials.size()));
+		UINT numObjCBs = 0;
+		for (auto& gameObj : mAllGameObjects)
+			numObjCBs += gameObj->GetNumSubmeshes();
+
+		for (int i = 0; i < gNumFrameResources; ++i)
+		{
+			mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
+				1,
+				numObjCBs + 800,
+				800, // skinned obj
+				(UINT)mMaterials.size()));
+		}
 	}
-}
 
 void DummyApp::BuildMaterials()
-{
-	int matCBIndex = 0;
-	int SRVIndex = 1;
+	{
+		int matCBIndex = 0;
+		int SRVIndex = 1;
 
 
-	auto sky = std::make_unique<Material>();
-	sky->Name = "sky";
-	sky->MatCBIndex = matCBIndex++;
-	sky->DiffuseSrvHeapIndex = mSkyTexHeapIndex; // SkyTexHeapIndex == 0
-	sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	sky->Roughness = 1.0f;
+		auto sky = std::make_unique<Material>();
+		sky->Name = "sky";
+		sky->MatCBIndex = matCBIndex++;
+		sky->DiffuseSrvHeapIndex = mSkyTexHeapIndex; // SkyTexHeapIndex == 0
+		sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+		sky->Roughness = 1.0f;
 
-	mMaterials["sky"] = std::move(sky);
+		mMaterials["sky"] = std::move(sky);
 
-	//int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
+		//int SRVIndex = 0; //이걸 1로 두고 나중에 한다면?
 
-	auto sword = std::make_unique<Material>();
-	sword->Name = "sword";
-	sword->MatCBIndex = matCBIndex++;
-	sword->DiffuseSrvHeapIndex = SRVIndex++;
-	sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	sword->Roughness = 0.1f;
+		auto sword = std::make_unique<Material>();
+		sword->Name = "sword";
+		sword->MatCBIndex = matCBIndex++;
+		sword->DiffuseSrvHeapIndex = SRVIndex++;
+		sword->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		sword->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		sword->Roughness = 0.1f;
 
-	mMaterials["sword"] = std::move(sword);
+		mMaterials["sword"] = std::move(sword);
 
-	auto vanguard = std::make_unique<Material>();
-	vanguard->Name = "vanguardDiffuse";
-	vanguard->MatCBIndex = matCBIndex++;
-	vanguard->DiffuseSrvHeapIndex = SRVIndex++;
-	vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	vanguard->Roughness = 0.1f;
+		auto vanguard = std::make_unique<Material>();
+		vanguard->Name = "vanguardDiffuse";
+		vanguard->MatCBIndex = matCBIndex++;
+		vanguard->DiffuseSrvHeapIndex = SRVIndex++;
+		vanguard->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		vanguard->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		vanguard->Roughness = 0.1f;
 
-	mMaterials["vanguard"] = std::move(vanguard);
+		mMaterials["vanguard"] = std::move(vanguard);
 
-	auto bricks0 = std::make_unique<Material>();
-	bricks0->Name = "bricks0";
-	bricks0->MatCBIndex = matCBIndex++;
-	bricks0->DiffuseSrvHeapIndex = SRVIndex++;
-	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	bricks0->Roughness = 0.1f;
+		auto bricks0 = std::make_unique<Material>();
+		bricks0->Name = "bricks0";
+		bricks0->MatCBIndex = matCBIndex++;
+		bricks0->DiffuseSrvHeapIndex = SRVIndex++;
+		bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		bricks0->Roughness = 0.1f;
 
-	mMaterials["bricks0"] = std::move(bricks0);
+		mMaterials["bricks0"] = std::move(bricks0);
 
-	auto stone0 = std::make_unique<Material>();
-	stone0->Name = "stone0";
-	stone0->MatCBIndex = matCBIndex++;
-	stone0->DiffuseSrvHeapIndex = SRVIndex++;
-	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	stone0->Roughness = 0.3f;
+		auto stone0 = std::make_unique<Material>();
+		stone0->Name = "stone0";
+		stone0->MatCBIndex = matCBIndex++;
+		stone0->DiffuseSrvHeapIndex = SRVIndex++;
+		stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+		stone0->Roughness = 0.3f;
 
-	mMaterials["stone0"] = std::move(stone0);
+		mMaterials["stone0"] = std::move(stone0);
 
-	auto tile0 = std::make_unique<Material>();
-	tile0->Name = "tile0";
-	tile0->MatCBIndex = matCBIndex++;
-	tile0->DiffuseSrvHeapIndex = SRVIndex++;
-	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	tile0->Roughness = 0.3f;
+		auto tile0 = std::make_unique<Material>();
+		tile0->Name = "tile0";
+		tile0->MatCBIndex = matCBIndex++;
+		tile0->DiffuseSrvHeapIndex = SRVIndex++;
+		tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		tile0->Roughness = 0.3f;
 
-	mMaterials["tile0"] = std::move(tile0);
+		mMaterials["tile0"] = std::move(tile0);
 
-	auto terrainMat = std::make_unique<Material>();
-	terrainMat->Name = "terrainMat";
-	terrainMat->MatCBIndex = matCBIndex++;
-	terrainMat->DiffuseSrvHeapIndex = SRVIndex++;
-	terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-	terrainMat->Roughness = 0.05f;
+		auto terrainMat = std::make_unique<Material>();
+		terrainMat->Name = "terrainMat";
+		terrainMat->MatCBIndex = matCBIndex++;
+		terrainMat->DiffuseSrvHeapIndex = SRVIndex++;
+		terrainMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		terrainMat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+		terrainMat->Roughness = 0.05f;
 
-	mMaterials["terrainMat"] = std::move(terrainMat);
+		mMaterials["terrainMat"] = std::move(terrainMat);
 
-	auto crystal = std::make_unique<Material>();
-	crystal->Name = "crystal";
-	crystal->MatCBIndex = matCBIndex++;
-	crystal->DiffuseSrvHeapIndex = SRVIndex++;
-	crystal->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	crystal->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	crystal->Roughness = 0.1f;
+		auto crystal = std::make_unique<Material>();
+		crystal->Name = "crystal";
+		crystal->MatCBIndex = matCBIndex++;
+		crystal->DiffuseSrvHeapIndex = SRVIndex++;
+		crystal->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		crystal->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		crystal->Roughness = 0.1f;
 
-	mMaterials["crystal"] = std::move(crystal);
+		mMaterials["crystal"] = std::move(crystal);
 
-	auto bow = std::make_unique<Material>();
-	bow->Name = "bow";
-	bow->MatCBIndex = matCBIndex++;
-	bow->DiffuseSrvHeapIndex = SRVIndex++;
-	bow->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	bow->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	bow->Roughness = 0.1f;
+		auto bow = std::make_unique<Material>();
+		bow->Name = "bow";
+		bow->MatCBIndex = matCBIndex++;
+		bow->DiffuseSrvHeapIndex = SRVIndex++;
+		bow->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		bow->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		bow->Roughness = 0.1f;
 
-	mMaterials["bow"] = std::move(bow);
+		mMaterials["bow"] = std::move(bow);
 
-	auto archer = std::make_unique<Material>();
-	archer->Name = "archerDiffuse";
-	archer->MatCBIndex = matCBIndex++;
-	archer->DiffuseSrvHeapIndex = SRVIndex++;
-	archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	archer->Roughness = 0.1f;
+		auto archer = std::make_unique<Material>();
+		archer->Name = "archerDiffuse";
+		archer->MatCBIndex = matCBIndex++;
+		archer->DiffuseSrvHeapIndex = SRVIndex++;
+		archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+		archer->Roughness = 0.1f;
 
-	mMaterials["archer"] = std::move(archer);
+		mMaterials["archer"] = std::move(archer);
 
-	mCursorTexHeapIndex = SRVIndex++;
-}
+		mCursorTexHeapIndex = SRVIndex++;
+	}
 
 void DummyApp::BuildGameObjects()
-{
-	
-	//Submesh submesh;
-
-	// ------------------------------------------
-	// sky sphere
-	// ------------------------------------------
-	GameObject* skyGameObject = new GameObject("sky", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
-	skyGameObject->SetCBIndex(objCBIndex);
-	skyGameObject->SetMesh(mMeshes["shapeGeo"]);
-	skyGameObject->SetMaterial(mMaterials["sky"].get());
-	skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
-
-	mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
-	mAllGameObjects.push_back(skyGameObject);
-
-	// ------------------------------------------
-	// terrain
-	// ------------------------------------------
-	GameObject* terrainGameObject = new GameObject("terrain", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
-	terrainGameObject->SetCBIndex(objCBIndex);
-	terrainGameObject->SetMesh(mMeshes["terrain"]);
-	terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
-	terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(terrainGameObject);
-	mAllGameObjects.push_back(terrainGameObject);
-
-
-	// ------------------------------------------
-	// Opaque objects
-	// ------------------------------------------
-
-	//1----------------------------------------------
-
-	BuildCrystal(-8900, -9350, 180);
-	BuildCrystal(-8700, -9500, 180);
-	BuildCrystal(-8500, -9500, 180);
-	BuildCrystal(-8300, -9350, 180);
-
-	BuildCrystal(-9500, -8580, 180);
-	BuildCrystal(-9630, -8780, 180);
-	BuildCrystal(-9630, -8980, 180);
-	BuildCrystal(-9500, -9180, 180);
-
-	//2----------------------------------------------
-
-	BuildCrystal(-3920, -8080, 180);
-	BuildCrystal(-4060, -8280, 180);
-	BuildCrystal(-4260, -8280, 0);
-	BuildCrystal(-4060, -8430, 0);
-
-	BuildCrystal(-4080, -8950, 180);
-	BuildCrystal(-4250, -9120, 180);
-	BuildCrystal(-4080, -9090, 0);
-
-	BuildCrystal(-4060, -9580, 180);
-	BuildCrystal(-3920, -9730, 180);
-
-	//3----------------------------------------------
-
-	BuildCrystal(1750, -9530, 180);
-	BuildCrystal(1980, -9680, 180);
-	BuildCrystal(2180, -9530, 180);
-	BuildCrystal(2380, -9700, 180);
-	BuildCrystal(2600, -9700, 180);
-	BuildCrystal(2780, -9530, 180);
-	BuildCrystal(2900, -9330, 180);
-
-	//4----------------------------------------------
-
-	BuildCrystal(8100, -9530, 180);
-	BuildCrystal(8280, -9700, 180);
-	BuildCrystal(8550, -9700, 180);
-	BuildCrystal(8820, -9500, 180);
-
-	BuildCrystal(9450, -9000, 0);
-	BuildCrystal(9700, -9000, 180);
-	BuildCrystal(9650, -8550, 0);
-	BuildCrystal(9550, -8600, 180);
-
-	//5----------------------------------------------
-
-	BuildCrystal(-5000, -4800, 180);
-	BuildCrystal(-5170, -5100, 180);
-	BuildCrystal(-5080, -5100, 0);
-	
-	BuildCrystal(-4500, -5550, 180);
-	BuildCrystal(-4450, -5580, 0);
-	BuildCrystal(-3900, -5600, 180);
-
-	//6----------------------------------------------
-
-	BuildCrystal(-9500, -3250, 180);
-	BuildCrystal(-9700, -3400, 180);
-	BuildCrystal(-9600, -3410, 0);
-	BuildCrystal(-9750, -3600, 0);
-
-	BuildCrystal(-9600, -4050, 180);
-	BuildCrystal(-9520, -4200, 180);
-	BuildCrystal(-9500, -4200, 0);
-	BuildCrystal(-9400, -4350, 0);
-	BuildCrystal(-9150, -4350, 0);
-	
-	//7----------------------------------------------
-
-	BuildCrystal(-9450, 200, 180);
-	BuildCrystal(-9650, 350, 180);
-	BuildCrystal(-9450, 500, 180);
-	BuildCrystal(-9450, 650, 180);
-	BuildCrystal(-9650, 850, 180);
-	BuildCrystal(-9450, 1000, 180);
-	BuildCrystal(-9650, 1200, 180);
-
-	//8----------------------------------------------
-
-	BuildCrystal(9550, -250, 180);
-	BuildCrystal(9650, -250, 0);
-	BuildCrystal(9550, -600, 180);
-	BuildCrystal(9600, -600, 0);
-	BuildCrystal(9550, -950, 180);
-	BuildCrystal(9600, -950, 0);
-	BuildCrystal(9600, -1150, 0);
-
-	//9----------------------------------------------
-
-	BuildCrystal(9400, 4200, 180);
-	BuildCrystal(9600, 4000, 180);
-	BuildCrystal(9650, 4000, 0);
-	BuildCrystal(9450, 3700, 180);
-	
-	BuildCrystal(9550, 3500, 180);
-	BuildCrystal(9600, 3450, 0);
-
-	BuildCrystal(9700, 3000, 180);
-	BuildCrystal(9600, 2800, 180);
-	BuildCrystal(9450, 2650, 180);
-
-	BuildCrystal(4800, 4600, 0);
-	BuildCrystal(4700, 4600, 180);
-	BuildCrystal(4800, 5050, 0);
-
-	BuildCrystal(4300, 5350, 0);
-	BuildCrystal(4000, 5350, 0);
-	BuildCrystal(3850, 5350, 180);
-
-	//10----------------------------------------------
-
-	BuildCrystal(-9550, 8750, 0);
-	BuildCrystal(-9700, 8900, 0);
-
-	BuildCrystal(-9700, 9100, 180);
-	BuildCrystal(-9550, 9250, 180);
-
-	BuildCrystal(-8800, 9700, 0);
-	BuildCrystal(-8550, 9850, 0);
-	BuildCrystal(-8300, 9850, 0);
-	BuildCrystal(-8050, 9700, 0);
-	
-	//11----------------------------------------------
-	
-	BuildCrystal(-3200, 9650, 0);
-	BuildCrystal(-3050, 9850, 0);
-	BuildCrystal(-2750, 9850, 0);
-	BuildCrystal(-2550, 9650, 0);
-	BuildCrystal(-2450, 9850, 0);
-	BuildCrystal(-2200, 9850, 0);
-	BuildCrystal(-2000, 9650, 0);
-	
-	//12----------------------------------------------
-
-	BuildCrystal(4100, 9500, 180);
-	BuildCrystal(4250, 9300, 180);
-	BuildCrystal(4350, 9300, 0);
-
-	BuildCrystal(4350, 9000, 0);
-	BuildCrystal(4200, 8800, 0);
-	BuildCrystal(4350, 8600, 0);
-	BuildCrystal(4200, 8400, 0);
-
-
-	BuildCrystal(4250, 7900, 180);
-	BuildCrystal(4100, 7700, 180);
-
-
-	//13----------------------------------------------
-
-
-	BuildCrystal(7900, 9600, 0);
-	BuildCrystal(8100, 9800, 0);
-	BuildCrystal(8350, 9800, 0);
-	BuildCrystal(8500, 9600, 0);
-
-	BuildCrystal(9350, 9400, 0);
-	BuildCrystal(9500, 9250, 0);
-
-	BuildCrystal(9600, 8750, 180);
-	BuildCrystal(9400, 8600, 180);
-
-	//----------------------------------------------
-	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON ,XMMatrixIdentity(), XMMatrixIdentity());
-	swordGameObject->SetCBIndex(objCBIndex);
-	swordGameObject->SetMesh(mMeshes["Sword"]);
-	swordGameObject->SetMaterial(mMaterials["sword"].get());
-	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
-	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
-	mAllGameObjects.push_back(swordGameObject);
-
-
-	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	bowGameObject->SetCBIndex(objCBIndex);
-	bowGameObject->SetMesh(mMeshes["Bow"]);
-	bowGameObject->SetMaterial(mMaterials["bow"].get());
-	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
-	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
-	mAllGameObjects.push_back(bowGameObject);
-	
-
-
-
-	// ------------------------------------------
-	// Skinned objects - player
-	// ------------------------------------------
-	Player* Skinned1 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	Skinned1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	Skinned1->SetMesh(mMeshes["Vanguard"]);
-	Skinned1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[0]);
-	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[1]);
-	Skinned1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Skinned1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
-	mAllGameObjects.push_back(Skinned1);
-	mTeamObjects.push_back(Skinned1);
-
-	Player* Knight = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
-	Knight->SetMesh(mMeshes["Vanguard"]);
-	Knight->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	Knight->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[0]);
-	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[1]);
-	Knight->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Knight->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
-	mAllGameObjects.push_back(Knight);
-	mTeamObjects.push_back(Knight);
-
-	// ------------------------------------------
-	// Buttobn
-	// -----------------------------------------
-
-	//Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
-	//mButtons.push_back(test1);
-
-
-	mPlayer = Skinned1;
-	//if (mMainCamera) {
-	//	delete mMainCamera;
-	//	mMainCamera = nullptr;
-	//}
-
-	Camera* m = new Camera();
-	//m->SetPlayerDirections(mPlayer);
-	//mMainCamera = m;
-	//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
-
-	m->SetPosition(9500, mTerrain.GetHeight(9500,9000)+2000, 9000);
-	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
-	mSubCamera.push_back(m);
-	 
-	if (mFPSmode) mMainCamera = mPlayer->GetCamera();
-	else mMainCamera = m;
-	
-	
-
-	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
-	
-
-	Skinned1->SetWeapon(swordGameObject);
-	swordGameObject->SetOwner(Skinned1);
-
-	Knight->SetWeapon(bowGameObject);
-	bowGameObject->SetOwner(Knight);
-
-}
+	{
+
+		//Submesh submesh;
+
+		// ------------------------------------------
+		// sky sphere
+		// ------------------------------------------
+		GameObject* skyGameObject = new GameObject("sky", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
+		skyGameObject->SetCBIndex(objCBIndex);
+		skyGameObject->SetMesh(mMeshes["shapeGeo"]);
+		skyGameObject->SetMaterial(mMaterials["sky"].get());
+		skyGameObject->AddSubmesh(skyGameObject->GetMesh()->GetSubmesh("sphere"));
+
+		mRenderLayer[(int)RenderLayer::Sky].push_back(skyGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Sky].push_back(skyGameObject);
+		mAllGameObjects.push_back(skyGameObject);
+
+		// ------------------------------------------
+		// terrain
+		// ------------------------------------------
+		GameObject* terrainGameObject = new GameObject("terrain", ObjectsType::ENVIRONMENT, XMMatrixIdentity(), XMMatrixIdentity());
+		terrainGameObject->SetCBIndex(objCBIndex);
+		terrainGameObject->SetMesh(mMeshes["terrain"]);
+		terrainGameObject->SetMaterial(mMaterials["terrainMat"].get());
+		terrainGameObject->AddSubmesh(terrainGameObject->GetMesh()->GetSubmesh("terrain"));
+
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(terrainGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(terrainGameObject);
+		mAllGameObjects.push_back(terrainGameObject);
+
+
+		// ------------------------------------------
+		// Opaque objects
+		// ------------------------------------------
+
+		//1----------------------------------------------
+
+		BuildCrystal(-8900, -9350, 180);
+		BuildCrystal(-8700, -9500, 180);
+		BuildCrystal(-8500, -9500, 180);
+		BuildCrystal(-8300, -9350, 180);
+
+		BuildCrystal(-9500, -8580, 180);
+		BuildCrystal(-9630, -8780, 180);
+		BuildCrystal(-9630, -8980, 180);
+		BuildCrystal(-9500, -9180, 180);
+
+		//2----------------------------------------------
+
+		BuildCrystal(-3920, -8080, 180);
+		BuildCrystal(-4060, -8280, 180);
+		BuildCrystal(-4260, -8280, 0);
+		BuildCrystal(-4060, -8430, 0);
+
+		BuildCrystal(-4080, -8950, 180);
+		BuildCrystal(-4250, -9120, 180);
+		BuildCrystal(-4080, -9090, 0);
+
+		BuildCrystal(-4060, -9580, 180);
+		BuildCrystal(-3920, -9730, 180);
+
+		//3----------------------------------------------
+
+		BuildCrystal(1750, -9530, 180);
+		BuildCrystal(1980, -9680, 180);
+		BuildCrystal(2180, -9530, 180);
+		BuildCrystal(2380, -9700, 180);
+		BuildCrystal(2600, -9700, 180);
+		BuildCrystal(2780, -9530, 180);
+		BuildCrystal(2900, -9330, 180);
+
+		//4----------------------------------------------
+
+		BuildCrystal(8100, -9530, 180);
+		BuildCrystal(8280, -9700, 180);
+		BuildCrystal(8550, -9700, 180);
+		BuildCrystal(8820, -9500, 180);
+
+		BuildCrystal(9450, -9000, 0);
+		BuildCrystal(9700, -9000, 180);
+		BuildCrystal(9650, -8550, 0);
+		BuildCrystal(9550, -8600, 180);
+
+		//5----------------------------------------------
+
+		BuildCrystal(-5000, -4800, 180);
+		BuildCrystal(-5170, -5100, 180);
+		BuildCrystal(-5080, -5100, 0);
+
+		BuildCrystal(-4500, -5550, 180);
+		BuildCrystal(-4450, -5580, 0);
+		BuildCrystal(-3900, -5600, 180);
+
+		//6----------------------------------------------
+
+		BuildCrystal(-9500, -3250, 180);
+		BuildCrystal(-9700, -3400, 180);
+		BuildCrystal(-9600, -3410, 0);
+		BuildCrystal(-9750, -3600, 0);
+
+		BuildCrystal(-9600, -4050, 180);
+		BuildCrystal(-9520, -4200, 180);
+		BuildCrystal(-9500, -4200, 0);
+		BuildCrystal(-9400, -4350, 0);
+		BuildCrystal(-9150, -4350, 0);
+
+		//7----------------------------------------------
+
+		BuildCrystal(-9450, 200, 180);
+		BuildCrystal(-9650, 350, 180);
+		BuildCrystal(-9450, 500, 180);
+		BuildCrystal(-9450, 650, 180);
+		BuildCrystal(-9650, 850, 180);
+		BuildCrystal(-9450, 1000, 180);
+		BuildCrystal(-9650, 1200, 180);
+
+		//8----------------------------------------------
+
+		BuildCrystal(9550, -250, 180);
+		BuildCrystal(9650, -250, 0);
+		BuildCrystal(9550, -600, 180);
+		BuildCrystal(9600, -600, 0);
+		BuildCrystal(9550, -950, 180);
+		BuildCrystal(9600, -950, 0);
+		BuildCrystal(9600, -1150, 0);
+
+		//9----------------------------------------------
+
+		BuildCrystal(9400, 4200, 180);
+		BuildCrystal(9600, 4000, 180);
+		BuildCrystal(9650, 4000, 0);
+		BuildCrystal(9450, 3700, 180);
+
+		BuildCrystal(9550, 3500, 180);
+		BuildCrystal(9600, 3450, 0);
+
+		BuildCrystal(9700, 3000, 180);
+		BuildCrystal(9600, 2800, 180);
+		BuildCrystal(9450, 2650, 180);
+
+		BuildCrystal(4800, 4600, 0);
+		BuildCrystal(4700, 4600, 180);
+		BuildCrystal(4800, 5050, 0);
+
+		BuildCrystal(4300, 5350, 0);
+		BuildCrystal(4000, 5350, 0);
+		BuildCrystal(3850, 5350, 180);
+
+		//10----------------------------------------------
+
+		BuildCrystal(-9550, 8750, 0);
+		BuildCrystal(-9700, 8900, 0);
+
+		BuildCrystal(-9700, 9100, 180);
+		BuildCrystal(-9550, 9250, 180);
+
+		BuildCrystal(-8800, 9700, 0);
+		BuildCrystal(-8550, 9850, 0);
+		BuildCrystal(-8300, 9850, 0);
+		BuildCrystal(-8050, 9700, 0);
+
+		//11----------------------------------------------
+
+		BuildCrystal(-3200, 9650, 0);
+		BuildCrystal(-3050, 9850, 0);
+		BuildCrystal(-2750, 9850, 0);
+		BuildCrystal(-2550, 9650, 0);
+		BuildCrystal(-2450, 9850, 0);
+		BuildCrystal(-2200, 9850, 0);
+		BuildCrystal(-2000, 9650, 0);
+
+		//12----------------------------------------------
+
+		BuildCrystal(4100, 9500, 180);
+		BuildCrystal(4250, 9300, 180);
+		BuildCrystal(4350, 9300, 0);
+
+		BuildCrystal(4350, 9000, 0);
+		BuildCrystal(4200, 8800, 0);
+		BuildCrystal(4350, 8600, 0);
+		BuildCrystal(4200, 8400, 0);
+
+
+		BuildCrystal(4250, 7900, 180);
+		BuildCrystal(4100, 7700, 180);
+
+
+		//13----------------------------------------------
+
+
+		BuildCrystal(7900, 9600, 0);
+		BuildCrystal(8100, 9800, 0);
+		BuildCrystal(8350, 9800, 0);
+		BuildCrystal(8500, 9600, 0);
+
+		BuildCrystal(9350, 9400, 0);
+		BuildCrystal(9500, 9250, 0);
+
+		BuildCrystal(9600, 8750, 180);
+		BuildCrystal(9400, 8600, 180);
+
+		//----------------------------------------------
+		Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+		swordGameObject->SetCBIndex(objCBIndex);
+		swordGameObject->SetMesh(mMeshes["Sword"]);
+		swordGameObject->SetMaterial(mMaterials["sword"].get());
+		swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+		swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+		swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
+		mAllGameObjects.push_back(swordGameObject);
+
+
+		Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+		bowGameObject->SetCBIndex(objCBIndex);
+		bowGameObject->SetMesh(mMeshes["Bow"]);
+		bowGameObject->SetMaterial(mMaterials["bow"].get());
+		bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
+		bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+		bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+		mAllGameObjects.push_back(bowGameObject);
+
+
+
+
+		// ------------------------------------------
+		// Skinned objects - player
+		// ------------------------------------------
+		Player* Skinned1 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
+		Skinned1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+		Skinned1->SetMesh(mMeshes["Vanguard"]);
+		Skinned1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+		Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[0]);
+		Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[1]);
+		Skinned1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+		Skinned1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+		mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
+		mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
+		mAllGameObjects.push_back(Skinned1);
+		mTeamObjects.push_back(Skinned1);
+
+		Player* Knight = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
+		Knight->SetMesh(mMeshes["Vanguard"]);
+		Knight->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+		Knight->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+		Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[0]);
+		Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[1]);
+		Knight->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+		Knight->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+
+		mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
+		mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
+		mAllGameObjects.push_back(Knight);
+		mTeamObjects.push_back(Knight);
+
+		// ------------------------------------------
+		// Buttobn
+		// -----------------------------------------
+
+		//Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
+		//mButtons.push_back(test1);
+
+
+		mPlayer = Skinned1;
+		//if (mMainCamera) {
+		//	delete mMainCamera;
+		//	mMainCamera = nullptr;
+		//}
+
+		Camera* m = new Camera();
+		//m->SetPlayerDirections(mPlayer);
+		//mMainCamera = m;
+		//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
+
+		m->SetPosition(9500, mTerrain.GetHeight(9500, 9000) + 2000, 9000);
+		m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
+		mSubCamera.push_back(m);
+
+		if (mFPSmode) mMainCamera = mPlayer->GetCamera();
+		else mMainCamera = m;
+
+
+
+		mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
+
+
+		Skinned1->SetWeapon(swordGameObject);
+		swordGameObject->SetOwner(Skinned1);
+
+		Knight->SetWeapon(bowGameObject);
+		bowGameObject->SetOwner(Knight);
+
+	}
 
 void DummyApp::BuildUICursor()
-{
-	struct UIVertex
 	{
-		XMFLOAT2 Pos;
-		XMFLOAT2 Tex;
-	};
+		struct UIVertex
+		{
+			XMFLOAT2 Pos;
+			XMFLOAT2 Tex;
+		};
 
-	// 2. 로컬 좌표(-0.5 ~ +0.5) 기준 사각형 1개
-	UIVertex vertices[4] =
-	{
-		//   Pos                    Tex
-		{ XMFLOAT2(-0.5f, -0.5f),  XMFLOAT2(0.0f, 1.0f) }, // 0: 좌하
-		{ XMFLOAT2(-0.5f,  0.5f),  XMFLOAT2(0.0f, 0.0f) }, // 1: 좌상
-		{ XMFLOAT2(0.5f,  0.5f),  XMFLOAT2(1.0f, 0.0f) }, // 2: 우상
-		{ XMFLOAT2(0.5f, -0.5f),  XMFLOAT2(1.0f, 1.0f) }, // 3: 우하
-	};
+		// 2. 로컬 좌표(-0.5 ~ +0.5) 기준 사각형 1개
+		UIVertex vertices[4] =
+		{
+			//   Pos                    Tex
+			{ XMFLOAT2(-0.5f, -0.5f),  XMFLOAT2(0.0f, 1.0f) }, // 0: 좌하
+			{ XMFLOAT2(-0.5f,  0.5f),  XMFLOAT2(0.0f, 0.0f) }, // 1: 좌상
+			{ XMFLOAT2(0.5f,  0.5f),  XMFLOAT2(1.0f, 0.0f) }, // 2: 우상
+			{ XMFLOAT2(0.5f, -0.5f),  XMFLOAT2(1.0f, 1.0f) }, // 3: 우하
+		};
 
-	// 3. 삼각형 2개 인덱스
-	std::uint16_t indices[6] =
-	{
-		0, 1, 2,    // 첫 번째 삼각형
-		0, 2, 3     // 두 번째 삼각형
-	};
+		// 3. 삼각형 2개 인덱스
+		std::uint16_t indices[6] =
+		{
+			0, 1, 2,    // 첫 번째 삼각형
+			0, 2, 3     // 두 번째 삼각형
+		};
 
-	const UINT vbByteSize = sizeof(vertices);
-	const UINT ibByteSize = sizeof(indices);
+		const UINT vbByteSize = sizeof(vertices);
+		const UINT ibByteSize = sizeof(indices);
 
-	// 4. GPU용 정점/인덱스 버퍼 생성 (CreateDefaultBuffer 패턴 그대로)
-	mCursorVB = d3dUtil::CreateDefaultBuffer(
-		md3dDevice.Get(),
-		mCommandList.Get(),
-		vertices,
-		vbByteSize,
-		mCursorVBUpload);
+		// 4. GPU용 정점/인덱스 버퍼 생성 (CreateDefaultBuffer 패턴 그대로)
+		mCursorVB = d3dUtil::CreateDefaultBuffer(
+			md3dDevice.Get(),
+			mCommandList.Get(),
+			vertices,
+			vbByteSize,
+			mCursorVBUpload);
 
-	mCursorIB = d3dUtil::CreateDefaultBuffer(
-		md3dDevice.Get(),
-		mCommandList.Get(),
-		indices,
-		ibByteSize,
-		mCursorIBUpload);
+		mCursorIB = d3dUtil::CreateDefaultBuffer(
+			md3dDevice.Get(),
+			mCommandList.Get(),
+			indices,
+			ibByteSize,
+			mCursorIBUpload);
 
-	// 5. 나중에 IA에 세팅할 뷰 정보
-	mCursorVBView.BufferLocation = mCursorVB->GetGPUVirtualAddress();
-	mCursorVBView.StrideInBytes = sizeof(UIVertex);
-	mCursorVBView.SizeInBytes = vbByteSize;
+		// 5. 나중에 IA에 세팅할 뷰 정보
+		mCursorVBView.BufferLocation = mCursorVB->GetGPUVirtualAddress();
+		mCursorVBView.StrideInBytes = sizeof(UIVertex);
+		mCursorVBView.SizeInBytes = vbByteSize;
 
-	mCursorIBView.BufferLocation = mCursorIB->GetGPUVirtualAddress();
-	mCursorIBView.Format = DXGI_FORMAT_R16_UINT;
-	mCursorIBView.SizeInBytes = ibByteSize;
-}
+		mCursorIBView.BufferLocation = mCursorIB->GetGPUVirtualAddress();
+		mCursorIBView.Format = DXGI_FORMAT_R16_UINT;
+		mCursorIBView.SizeInBytes = ibByteSize;
+	}
 
 void DummyApp::BuildCrystal(const float& x, const float& y, const float& degree)
-{
-	GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(x, mTerrain.GetHeight(x, y), y), XMMatrixIdentity());
-	crystalGameObject->Rotate(0.f, degree*XM_PI/180, 0.f);
-	crystalGameObject->SetCBIndex(objCBIndex);
-	crystalGameObject->SetMesh(mMeshes["Crystal"]);
-	crystalGameObject->SetMaterial(mMaterials["crystal"].get());
-	crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
-	crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 10.f, -10.0f), XMFLOAT3(10.f, 10.f, 10.f));
-	crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
-	mAllGameObjects.push_back(crystalGameObject);
-}
-
-void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
-{
-	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	UINT skinnedCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(SkinnedConstants));
-
-	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-	auto skinnedCB = mCurrFrameResource->SkinnedCB->Resource();
-
-	// 각 렌더항목에 대해:
-	for (UINT i = 0; i < gameObjects.size(); ++i)
 	{
-		auto gameObj = gameObjects[i];
+		GameObject* crystalGameObject = new GameObject("crystal", ObjectsType::ENVIRONMENT, XMMatrixScaling(10.0f, 10.0f, 10.0f) * XMMatrixTranslation(x, mTerrain.GetHeight(x, y), y), XMMatrixIdentity());
+		crystalGameObject->Rotate(0.f, degree * XM_PI / 180, 0.f);
+		crystalGameObject->SetCBIndex(objCBIndex);
+		crystalGameObject->SetMesh(mMeshes["Crystal"]);
+		crystalGameObject->SetMaterial(mMaterials["crystal"].get());
+		crystalGameObject->AddSubmesh(crystalGameObject->GetMesh()->GetSubmesh("crystal"));
+		crystalGameObject->SetBoundingBox(XMFLOAT3(0.0f, 10.f, -10.0f), XMFLOAT3(10.f, 10.f, 10.f));
+		crystalGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-		cmdList->IASetVertexBuffers(0, 1, &gameObj->GetMesh()->VertexBufferView());
-		cmdList->IASetIndexBuffer(&gameObj->GetMesh()->IndexBufferView());
-		cmdList->IASetPrimitiveTopology(gameObj->GetPrimitiveType());
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
+		mAllGameObjects.push_back(crystalGameObject);
+	}
 
-		if (gameObj->GetSkinnedCBIndex() != -1) {
-			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
-			//std::cout<< gameObj->GetName() << ", skinnedCBAddress : " << skinnedCBAddress << std::endl;
+void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList * cmdList, const std::vector<GameObject*>&gameObjects)
+	{
+		UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+		UINT skinnedCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(SkinnedConstants));
 
-			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
-		}
-		else {
-			cmdList->SetGraphicsRootConstantBufferView(1, 0);
-		}
+		auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+		auto skinnedCB = mCurrFrameResource->SkinnedCB->Resource();
 
-		for (UINT j = 0; j < gameObj->GetNumSubmeshes(); j++)
+		// 각 렌더항목에 대해:
+		for (UINT i = 0; i < gameObjects.size(); ++i)
 		{
-			// 현재 프레임 자원에 대한 이 물체를 위한 CBV의 오프셋을 구한다.
-			D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObj->GetObjCBIndex(j) * objCBByteSize;
+			auto gameObj = gameObjects[i];
+
+			cmdList->IASetVertexBuffers(0, 1, &gameObj->GetMesh()->VertexBufferView());
+			cmdList->IASetIndexBuffer(&gameObj->GetMesh()->IndexBufferView());
+			cmdList->IASetPrimitiveTopology(gameObj->GetPrimitiveType());
+
+			if (gameObj->GetSkinnedCBIndex() != -1) {
+				D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress = skinnedCB->GetGPUVirtualAddress() + gameObj->GetSkinnedCBIndex() * skinnedCBByteSize;
+				//std::cout<< gameObj->GetName() << ", skinnedCBAddress : " << skinnedCBAddress << std::endl;
+
+				cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
+			}
+			else {
+				cmdList->SetGraphicsRootConstantBufferView(1, 0);
+			}
+
+			for (UINT j = 0; j < gameObj->GetNumSubmeshes(); j++)
+			{
+				// 현재 프레임 자원에 대한 이 물체를 위한 CBV의 오프셋을 구한다.
+				D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObj->GetObjCBIndex(j) * objCBByteSize;
+				cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+				cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(j), 1, gameObj->GetBaseIndex(j), gameObj->GetBaseVertex(j), 0);
+			}
+		}
+	}
+
+void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList * cmdList, const std::vector<GameObject*>&gameObjects)
+	{
+		UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+		auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
+		// 각 렌더항목에 대해:
+		for (UINT i = 0; i < gameObjects.size(); ++i)
+		{
+			if (gameObjects[i]->GetName() == "terrain") continue;
+			// 그리기 명령 시작
+			cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
+			cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());
+			cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+
+			cmdList->SetGraphicsRootConstantBufferView(1, 0);
+
+			D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObjects[i]->GetObjCBIndex(0) * objCBByteSize;
 			cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
-			cmdList->DrawIndexedInstanced(gameObj->GetNumIndices(j), 1, gameObj->GetBaseIndex(j), gameObj->GetBaseVertex(j), 0);
+			cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
 		}
 	}
-}
 
-void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
-{
-	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	
-	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-	
-	// 각 렌더항목에 대해:
-	for (UINT i = 0; i < gameObjects.size(); ++i)
+void DummyApp::DrawButtons(ID3D12GraphicsCommandList * cmdList)
 	{
-		if (gameObjects[i]->GetName() == "terrain") continue;
-		// 그리기 명령 시작
-		cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
-		cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());
-		cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+		//cmdList->SetPipelineState(mPSOs["ui"].Get());
 
-		cmdList->SetGraphicsRootConstantBufferView(1, 0);
+		for (auto v : mButtons) {
 
-		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObjects[i]->GetObjCBIndex(0) * objCBByteSize;
-		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+			if (!v->isActive()) continue;
 
-		cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
+			cmdList->DrawInstanced(6, 1, 0, 0);
+
+
+		}
 	}
-}
-
-void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
-{
-	//cmdList->SetPipelineState(mPSOs["ui"].Get());
-
-	for (auto v : mButtons) {
-
-		if (!v->isActive()) continue;
-
-		cmdList->DrawInstanced(6, 1, 0, 0);
-	
-
-	}
-}
 
 void DummyApp::SummonKnight()
-{
-	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	swordGameObject->SetCBIndex(objCBIndex);
-	swordGameObject->SetMesh(mMeshes["Sword"]);
-	swordGameObject->SetMaterial(mMaterials["sword"].get());
-	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
-	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	{
+		Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+		swordGameObject->SetCBIndex(objCBIndex);
+		swordGameObject->SetMesh(mMeshes["Sword"]);
+		swordGameObject->SetMaterial(mMaterials["sword"].get());
+		swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+		swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+		swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
-	mAllGameObjects.push_back(swordGameObject);
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
+		mAllGameObjects.push_back(swordGameObject);
 
 
-	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
-	XMFLOAT3 pos;
-	XMStoreFloat3(&pos, worldPos);
+		XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+		XMFLOAT3 pos;
+		XMStoreFloat3(&pos, worldPos);
 
-	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z), XMMatrixIdentity());
-	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
-	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
-	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+		Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+		playerGameObject1->SetMesh(mMeshes["Vanguard"]);
+		playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+		playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+		playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
+		playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
+		playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+		playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
-	mAllGameObjects.push_back(playerGameObject1);
-	mTeamObjects.push_back(playerGameObject1);
+		mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
+		mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
+		mAllGameObjects.push_back(playerGameObject1);
+		mTeamObjects.push_back(playerGameObject1);
 
-	playerGameObject1->SetWeapon(swordGameObject);
-	swordGameObject->SetOwner(playerGameObject1);
+		playerGameObject1->SetWeapon(swordGameObject);
+		swordGameObject->SetOwner(playerGameObject1);
 
-	mUIkey.isK = false;
-	mUIkey.isO = false;
-}
+		mUIkey.isK = false;
+		mUIkey.isO = false;
+	}
 
 void DummyApp::SummonHunter()
-{
-	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	bowGameObject->SetCBIndex(objCBIndex);
-	bowGameObject->SetMesh(mMeshes["Bow"]);
-	bowGameObject->SetMaterial(mMaterials["bow"].get());
-	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
-	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	{
+		Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+		bowGameObject->SetCBIndex(objCBIndex);
+		bowGameObject->SetMesh(mMeshes["Bow"]);
+		bowGameObject->SetMaterial(mMaterials["bow"].get());
+		bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
+		bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+		bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+		mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
+		mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
 
-	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
-	XMFLOAT3 pos;
+		XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
+		XMFLOAT3 pos;
 
-	XMStoreFloat3(&pos, worldPos);
-	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
-	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject2->SetMesh(mMeshes["Archer"]);
-	playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
-	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
-	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
-	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+		XMStoreFloat3(&pos, worldPos);
+		Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+		playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+		playerGameObject2->SetMesh(mMeshes["Archer"]);
+		playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
+		playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
+		playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
+		playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+		playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
-	mAllGameObjects.push_back(playerGameObject2);
-	mTeamObjects.push_back(playerGameObject2);
+		mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
+		mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+		mAllGameObjects.push_back(playerGameObject2);
+		mTeamObjects.push_back(playerGameObject2);
 
-	playerGameObject2->SetWeapon(bowGameObject);
-	bowGameObject->SetOwner(playerGameObject2);
+		playerGameObject2->SetWeapon(bowGameObject);
+		bowGameObject->SetOwner(playerGameObject2);
 
-	mUIkey.isN = false;
-	mUIkey.isO = false;
-}
+		mUIkey.isN = false;
+		mUIkey.isO = false;
+	}
 
 void DummyApp::SummonSlave()
-{
-}
+	{
+	}
 
 void DummyApp::DoUpgrade()
-{
-}
+	{
+	}
 
 void DummyApp::SetBuilding()
-{
-}
+	{
+	}
 
 void DummyApp::ReleseMemory()
-{
-	// clear mesh
-	for (auto& pair : mMeshes) {
-		Mesh* meshPtr = pair.second;
-		if (meshPtr != nullptr) {
-			delete meshPtr;
-			pair.second = nullptr;
-		}
-	}
-	mMeshes.clear();
-
-	// clear gameObj
-	for (auto& gameObj : mAllGameObjects)
 	{
-		GameObject* meshPtr = gameObj;
-		if (meshPtr != nullptr) {
-			delete meshPtr;
-			gameObj = nullptr;
+		// clear mesh
+		for (auto& pair : mMeshes) {
+			Mesh* meshPtr = pair.second;
+			if (meshPtr != nullptr) {
+				delete meshPtr;
+				pair.second = nullptr;
+			}
+		}
+		mMeshes.clear();
+
+		// clear gameObj
+		for (auto& gameObj : mAllGameObjects)
+		{
+			GameObject* meshPtr = gameObj;
+			if (meshPtr != nullptr) {
+				delete meshPtr;
+				gameObj = nullptr;
+			}
+		}
+		mAllGameObjects.clear();
+
+
+		/*if (mPlayer) {
+			delete mPlayer;
+			mPlayer = nullptr;
+		}*/
+
+		if (mMainCamera) {
+			delete mMainCamera;
+			mMainCamera = nullptr;
 		}
 	}
-	mAllGameObjects.clear();
-
-
-	/*if (mPlayer) {
-		delete mPlayer;
-		mPlayer = nullptr;
-	}*/
-
-	if (mMainCamera) {
-		delete mMainCamera;
-		mMainCamera = nullptr;
-	}
-}
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DummyApp::GetStaticSamplers()
-{
-	// 그래픽 응용 프로그램이 사용하는 표본추출기의 수는 그리 많지 않으므로,
-	// 미리 만들어서 루트 서명에 포함시켜 둔다.
+	{
+		// 그래픽 응용 프로그램이 사용하는 표본추출기의 수는 그리 많지 않으므로,
+		// 미리 만들어서 루트 서명에 포함시켜 둔다.
 
-	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
-		0, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
-	
-	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
-		1, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+		const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+			0, // shaderRegister
+			D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
 
-	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
-		2, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+		const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+			1, // shaderRegister
+			D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
 
-	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
-		3, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+		const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+			2, // shaderRegister
+			D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
 
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
-		4, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
-		0.0f,                             // mipLODBias
-		8);                               // maxAnisotropy
+		const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+			3, // shaderRegister
+			D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
 
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
-		5, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
-		0.0f,                              // mipLODBias
-		8);                                // maxAnisotropy
+		const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+			4, // shaderRegister
+			D3D12_FILTER_ANISOTROPIC, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+			0.0f,                             // mipLODBias
+			8);                               // maxAnisotropy
 
-	return {
-		pointWrap, pointClamp,
-		linearWrap, linearClamp,
-		anisotropicWrap, anisotropicClamp };
-}
+		const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+			5, // shaderRegister
+			D3D12_FILTER_ANISOTROPIC, // filter
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+			D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
+			0.0f,                              // mipLODBias
+			8);                                // maxAnisotropy
+
+		return {
+			pointWrap, pointClamp,
+			linearWrap, linearClamp,
+			anisotropicWrap, anisotropicClamp };
+	}
 
 
