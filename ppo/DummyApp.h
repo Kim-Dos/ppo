@@ -283,6 +283,7 @@ private:
 	//CamInput input;
 	
 	FogSystem mFog;
+	bool mFogDirty = true;
 	
 	float mFogUpdateTime = 0.0f;
 	float mFogUpdateInterval = 0.2f; // 0.2초마다 한 번 (원하면 0.1f로 줄여도 됨)

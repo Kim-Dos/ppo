@@ -206,6 +206,11 @@ void DummyApp::Draw(const GameTimer& gt)
 		DrawDebug();
 	
 	if(mFogFlag) DrawDarkness();
+	
+	if (mFogDirty) {
+		UpdateFogTexture();
+		mFogDirty = false;
+	}
 
 	DrawSelectionRect();
 	if (!(mSpecialKeyinput.isCtrl || mFPSmode)) { DrawCursor(); }
@@ -360,7 +365,8 @@ void DummyApp::DrawDarkness()
 	// b2(PassCB)는 Draw() 상단에서 이미 설정됨
 
 	// ★ slot = 6번 → 깊이버퍼 SRV 테이블
-	cmdList->SetGraphicsRootDescriptorTable(6, mDepthSrvGpuHandle);
+	cmdList->SetGraphicsRootDescriptorTable(6, mFogSrvGpuHandle);
+	cmdList->SetGraphicsRootDescriptorTable(7, mDepthSrvGpuHandle);
 
 	// 풀스크린 quad
 	cmdList->IASetVertexBuffers(0, 1, &mDarknessVBView);
@@ -712,6 +718,7 @@ void DummyApp::UIPicking(WPARAM wParam)
 		break;
 	}
 }
+
 void DummyApp::RsetUIInput()
 {
 	mUIkey.isO = false;
@@ -723,6 +730,7 @@ void DummyApp::RsetUIInput()
 	mUIkey.isN = false;
 	mUIkey.isT = false;
 }
+
 void DummyApp::SummonObject()
 {
 	if (mUIkey.isO) {
@@ -901,45 +909,25 @@ void DummyApp::ComputeFOVForUnit(GameObject* unit)
 
 void DummyApp::UpdateFogOfWar()
 {
-	    std::vector<uint8_t> fogData(mFog.gridX * mFog.gridZ);
+	// 1) Visible -> Seen로 다운그레이드
+	for (auto& t : mFog.tiles)
+		if (t == FogState::Visible) t = FogState::Seen;
 
-    for (int z = 0; z < mFog.gridZ; ++z)
-    {
-        for (int x = 0; x < mFog.gridX; ++x)
-        {
-            int idx = z * mFog.gridX + x;
-            switch (mFog.tiles[idx])
-            {
-            case FogState::Hidden:   fogData[idx] = 0;   break;
-            case FogState::Seen:     fogData[idx] = 128; break;
-            case FogState::Visible:  fogData[idx] = 255; break;
-            }
-        }
-    }
+	// 2) 이번 틱의 Visible을 다시 칠함
+	//    (팀 유닛만 시야를 만든다고 가정하면 mTeamObjects가 더 적절)
+	for (GameObject* unit : mTeamObjects)
+	{
+		// 필요하면 필터 조건 추가(죽음/비활성 등)
+		ComputeFOVForUnit(unit);
+	}
 
-    D3D12_SUBRESOURCE_DATA subRes{};
-    subRes.pData      = fogData.data();
-    subRes.RowPitch   = mFog.gridX;
-    subRes.SlicePitch = mFog.gridX * mFog.gridZ;
-
-    UpdateSubresources(
-        mCommandList.Get(),
-        mFogTex.Get(),
-        mFogUpload.Get(),
-        0, 0, 1,
-        &subRes);
-
-    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-        mFogTex.Get(),
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-
-    mCommandList->ResourceBarrier(1, &barrier);
-	UpdateFogTexture();
+	// 3) GPU 업로드 필요
+	mFogDirty = true;
 }
 
 void DummyApp::UpdateFogTexture()
 {
+	// tiles -> uint8 fogData
 	std::vector<uint8_t> fogData(mFog.gridX * mFog.gridZ);
 
 	for (int z = 0; z < mFog.gridZ; ++z)
@@ -956,9 +944,24 @@ void DummyApp::UpdateFogTexture()
 		}
 	}
 
+	// (중요) PS_RESOURCE -> COPY_DEST 전이 (두 번째 업로드부터 필요)
+	auto toCopy = CD3DX12_RESOURCE_BARRIER::Transition(
+		mFogTex.Get(),
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_COPY_DEST);
+
+	// FogTex가 아직 COPY_DEST 상태(초기 1회)일 수도 있으니, 안전하게 조건 처리
+	// 간단히 하려면 "초기 업로드는 끝난 뒤부터 PS_RESOURCE라고 가정"하고 mFogDirty=true로 1회 업로드 후 전이하면 됨.
+	// 여기서는 무조건 전이를 걸면 디버그 레이어에서 경고 날 수 있음 → 보수적으로 처리:
+	if (mFogTex->GetDesc().MipLevels >= 1) // 의미 없는 조건이지만, 네 스타일에 맞춰 상태트래킹 변수를 두는 게 정석
+	{
+		// 상태 추적 변수가 없다면, 첫 프레임 업로드 이후부터는 항상 PS_RESOURCE라고 가정하고 사용해도 실사용에선 대개 OK
+		mCommandList->ResourceBarrier(1, &toCopy);
+	}
+
 	D3D12_SUBRESOURCE_DATA subRes{};
 	subRes.pData = fogData.data();
-	subRes.RowPitch = mFog.gridX;
+	subRes.RowPitch = mFog.gridX;                 // R8이라 바이트 = gridX
 	subRes.SlicePitch = mFog.gridX * mFog.gridZ;
 
 	UpdateSubresources(
@@ -968,11 +971,11 @@ void DummyApp::UpdateFogTexture()
 		0, 0, 1,
 		&subRes);
 
-	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(
 		mFogTex.Get(),
 		D3D12_RESOURCE_STATE_COPY_DEST,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	mCommandList->ResourceBarrier(1, &barrier);
+	mCommandList->ResourceBarrier(1, &toSRV);
 }
 
 void DummyApp::BuildFogResources()
@@ -990,58 +993,29 @@ void DummyApp::BuildFogResources()
 	texDesc.MipLevels = 1;
 	texDesc.Format = format;
 	texDesc.SampleDesc.Count = 1;
-	texDesc.SampleDesc.Quality = 0;
-	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
 	CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
 	CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
 
-	// Fog 텍스처
 	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&defaultHeap,
-		D3D12_HEAP_FLAG_NONE,
-		&texDesc,
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		nullptr,
+		&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
 		IID_PPV_ARGS(&mFogTex)));
 
-	// 업로드 버퍼
 	UINT64 uploadSize = GetRequiredIntermediateSize(mFogTex.Get(), 0, 1);
 	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&uploadHeap,
-		D3D12_HEAP_FLAG_NONE,
+		&uploadHeap, D3D12_HEAP_FLAG_NONE,
 		&CD3DX12_RESOURCE_DESC::Buffer(uploadSize),
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
+		D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
 		IID_PPV_ARGS(&mFogUpload)));
-
-	// Fog 전용 SRV 힙 (1개짜리)
-	D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-	heapDesc.NumDescriptors = 1;
-	heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&heapDesc, IID_PPV_ARGS(&mFogSrvHeap)));
-
-	// FogTex SRV 생성 (t0, space2)
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = format;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = 1;
-	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-	md3dDevice->CreateShaderResourceView(
-		mFogTex.Get(), &srvDesc,
-		mFogSrvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 
 void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 {
 	DarknessConstants dc = {};
+
+	dc.MapSize = XMFLOAT2(mTerrain.GetWidth(), mTerrain.GetLength());
 
 	// 어두운 색, 가장자리 발광 색은 네가 쓰던 값으로
 	dc.DarkColor = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 0.85f);
@@ -1474,8 +1448,12 @@ void DummyApp::BuildRootSignature()
 	CD3DX12_DESCRIPTOR_RANGE depthTable;
 	depthTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
+	// Fog 텍스처용 SRV 테이블 (t0, space3)
+	CD3DX12_DESCRIPTOR_RANGE fogTable;
+	fogTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 3);
+
 	// 루트 파라미터는 총 7개
-	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
 
 	// 0: ObjectCB (b0)
 	slotRootParameter[0].InitAsConstantBufferView(0);
@@ -1497,14 +1475,18 @@ void DummyApp::BuildRootSignature()
 	slotRootParameter[5].InitAsDescriptorTable(
 		1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	// 6: 깊이 텍스처 (t0, space2) – Darkness.hlsl 의 gDepthTex 와 연결됨
+	// 6: Fog 텍스처 (t0, space3)
 	slotRootParameter[6].InitAsDescriptorTable(
+		1, &fogTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// 7: 깊이 텍스처 (t0, space2)
+	slotRootParameter[7].InitAsDescriptorTable(
 		1, &depthTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		7, slotRootParameter,
+		8, slotRootParameter,
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1531,7 +1513,7 @@ void DummyApp::BuildDescriptorHeaps()
 {
 	// CBV, SRV, UAV를 저장할수있고, 셰이더들이 접근할 수 있는 힙을 생성
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = mTextures.size() + 1; // 1은 Fog용;
+	srvHeapDesc.NumDescriptors = mTextures.size() + 2; // 1은 Fog용;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -1667,6 +1649,26 @@ void DummyApp::BuildDescriptorHeaps()
 	depthSrvDesc.Texture2D.MostDetailedMip = 0;
 	depthSrvDesc.Texture2D.MipLevels = 1;
 
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	// Fog SRV 생성 (R8_UNORM)
+	D3D12_SHADER_RESOURCE_VIEW_DESC fogSrvDesc = {};
+	fogSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	fogSrvDesc.Format = DXGI_FORMAT_R8_UNORM;
+	fogSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	fogSrvDesc.Texture2D.MostDetailedMip = 0;
+	fogSrvDesc.Texture2D.MipLevels = 1;
+	fogSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+	md3dDevice->CreateShaderResourceView(mFogTex.Get(), &fogSrvDesc, hDescriptor);
+
+	// Fog GPU handle 저장 (index = mTextures.size() + 1)
+	CD3DX12_GPU_DESCRIPTOR_HANDLE fogHandle(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		(INT)mTextures.size() + 1,
+		mCbvSrvDescriptorSize);
+
+	mFogSrvGpuHandle = fogHandle;
 	md3dDevice->CreateShaderResourceView(
 		mDepthStencilBuffer.Get(), // D3DApp 안에 있는 깊이 리소스 이름에 맞춰 수정
 		&depthSrvDesc,

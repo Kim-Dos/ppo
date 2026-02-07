@@ -15,13 +15,16 @@ cbuffer cbDarkness : register(b1)
     DarknessUnit gUnits[MaxFogUnits];
     int gUnitCount;
     float3 gPad;
+    
+    float2 gMapSize; // (mapWidth, mapLength)
 
     float4 gDarkColor; // 기본 어둠 색 + 알파
     float4 gGlowColor; // 필요하면 가장자리 발광 색으로 사용 가능
 }
 
-// 깊이버퍼: t0, space2
+Texture2D gFogTex : register(t0, space3);
 Texture2D gDepthTex : register(t0, space2);
+
 
 struct VertexIn
 {
@@ -34,6 +37,17 @@ struct VertexOut
     float2 NDC : TEXCOORD0;
     float2 TexC : TEXCOORD1;
 };
+
+float2 WorldToFogUV(float3 worldPos)
+{
+    float mapW = gMapSize.x;
+    float mapL = gMapSize.y;
+
+    float nx = (worldPos.x + mapW * 0.5f) / mapW;
+    float nz = (mapL - (worldPos.z + mapL * 0.5f)) / mapL; // C++과 동일하게 Z축 뒤집기
+
+    return saturate(float2(nx, nz));
+}
 
 VertexOut VS(VertexIn vin)
 {
@@ -72,6 +86,9 @@ float4 PS(VertexOut pin) : SV_TARGET
     posW /= posW.w;
     float3 pixelPos = posW.xyz;
 
+    float2 fogUV = WorldToFogUV(pixelPos);
+    float visFog = gFogTex.SampleLevel(gsamLinearClamp, fogUV, 0).r; // 0..1
+    
     // 4) 유닛들 기준으로 어둠 정도 계산
     float darkness = 1.0f; // 1 = 완전 어둠, 0 = 완전 밝음
 
@@ -92,9 +109,11 @@ float4 PS(VertexOut pin) : SV_TARGET
         // 여러 유닛이 있으면 가장 밝아지는(=a가 작은) 값 기준
         darkness = min(darkness, a);
     }
-
-    float4 col = gDarkColor;
-    col.a *= darkness; // 어둠 알파에 강도 적용
-
-    return col;
+    float visUnits = 1.0f - darkness;
+    
+    
+    float vis = max(visFog, visUnits);
+    float alpha = gDarkColor.a * (1.0f - vis);
+    
+    return float4(gDarkColor.rgb, alpha);
 }

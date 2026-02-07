@@ -15,11 +15,16 @@ struct DarknessUnit
 
 struct DarknessConstants
 {
-    DarknessUnit Units[MaxFogUnits];
-    int UnitCount;
-    DirectX::XMFLOAT3 Pad;
     DirectX::XMFLOAT4 DarkColor;
     DirectX::XMFLOAT4 GlowColor;
+
+    DarknessUnit Units[MaxFogUnits];
+    int UnitCount;
+    float Pad0[3]; // 16바이트 정렬 유지용(이미 있으면 조정)
+
+    // 추가: 월드→Fog UV 매핑용 맵 크기
+    DirectX::XMFLOAT2 MapSize; // (mapWidth, mapLength)
+    DirectX::XMFLOAT2 Pad1;
 };
 
 struct SelectionConstants
