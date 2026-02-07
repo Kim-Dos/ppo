@@ -1,12 +1,10 @@
-// Darkness.hlsl : 월드 좌표 + 깊이버퍼 기반 시야 마스크
-
 #include "Common.hlsl"
 
 static const int MaxFogUnits = 64;
 
 struct DarknessUnit
 {
-    // x,y,z = 유닛 월드 위치, w = 시야 반경(월드 단위)
+    
     float4 CenterPosRadius;
 };
 
@@ -18,17 +16,15 @@ cbuffer cbDarkness : register(b1)
     
     float2 gMapSize; // (mapWidth, mapLength)
 
-    float4 gDarkColor; // 기본 어둠 색 + 알파
-    float4 gGlowColor; // 필요하면 가장자리 발광 색으로 사용 가능
+    float4 gDarkColor;
+    float4 gGlowColor;
 }
 
-Texture2D gFogTex : register(t0, space3);
 Texture2D gDepthTex : register(t0, space2);
-
 
 struct VertexIn
 {
-    float2 Pos : POSITION; // -1 ~ +1 (clip space) 풀스크린 삼각형/쿼드
+    float2 Pos : POSITION; // -1 ~ +1 (clip space) 
 };
 
 struct VertexOut
@@ -38,26 +34,14 @@ struct VertexOut
     float2 TexC : TEXCOORD1;
 };
 
-float2 WorldToFogUV(float3 worldPos)
-{
-    float mapW = gMapSize.x;
-    float mapL = gMapSize.y;
-
-    float nx = (worldPos.x + mapW * 0.5f) / mapW;
-    float nz = (mapL - (worldPos.z + mapL * 0.5f)) / mapL; // C++과 동일하게 Z축 뒤집기
-
-    return saturate(float2(nx, nz));
-}
-
 VertexOut VS(VertexIn vin)
 {
     VertexOut v;
 
-    // vin.Pos 는 이미 -1~+1 범위의 클립 좌표라고 가정
+   
     v.PosH = float4(vin.Pos, 0.0f, 1.0f);
     v.NDC = vin.Pos;
 
-    // NDC(-1~1) -> 텍스처 좌표(0~1)
     v.TexC.x = vin.Pos.x * 0.5f + 0.5f;
     v.TexC.y = -vin.Pos.y * 0.5f + 0.5f;
 
@@ -66,31 +50,22 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_TARGET
 {
-    // 1) 깊이버퍼 샘플
     float depth = gDepthTex.Sample(gsamPointClamp, pin.TexC).r;
 
-    // 깊이 == 1.0 이면 카메라가 아무것도 안 찍은 곳(하늘/배경) → 그냥 어둡게
     if (depth >= 1.0f - 1e-4f)
     {
         return float4(0.0f, 0.0f, 0.0f, gDarkColor.a);
     }
 
-    // 2) 깊이(NDC z) 복원
     float z_ndc = depth * 2.0f - 1.0f;
     float2 ndc = pin.NDC;
 
     float4 posH = float4(ndc.x, ndc.y, z_ndc, 1.0f);
 
-    // 3) ViewProj 역행렬로 월드좌표 복원
     float4 posW = mul(posH, gInvViewProj);
     posW /= posW.w;
     float3 pixelPos = posW.xyz;
-
-    float2 fogUV = WorldToFogUV(pixelPos);
-    float visFog = gFogTex.SampleLevel(gsamLinearClamp, fogUV, 0).r; // 0..1
-    
-    // 4) 유닛들 기준으로 어둠 정도 계산
-    float darkness = 1.0f; // 1 = 완전 어둠, 0 = 완전 밝음
+    float darkness = 1.0f;
 
     [loop]
     for (int i = 0; i < gUnitCount; ++i)
@@ -100,19 +75,17 @@ float4 PS(VertexOut pin) : SV_TARGET
 
         float dist = distance(pixelPos, uPos);
 
-        // inner ~ outer 사이에서 소프트하게 전환
         float inner = rad;
         float outer = rad * 1.2f;
 
         float a = saturate((dist - inner) / max(outer - inner, 0.001f));
 
-        // 여러 유닛이 있으면 가장 밝아지는(=a가 작은) 값 기준
         darkness = min(darkness, a);
     }
     float visUnits = 1.0f - darkness;
     
     
-    float vis = max(visFog, visUnits);
+    float vis = visUnits;
     float alpha = gDarkColor.a * (1.0f - vis);
     
     return float4(gDarkColor.rgb, alpha);

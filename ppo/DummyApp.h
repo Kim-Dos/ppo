@@ -20,72 +20,6 @@ using namespace DirectX::PackedVector;
 
 extern const int gNumFrameResources;
 
-enum class FogState : uint8_t
-{
-	Hidden = 0,
-	Seen = 1,
-	Visible = 2
-};
-
-struct FogSystem
-{
-	int gridX = 0;
-	int gridZ = 0;
-	float cellSize = 4.0f;
-
-	// 한번이라도 본 적 있는가 (Seen+Visible)
-	std::vector<uint8_t> explored;      // 0/1
-
-	// 현재 몇 개 유닛이 이 셀을 보고 있는가 (Visible 판단용)
-	std::vector<uint16_t> visibleCount; // >=0
-
-	// Terrain 높이 캐시
-	std::vector<float> heights;
-
-	// Dirty rect(변경된 영역) 누적
-	bool dirty = false;
-	int dirtyMinX = 0, dirtyMinZ = 0, dirtyMaxX = 0, dirtyMaxZ = 0; // inclusive
-
-	inline bool InBounds(int gx, int gz) const
-	{
-		return gx >= 0 && gz >= 0 && gx < gridX && gz < gridZ;
-	}
-
-	inline int Index(int gx, int gz) const
-	{
-		return gz * gridX + gx;
-	}
-
-	inline float HeightAt(int gx, int gz) const
-	{
-		return heights[Index(gx, gz)];
-	}
-
-	inline void MarkDirtyRect(int minX, int minZ, int maxX, int maxZ)
-	{
-		minX = MathHelper::Clamp(minX, 0, gridX - 1);
-		maxX = MathHelper::Clamp(maxX, 0, gridX - 1);
-		minZ = MathHelper::Clamp(minZ, 0, gridZ - 1);
-		maxZ = MathHelper::Clamp(maxZ, 0, gridZ - 1);
-
-		if (!dirty)
-		{
-			dirty = true;
-			dirtyMinX = minX; dirtyMinZ = minZ;
-			dirtyMaxX = maxX; dirtyMaxZ = maxZ;
-		}
-		else
-		{
-			dirtyMinX = (std::min)(dirtyMinX, minX);
-			dirtyMinZ = (std::min)(dirtyMinZ, minZ);
-			dirtyMaxX = (std::max)(dirtyMaxX, maxX);
-			dirtyMaxZ = (std::max)(dirtyMaxZ, maxZ);
-		}
-	}
-
-	inline void ClearDirty() { dirty = false; }
-};
-
 enum class RenderLayer : int
 {
 	Opaque = 0,
@@ -143,7 +77,6 @@ public:
 	void DoUpgrade();
 	void SetBuilding();
 
-
 	virtual bool Initialize()override;
 
 private:
@@ -173,15 +106,6 @@ private:
 	void UIPicking(WPARAM wParam);
 	void RsetUIInput();
 	void SummonObject();
-
-	void InitFog();
-	void WorldToFog(float wx, float wz, int& gx, int& gz);
-	void CastLight(int cx, int cz, int row, float startSlope, float endSlope,
-		int radius, int octant, float unitHeight, float maxSlope);
-	void ComputeFOVForUnit(GameObject* unit);
-	void UpdateFogOfWar();
-	void UpdateFogTexture();
-	void BuildFogResources();
 
 	void UpdateDarknessCB(const GameTimer& gt);
 	void BuildDarknessGeometry();
@@ -217,29 +141,9 @@ private:
 
 	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
 
-	void BuildCircleOffsets(int maxRadius);
-	void ApplyVisionStamp(int cx, int cz, int radius, int delta); // delta: +1 또는 -1
-
-
-
 	void ReleseMemory();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
-
-
-	inline void FogTileToWorld(int gx, int gz, float& wx, float& wz)
-	{
-		float mapWidth = mTerrain.GetWidth();
-		float mapLength = mTerrain.GetLength();
-
-		float nx = (gx + 0.5f) / mFog.gridX;
-		float nz = (gz + 0.5f) / mFog.gridZ;
-
-		wx = nx * mapWidth - mapWidth * 0.5f;
-
-		wz = mapLength - nz * mapLength - mapLength * 0.5f;
-	}
-
 
 private:
 
@@ -267,8 +171,6 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mUIInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSelectionInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mDarknessInputLayout;
-	std::vector<D3D12_INPUT_ELEMENT_DESC> mFogInputLayout;
-
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRi
 	// 
@@ -277,7 +179,7 @@ private:
 	std::vector<GameObject*> mTeamObjects;
 	std::vector<GameObject*> mEnemyObjects;
 
-	bool mFogFlag = true;
+	bool mDarknessEnabled = true;
 	bool mPicking = false;
 	bool mDragFlag = false;
 	bool mRoateFlag = true;
@@ -290,7 +192,6 @@ private:
 	UIKeyInput mUIkey;
 
 	SpecialKeyInput mSpecialKeyinput;
-
 
 	std::vector<Button*>mButtons;
 
@@ -309,19 +210,11 @@ private:
 	bool mFPSmode = false;
 	//CamInput input;
 
-	FogSystem mFog;
-	bool mFogDirty = true;
-
-	float mFogUpdateTime = 0.0f;
-	float mFogUpdateInterval = 0.2f; // 0.2초마다 한 번 (원하면 0.1f로 줄여도 됨)
-
 	Camera* mMainCamera = nullptr;
-
 
 	std::vector<Camera*> mSubCamera;
 	POINT mStartMousePos;
 	POINT mLastMousePos;
-
 
 	UINT mSkyTexHeapIndex = 0;
 
@@ -338,7 +231,6 @@ private:
 	RECT GetDragRect() const;
 
 
-	// --- 선택 박스용 버퍼 ---
 	ComPtr<ID3D12Resource> mSelectionVB;
 	ComPtr<ID3D12Resource> mSelectionIB;
 	ComPtr<ID3D12Resource> mSelectionVBUpload;
@@ -347,8 +239,7 @@ private:
 	D3D12_VERTEX_BUFFER_VIEW mSelectionVBView;
 	D3D12_INDEX_BUFFER_VIEW  mSelectionIBView;
 
-	void BuildSelectionGeometry();  // 선택 박스용 지오메트리
-
+	void BuildSelectionGeometry();
 
 	ComPtr<ID3D12Resource> mDarknessVB;
 	ComPtr<ID3D12Resource> mDarknessIB;
@@ -358,33 +249,6 @@ private:
 	D3D12_VERTEX_BUFFER_VIEW mDarknessVBView;
 	D3D12_INDEX_BUFFER_VIEW  mDarknessIBView;
 
-	ComPtr<ID3D12Resource> mFogTex;      // GPU texture
-	ComPtr<ID3D12Resource> mFogUpload;   // Upload heap
-
-	// FogTex 상태 추적(초기: COPY_DEST, 이후: PIXEL_SHADER_RESOURCE)
-	D3D12_RESOURCE_STATES mFogTexState = D3D12_RESOURCE_STATE_COPY_DEST;
-	ComPtr<ID3D12DescriptorHeap> mFogSrvHeap; // SRV heap (필요하다면)
-
 	D3D12_GPU_DESCRIPTOR_HANDLE mDepthSrvGpuHandle{};
-
-	// FogTex가 올라간 SRV 위치 기억용
-	D3D12_CPU_DESCRIPTOR_HANDLE mFogSrvCpuHandle{};
-	D3D12_GPU_DESCRIPTOR_HANDLE mFogSrvGpuHandle{};
-
-	struct FogUnitCache
-	{
-		int gx = 0, gz = 0;
-		bool valid = false;
-	};
-
-	std::unordered_map<GameObject*, FogUnitCache> mFogUnitCache;
-
-	// 반경별 원 오프셋 LUT (radius -> (dx,dz) 리스트)
-	std::vector<std::vector<std::pair<int, int>>> mCircleOffsets;
-
-	// Fog 텍스처 업데이트용 재사용 버퍼
-	std::vector<uint8_t> mFogTexStaging;
-
 };
-
 
