@@ -30,7 +30,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     try
     {
         boost::asio::io_context ioservice;
-        DummyApp theApp(hInstance, ioservice);
+        DummyApp theApp(hInstance, std::ref(ioservice));
         if (!theApp.Initialize())
             return 0;
 

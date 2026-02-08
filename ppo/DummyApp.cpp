@@ -42,6 +42,10 @@ bool DummyApp::Initialize()
 
 	BuildMaterials();
 	BuildGameObjects();
+
+	BuildStaticColliders();
+	InitPathfinder();
+
 	BuildFrameResources();
 	BuildPSOs();
 
@@ -88,6 +92,8 @@ void DummyApp::Update(const GameTimer& gt)
 			}
 		}
 	}
+
+	ResolveAllCollisions();
 
 	if (mFPSmode) {
 	}
@@ -651,24 +657,104 @@ void DummyApp::PickingMove()
 {
 	if (mPicking)
 	{
-		XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
-		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+		XMVECTOR worldPos = MathHelper::ScreenToWorld(
+			mLastMousePos.x, mLastMousePos.y,
+			mClientWidth, mClientHeight,
+			mMainCamera->GetView(), mMainCamera->GetProj());
 
-			XMFLOAT3 destPos = { XMVectorGetX(worldPos), x->GetPosition().y, XMVectorGetZ(worldPos) };
-			if (x->GetObjType() == ObjectsType::CHARACTER) {
-				auto k = dynamic_cast<Player*>(x);
-				k->SetDestination(destPos);
-				k->SetFollowerKeyInput(FollowerKeyInput::Move);
-				k->FollowerEvent();
+		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
+		{
+			XMFLOAT3 destPos = {
+				XMVectorGetX(worldPos),
+				x->GetPosition().y,
+				XMVectorGetZ(worldPos)
+			};
+
+			if (x->GetObjType() == ObjectsType::CHARACTER)
+			{
+				Player* player = dynamic_cast<Player*>(x);
+				if (!player) continue;
+
+				// 멈춰있는 동적 오브젝트만 임시 장애물로 마킹
+				// (이동 중인 유닛은 곧 자리를 비우므로 장애물 취급 안 함)
+				mPathfinder.ClearDynamicObstacles();
+				for (auto& other : mDynamicColliders)
+				{
+					if (other == x) continue; // 자기 자신 제외
+
+					// 멈춰있는지 판별
+					bool isStationary = true;
+					if (other->GetObjType() == ObjectsType::CHARACTER)
+					{
+						Player* pOther = dynamic_cast<Player*>(other);
+						if (pOther)
+						{
+							StateId st = pOther->GetLowerStateId();
+							if (st == StateId::Walk || st == StateId::Run)
+								isStationary = false;
+						}
+					}
+
+					if (isStationary)
+					{
+						XMFLOAT3 otherPos = other->GetPosition();
+						int gx, gz;
+						mPathfinder.WorldToGrid(otherPos.x, otherPos.z, gx, gz);
+						mPathfinder.SetDynamicObstacle(gx, gz);
+
+						// 유닛 BB 크기가 셀보다 크면 주변 셀도 마킹
+						float maxExt = max(other->GetBoundingBox().Extents.x,
+							other->GetBoundingBox().Extents.z);
+						int expand = (int)(maxExt / mPathfinder.GetCellSize());
+						for (int dz = -expand; dz <= expand; ++dz)
+							for (int dx = -expand; dx <= expand; ++dx)
+								if (dx != 0 || dz != 0)
+									mPathfinder.SetDynamicObstacle(gx + dx, gz + dz);
+					}
+				}
+
+				// A* 경로 탐색
+				std::vector<XMFLOAT3> path;
+				bool found = mPathfinder.FindPath(
+					player->GetPosition(),
+					destPos,
+					XMFLOAT3(
+						player->GetBoundingBox().Extents.x,
+						0.f,
+						player->GetBoundingBox().Extents.z),
+					path
+				);
+
+				// 동적 장애물 마킹 해제
+				mPathfinder.ClearDynamicObstacles();
+
+				if (found && !path.empty())
+				{
+					// Y 좌표를 terrain 높이로 보정
+					for (auto& wp : path)
+					{
+						wp.y = mTerrain.GetHeight(wp.x, wp.z);
+					}
+
+					// waypoint 경로 설정
+					player->SetPath(path);
+					player->SetFollowerKeyInput(FollowerKeyInput::Move);
+					player->FollowerEvent();
+				}
+				else
+				{
+					// 경로를 찾지 못함 → 직선 이동 fallback
+					player->ClearPath();
+					player->SetDestination(destPos);
+					player->SetFollowerKeyInput(FollowerKeyInput::Move);
+					player->FollowerEvent();
+				}
 			}
-			//k->SetPosition(destPos);
-			// 바운딩 박스도 함께 업데이트
-			/*pickedObject->UpdateBoundingBox(newPos, pickedObject->GetBoundingBoxExtents());*/
 		}
-		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
-			//std::cout << "Moves - " << x->GetName() << ", ";
+
+		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object])
+		{
 		}
-		//std::cout << std::endl;
 	}
 }
 
@@ -2605,6 +2691,428 @@ void DummyApp::BuildCrystal(const float& x, const float& y, const float& degree)
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(crystalGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
 	mAllGameObjects.push_back(crystalGameObject);
+}
+
+// ============================================================
+// [2] BuildStaticColliders() - 정적 충돌체 수집
+// ============================================================
+// Initialize()에서 BuildGameObjects() 뒤에 호출
+
+void DummyApp::BuildStaticColliders()
+{
+	mStaticColliders.clear();
+
+	for (auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
+	{
+		// 캐릭터는 동적이므로 제외
+		if (obj->GetObjType() == ObjectsType::CHARACTER)
+			continue;
+
+		if (obj->GetName() == "terrain" || obj->GetName() == "sky")
+			continue;
+
+		// 월드 변환 적용된 BB
+		BoundingBox worldBB;
+		obj->GetBoundingBox().Transform(worldBB, XMLoadFloat4x4(&obj->GetWorld()));
+		mStaticColliders.push_back(worldBB);
+	}
+
+	// Environment 레이어에서도 충돌 대상 수집 (크리스탈 등)
+	// 무기(WEAPON)는 캐릭터에 붙어있으므로 제외
+	for (auto& obj : mGameObjectLayer[(int)GameObjectLayer::Environment])
+	{
+		if (obj->GetObjType() == ObjectsType::WEAPON)
+			continue;
+
+		if (obj->GetName() == "terrain" || obj->GetName() == "sky")
+			continue;
+
+		BoundingBox worldBB;
+		obj->GetBoundingBox().Transform(worldBB, XMLoadFloat4x4(&obj->GetWorld()));
+		mStaticColliders.push_back(worldBB);
+	}
+
+	// 필요하면 맵 경계 벽도 수동 추가
+	/*
+	BoundingBox leftWall;
+	leftWall.Center = XMFLOAT3(-10010.0f, 500.0f, 0.0f);
+	leftWall.Extents = XMFLOAT3(10.0f, 500.0f, 10000.0f);
+	mStaticColliders.push_back(leftWall);
+	// 나머지 벽도 동일...
+	*/
+
+#ifdef _DEBUG
+	std::cout << "[Collision] Static colliders: " << mStaticColliders.size() << std::endl;
+#endif
+}
+
+void DummyApp::BuildDynamicColliders()
+{
+	mDynamicColliders.clear();
+
+	for (auto& obj : mAllGameObjects)
+	{
+		// 캐릭터 = 동적 충돌 대상
+		if (obj->GetObjType() == ObjectsType::CHARACTER)
+		{
+			mDynamicColliders.push_back(obj);
+			continue;
+		}
+
+		// 여기에 이동하는 장애물 등 추가 조건을 넣을 수 있음
+		// 예: if (obj->GetObjType() == ObjectsType::DYNAMIC_OBSTACLE)
+		//         mDynamicColliders.push_back(obj);
+	}
+}
+
+void DummyApp::ResolveAllCollisions()
+{
+	// 동적 충돌 대상 목록 갱신
+	BuildDynamicColliders();
+
+	// ----------------------------------------------------------
+	// Phase 1: 동적 오브젝트 vs 정적 충돌체
+	// ----------------------------------------------------------
+	for (auto& obj : mDynamicColliders)
+	{
+		XMFLOAT3 currentPos = obj->GetPosition();
+
+		XMFLOAT3 resolvedPos = PhysicsHelper::ResolveStaticCollision(
+			obj->GetBoundingBox(),
+			currentPos,
+			mStaticColliders
+		);
+
+		float diffX = std::abs(resolvedPos.x - currentPos.x);
+		float diffZ = std::abs(resolvedPos.z - currentPos.z);
+
+		if (diffX > 0.001f || diffZ > 0.001f)
+		{
+			obj->SetPosition(resolvedPos.x, currentPos.y, resolvedPos.z);
+
+			if (obj->GetObjType() == ObjectsType::CHARACTER)
+			{
+				Player* player = dynamic_cast<Player*>(obj);
+				if (player)
+				{
+					XMFLOAT3 vel = player->GetVelocity();
+					PhysicsHelper::AdjustVelocityAfterCollision(vel, currentPos, resolvedPos);
+					player->SetVelocity(vel);
+				}
+			}
+
+			obj->SetFrameDirty();
+		}
+	}
+
+	// ----------------------------------------------------------
+	// Phase 2: 동적 오브젝트 vs 동적 오브젝트
+	// ----------------------------------------------------------
+	for (size_t i = 0; i < mDynamicColliders.size(); ++i)
+	{
+		for (size_t j = i + 1; j < mDynamicColliders.size(); ++j)
+		{
+			GameObject* objA = mDynamicColliders[i];
+			GameObject* objB = mDynamicColliders[j];
+
+			XMFLOAT3 posA = objA->GetPosition();
+			XMFLOAT3 posB = objB->GetPosition();
+
+			// 거리 컬링
+			float dx = posA.x - posB.x;
+			float dz = posA.z - posB.z;
+			float distSq = dx * dx + dz * dz;
+
+			float maxRangeA = max(objA->GetBoundingBox().Extents.x, objA->GetBoundingBox().Extents.z);
+			float maxRangeB = max(objB->GetBoundingBox().Extents.x, objB->GetBoundingBox().Extents.z);
+			float cullDist = (maxRangeA + maxRangeB) * 2.0f;
+
+			if (distSq > cullDist * cullDist)
+				continue;
+
+			XMFLOAT3 newPosA = posA;
+			XMFLOAT3 newPosB = posB;
+
+			// 이동 중인지 판별 (Walk/Run 상태이면 이동 중)
+			bool movingA = false;
+			bool movingB = false;
+
+			if (objA->GetObjType() == ObjectsType::CHARACTER)
+			{
+				Player* pA = dynamic_cast<Player*>(objA);
+				if (pA)
+				{
+					StateId stA = pA->GetLowerStateId();
+					movingA = (stA == StateId::Walk || stA == StateId::Run);
+				}
+			}
+
+			if (objB->GetObjType() == ObjectsType::CHARACTER)
+			{
+				Player* pB = dynamic_cast<Player*>(objB);
+				if (pB)
+				{
+					StateId stB = pB->GetLowerStateId();
+					movingB = (stB == StateId::Walk || stB == StateId::Run);
+				}
+			}
+
+			bool collided = PhysicsHelper::ResolveDynamicCollision(
+				newPosA, newPosB,
+				objA->GetBoundingBox(),
+				objB->GetBoundingBox(),
+				movingA,
+				movingB
+			);
+
+			if (collided)
+			{
+				objA->SetPosition(newPosA.x, posA.y, newPosA.z);
+				if (objA->GetObjType() == ObjectsType::CHARACTER)
+				{
+					Player* playerA = dynamic_cast<Player*>(objA);
+					if (playerA)
+					{
+						XMFLOAT3 velA = playerA->GetVelocity();
+						PhysicsHelper::AdjustVelocityAfterCollision(velA, posA, newPosA);
+						playerA->SetVelocity(velA);
+					}
+				}
+				objA->SetFrameDirty();
+
+				objB->SetPosition(newPosB.x, posB.y, newPosB.z);
+				if (objB->GetObjType() == ObjectsType::CHARACTER)
+				{
+					Player* playerB = dynamic_cast<Player*>(objB);
+					if (playerB)
+					{
+						XMFLOAT3 velB = playerB->GetVelocity();
+						PhysicsHelper::AdjustVelocityAfterCollision(velB, posB, newPosB);
+						playerB->SetVelocity(velB);
+					}
+				}
+				objB->SetFrameDirty();
+			}
+		}
+	}
+
+	// ----------------------------------------------------------
+	// Phase 3: 동적 충돌로 밀린 후 정적 충돌체에 끼는 경우 재검사
+	// ----------------------------------------------------------
+	for (auto& obj : mDynamicColliders)
+	{
+		XMFLOAT3 currentPos = obj->GetPosition();
+
+		XMFLOAT3 resolvedPos = PhysicsHelper::ResolveStaticCollision(
+			obj->GetBoundingBox(),
+			currentPos,
+			mStaticColliders
+		);
+
+		float diffX = std::abs(resolvedPos.x - currentPos.x);
+		float diffZ = std::abs(resolvedPos.z - currentPos.z);
+
+		if (diffX > 0.001f || diffZ > 0.001f)
+		{
+			obj->SetPosition(resolvedPos.x, currentPos.y, resolvedPos.z);
+			obj->SetFrameDirty();
+		}
+	}
+
+	// ----------------------------------------------------------
+	// Phase 4: 충돌로 막힌 캐릭터 → A* 재탐색 or 멈춤
+	// ----------------------------------------------------------
+	// 주의: A* 재탐색은 비용이 크므로 쿨타임 적용 필요
+	// Player.h에 다음 멤버 추가 필요:
+	//   float mPathRetryTimer = 0.0f;
+	//   static constexpr float PATH_RETRY_COOLDOWN = 0.5f; // 0.5초마다 재탐색
+	for (auto& obj : mDynamicColliders)
+	{
+		if (obj->GetObjType() != ObjectsType::CHARACTER)
+			continue;
+
+		Player* player = dynamic_cast<Player*>(obj);
+		if (!player)
+			continue;
+
+		// 이동 중이 아니면 스킵
+		StateId lowerState = player->GetLowerStateId();
+		if (lowerState != StateId::Walk && lowerState != StateId::Run)
+			continue;
+
+		XMFLOAT3 pos = player->GetPosition();
+		XMFLOAT3 dest = player->GetDestination(); // 현재 waypoint 또는 최종 목적지
+
+		float toDest = std::sqrt(
+			(dest.x - pos.x) * (dest.x - pos.x) +
+			(dest.z - pos.z) * (dest.z - pos.z)
+		);
+
+		if (toDest < 1.0f)
+			continue;
+
+		// "내 앞이 다른 동적 오브젝트에 막혀있는가?" 체크
+		XMFLOAT3 dirToDest = {
+			(dest.x - pos.x) / toDest,
+			0.0f,
+			(dest.z - pos.z) / toDest
+		};
+
+		float stepSize = max(player->GetBoundingBox().Extents.x,
+			player->GetBoundingBox().Extents.z) * 0.5f;
+		XMFLOAT3 testPos = {
+			pos.x + dirToDest.x * stepSize,
+			pos.y,
+			pos.z + dirToDest.z * stepSize
+		};
+
+		BoundingBox testBB = PhysicsHelper::MakeWorldBB(player->GetBoundingBox(), testPos);
+
+		bool blockedByDynamic = false;
+		bool blockedByStatic = false;
+
+		// 정적 충돌체에 막히는지
+		for (const auto& collider : mStaticColliders)
+		{
+			if (testBB.Intersects(collider))
+			{
+				blockedByStatic = true;
+				break;
+			}
+		}
+
+		// 다른 동적 오브젝트(멈춘 것)에 막히는지
+		if (!blockedByStatic)
+		{
+			for (auto& other : mDynamicColliders)
+			{
+				if (other == obj) continue;
+
+				// 이동 중인 상대는 스킵 (서로 밀치는 건 Phase 2에서 처리)
+				if (other->GetObjType() == ObjectsType::CHARACTER)
+				{
+					Player* pOther = dynamic_cast<Player*>(other);
+					if (pOther)
+					{
+						StateId otherState = pOther->GetLowerStateId();
+						if (otherState == StateId::Walk || otherState == StateId::Run)
+							continue;
+					}
+				}
+
+				BoundingBox otherBB = PhysicsHelper::MakeWorldBB(
+					other->GetBoundingBox(), other->GetPosition());
+
+				if (testBB.Intersects(otherBB))
+				{
+					blockedByDynamic = true;
+					break;
+				}
+			}
+		}
+
+		bool blocked = blockedByStatic || blockedByDynamic;
+
+		if (blocked)
+		{
+			// 재탐색 쿨타임 체크 (매 프레임 재탐색 방지)
+			// Player.h에 mPathRetryTimer 추가 필요
+			// player->mPathRetryTimer가 0 이하일 때만 재탐색
+			// if (player->mPathRetryTimer > 0.f) continue;
+			// player->mPathRetryTimer = Player::PATH_RETRY_COOLDOWN;
+
+			// 최종 목적지 (마지막 waypoint 또는 path가 없으면 dest 자체)
+			XMFLOAT3 finalDest = dest;
+			if (player->HasPath())
+			{
+				// path의 마지막 waypoint가 진짜 최종 목적지
+				// GetDestination()은 현재 waypoint이므로, 
+				// 최종 목적지는 따로 저장해둬야 하지만
+				// 없으면 현재 dest로 재탐색
+			}
+
+			// A* 재탐색
+			mPathfinder.ClearDynamicObstacles();
+			for (auto& other : mDynamicColliders)
+			{
+				if (other == obj) continue;
+
+				bool isStationary = true;
+				if (other->GetObjType() == ObjectsType::CHARACTER)
+				{
+					Player* pOther = dynamic_cast<Player*>(other);
+					if (pOther)
+					{
+						StateId st = pOther->GetLowerStateId();
+						if (st == StateId::Walk || st == StateId::Run)
+							isStationary = false;
+					}
+				}
+
+				if (isStationary)
+				{
+					XMFLOAT3 otherPos = other->GetPosition();
+					int gx, gz;
+					mPathfinder.WorldToGrid(otherPos.x, otherPos.z, gx, gz);
+					mPathfinder.SetDynamicObstacle(gx, gz);
+
+					float maxExt = max(other->GetBoundingBox().Extents.x,
+						other->GetBoundingBox().Extents.z);
+					int expand = (int)(maxExt / mPathfinder.GetCellSize());
+					for (int dz = -expand; dz <= expand; ++dz)
+						for (int dx = -expand; dx <= expand; ++dx)
+							if (dx != 0 || dz != 0)
+								mPathfinder.SetDynamicObstacle(gx + dx, gz + dz);
+				}
+			}
+
+			std::vector<XMFLOAT3> newPath;
+			bool found = mPathfinder.FindPath(
+				pos, finalDest,
+				XMFLOAT3(player->GetBoundingBox().Extents.x, 0.f,
+					player->GetBoundingBox().Extents.z),
+				newPath);
+
+			mPathfinder.ClearDynamicObstacles();
+
+			if (found && newPath.size() >= 2)
+			{
+				for (auto& wp : newPath)
+					wp.y = mTerrain.GetHeight(wp.x, wp.z);
+				player->SetPath(newPath);
+			}
+			else
+			{
+				// 정말 갈 수 없으면 멈춤
+				player->SetDestination(pos);
+				player->SetVelocity(XMFLOAT3(0.f, player->GetVelocity().y, 0.f));
+				player->ClearPath();
+				player->ChangeLowerState(new IdlePlayerState());
+			}
+		}
+	}
+}
+void DummyApp::InitPathfinder()
+{
+	float mapWidth = mTerrain.GetWidth();
+	float mapLength = mTerrain.GetLength();
+
+	// Fog와 동일한 cellSize 사용 (또는 유닛 크기에 맞게 조정)
+	// Fog: cellSize = 24.f → pathfinding은 좀 더 세밀하게 하고 싶으면 줄일 수 있음
+	float pathCellSize = 24.0f;
+
+	mPathfinder.Initialize(mapWidth, mapLength, pathCellSize);
+	mPathfinder.BakeStaticObstacles(mStaticColliders);
+
+#ifdef _DEBUG
+	int total = mPathfinder.GetGridX() * mPathfinder.GetGridZ();
+	int blocked = 0;
+	for (int z = 0; z < mPathfinder.GetGridZ(); ++z)
+		for (int x = 0; x < mPathfinder.GetGridX(); ++x)
+			if (!mPathfinder.IsWalkable(x, z)) ++blocked;
+	std::cout << "[Pathfinder] Grid: " << mPathfinder.GetGridX() << "x" << mPathfinder.GetGridZ()
+		<< " | Blocked: " << blocked << "/" << total << std::endl;
+#endif
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)

@@ -326,6 +326,44 @@ void Player::SetWeaponMatrix()
 	mWeapon->SetWorldMat(swordMat);
 }
 
+void Player::SetPath(const std::vector<XMFLOAT3>& path)
+{
+	mPathWaypoints.clear();
+
+	// 첫 번째 waypoint (현재 위치 근처)는 스킵
+	for (size_t i = 1; i < path.size(); ++i)
+	{
+		mPathWaypoints.push_back(path[i]);
+	}
+
+	// 첫 waypoint를 destination으로 설정
+	if (!mPathWaypoints.empty())
+	{
+		mDestination = mPathWaypoints.front();
+	}
+}
+
+XMFLOAT3 Player::GetCurrentWaypoint() const
+{
+	if (mPathWaypoints.empty())
+		return mDestination;
+	return mPathWaypoints.front();
+}
+
+void Player::AdvanceWaypoint()
+{
+	if (mPathWaypoints.empty()) return;
+
+	mPathWaypoints.pop_front();
+
+	if (!mPathWaypoints.empty())
+	{
+		// 다음 waypoint를 destination으로
+		mDestination = mPathWaypoints.front();
+	}
+	// 마지막 waypoint를 지나면 자연스럽게 mDestination에서 멈춤
+}
+
 void Player::InitPlayer()
 {
 	// Set Camera
@@ -408,30 +446,26 @@ void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 		player.SetVelocity(newVelocity);
 	}
 	else if (followkeyinput == FollowerKeyInput::Move) {
-
 		XMVECTOR curPos = XMLoadFloat3(&player.GetPosition());
-		XMVECTOR destPos = XMLoadFloat3(&player.GetDestination());
+
+		// ★ 변경: destination 대신 현재 waypoint를 목표로
+		XMFLOAT3 currentTarget = player.HasPath()
+			? player.GetCurrentWaypoint()
+			: player.GetDestination();
+
+		XMVECTOR destPos = XMLoadFloat3(&currentTarget);
 		XMVECTOR direction = XMVectorSubtract(destPos, curPos);
-
 		direction = XMVector3Normalize(direction);
-
 		XMFLOAT3 dir3f;
 		XMStoreFloat3(&dir3f, direction);
-
 		player.SetVelocity(MultipleVelocity(dir3f, XMFLOAT3(1000.f, 1000.f, 1000.f)));
 
-		//// 방향 회전 설정
+		// 방향 회전 설정 (기존 코드 그대로)
+		float angle = atan2f(dir3f.x, dir3f.z);
+		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
 
-		float angle = atan2f(dir3f.x, dir3f.z); // atan2f(y, x) 대신 x, z 순서로 전달
-
-		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f); // Y 축 기준 회전
-		
-
-		// 방향 벡터와 현재 방향 벡터의 내적을 통해 각도를 계산합니다.
 		float dotProduct = Vector3::DotProduct(dir3f, player.GetLook());
 		float lengthProduct = Vector3::Length(dir3f) * Vector3::Length(player.GetLook());
-
-		// 내적 값이 길이의 곱과 다른 경우에만 회전 수행
 		if (lengthProduct != 0 && fabs(dotProduct) < lengthProduct) {
 			float angleDiff = acosf(dotProduct / lengthProduct);
 			if (Vector3::CrossProduct(player.GetLook(), dir3f).y < 0) {
@@ -442,19 +476,42 @@ void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 			}
 		}
 
-		if (Vector3::DistanceBetweenPoints(player.GetDestination(), player.GetPosition()) <= 1) {
-			player.ResetKeyInput();
-			player.SetFollowerKeyInput(FollowerKeyInput::None);
-			player.ChangeLowerState(new IdlePlayerState);
-			player.ChangeUpperState(new IdlePlayerState);
+		// ★ 변경: waypoint 도착 판정
+		float distToTarget = Vector3::DistanceBetweenPoints(currentTarget, player.GetPosition());
+
+		if (distToTarget <= 30.0f)  // waypoint 도착 반경 (셀 크기에 맞게 조정)
+		{
+			if (player.HasPath())
+			{
+				// 다음 waypoint로 진행
+				player.AdvanceWaypoint();
+
+				// 마지막 waypoint도 지났으면 (경로 끝) → 정지
+				if (!player.HasPath())
+				{
+					// 최종 destination까지 거리 체크
+					float distToFinal = Vector3::DistanceBetweenPoints(
+						player.GetDestination(), player.GetPosition());
+
+					if (distToFinal <= 30.0f)
+					{
+						player.ResetKeyInput();
+						player.SetFollowerKeyInput(FollowerKeyInput::None);
+						player.ChangeLowerState(new IdlePlayerState);
+						player.ChangeUpperState(new IdlePlayerState);
+					}
+					// 아직 최종 목적지가 멀면 직선 이동 계속
+				}
+			}
+			else
+			{
+				// waypoint 없이 직선 이동 중 → 기존 도착 판정
+				player.ResetKeyInput();
+				player.SetFollowerKeyInput(FollowerKeyInput::None);
+				player.ChangeLowerState(new IdlePlayerState);
+				player.ChangeUpperState(new IdlePlayerState);
+			}
 		}
-		//float angleline = Vector3::DotProduct(dir3f, player.GetLook());
-		//if (angleline != Vector3::Length(dir3f)) {
-		//	if (angleline < 0) player.Rotate(&axis, angle);
-		//	else player.Rotate(&axis, -angle);
-		//}
-
-
 	}
 }
 

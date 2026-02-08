@@ -3,6 +3,7 @@
 #include "Camera.h"
 #include "GameObject.h"
 #include "SkinnedMesh.h"
+#include <deque>
 #include <map>
 
 #define MAX_PLAYER_CAMERA_PITCH 85.0f
@@ -118,6 +119,13 @@ public:
 	const float mMaxVelocityWalk = 120.0f;
 	const float mMaxVelocityRun = 400.0f;
 	const float mMaxVelocityFalling = 1000.0f;
+
+	void SetPath(const std::vector<XMFLOAT3>& path);
+	bool HasPath() const { return !mPathWaypoints.empty(); }
+	void ClearPath() { mPathWaypoints.clear(); }
+	XMFLOAT3 GetCurrentWaypoint() const;
+	void AdvanceWaypoint();
+
 private:
 	void InitPlayer();
 
@@ -131,6 +139,12 @@ private:
 	bool mIsFalling = false;
 	bool mIsAttacking = false;
 	float mFriction = 400.f;
+
+
+	float mPathRetryTimer = 0.0f;
+	static constexpr float PATH_RETRY_COOLDOWN = 0.5f;
+	std::deque<XMFLOAT3> mPathWaypoints;   // A* 경로의 waypoint 목록
+	float mWaypointArriveRadius = 30.0f;    // waypoint 도착 판정 거리
 
 	XMFLOAT3 mDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	FollowerKeyInput mFollowInput;

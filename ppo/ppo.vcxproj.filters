@@ -99,6 +99,9 @@
     <ClInclude Include="..\..\Grad\GRClient\GRClient\TCPClient.hpp">
       <Filter>Net</Filter>
     </ClInclude>
+    <ClInclude Include="Pathfinder.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -169,6 +172,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Grad\GRClient\GRClient\TCPClient.cpp">
       <Filter>Net</Filter>
+    </ClCompile>
+    <ClCompile Include="Pathfinder.cpp">
+      <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

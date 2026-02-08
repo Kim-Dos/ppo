@@ -11,6 +11,7 @@
 #include "SkinnedMesh.h"
 #include "Player.h"
 #include "PhysicsHelper.h"
+#include "Pathfinder.h"
 
 #include "Button.h"
 
@@ -132,6 +133,12 @@ private:
 	void BuildMaterials();
 	void BuildGameObjects();
 
+	void BuildStaticColliders();
+	void BuildDynamicColliders();                       // 매 프레임 or 오브젝트 추가 시 갱신
+	void ResolveAllCollisions();                        // 정적 + 동적 충돌 전부 해소
+
+	void InitPathfinder();
+
 	void BuildUICursor();
 
 	void BuildCrystal(const float& x, const float& y, const float& degree);
@@ -171,6 +178,7 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mUIInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSelectionInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mDarknessInputLayout;
+
 	// List of all the render items.
 	//std::vector<std::unique_ptr<RenderItem>> mAllRi
 	// 
@@ -178,6 +186,11 @@ private:
 	std::vector<GameObject*> mAllGameObjects;
 	std::vector<GameObject*> mTeamObjects;
 	std::vector<GameObject*> mEnemyObjects;
+
+	std::vector<BoundingBox> mStaticColliders;          // 맵 정적 충돌체 (벽, 건물, 크리스탈 등)
+	std::vector<GameObject*> mDynamicColliders;         // 동적 충돌 대상 (캐릭터 + 동적 장애물)
+
+	Pathfinder mPathfinder;
 
 	bool mDarknessEnabled = true;
 	bool mPicking = false;
