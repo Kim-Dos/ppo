@@ -127,16 +127,93 @@ void GameObject::CreateBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsComman
         indices.data(), ibByteSize, mBoundIndexBufferUploader);
 }
 
+void GameObject::CreateCylinderBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, int segments)
+{
+    // BoundingBox에서 원기둥 파라미터 추출
+    // Center = (0, 85, 0), Extents = (40, 85, 40)
+    XMFLOAT3 center = mBoundingBox.Center;
+    XMFLOAT3 extents = mBoundingBox.Extents;
+
+    float radius = max(extents.x, extents.z); // XZ 중 큰 값 = 반지름
+    float halfHeight = extents.y;                    // Y Extent = 반높이
+
+    float bottomY = center.y - halfHeight;
+    float topY = center.y + halfHeight;
+
+    // 정점: 상단 원 + 하단 원 = segments * 2
+    std::vector<ColorVertex> vertices;
+    vertices.reserve(segments * 2);
+
+    for (int i = 0; i < segments; ++i)
+    {
+        float angle = (2.0f * XM_PI * i) / segments;
+        float x = center.x + radius * cosf(angle);
+        float z = center.z + radius * sinf(angle);
+
+        // 하단 원
+        ColorVertex bottom;
+        bottom.Pos = XMFLOAT3(x, bottomY, z);
+        bottom.Color = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f); // 초록색 (캐릭터 구분)
+        vertices.push_back(bottom);
+
+        // 상단 원
+        ColorVertex top;
+        top.Pos = XMFLOAT3(x, topY, z);
+        top.Color = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);
+        vertices.push_back(top);
+    }
+
+    // 인덱스: 하단 원 + 상단 원 + 수직선
+    std::vector<UINT> indices;
+    indices.reserve(segments * 6);
+
+    for (int i = 0; i < segments; ++i)
+    {
+        int next = (i + 1) % segments;
+
+        int bottomCurr = i * 2;
+        int topCurr = i * 2 + 1;
+        int bottomNext = next * 2;
+        int topNext = next * 2 + 1;
+
+        // 하단 원 선분
+        indices.push_back(bottomCurr);
+        indices.push_back(bottomNext);
+
+        // 상단 원 선분
+        indices.push_back(topCurr);
+        indices.push_back(topNext);
+
+        // 수직선 (4개만 - 90도 간격)
+        if (i % (segments / 4) == 0)
+        {
+            indices.push_back(bottomCurr);
+            indices.push_back(topCurr);
+        }
+    }
+
+    mBoundIndexCount = (UINT)indices.size();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(ColorVertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(UINT);
+
+    mBoundVertexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        vertices.data(), vbByteSize, mBoundVertexBufferUploader);
+
+    mBoundIndexBufferGPU = d3dUtil::CreateDefaultBuffer(d3dDevice, commandList,
+        indices.data(), ibByteSize, mBoundIndexBufferUploader);
+}
+
 D3D12_VERTEX_BUFFER_VIEW GameObject::BoundingBoxVertexBufferView() const
 {
     if (mBoundVertexBufferGPU != nullptr) {
         D3D12_VERTEX_BUFFER_VIEW vbv;
         vbv.BufferLocation = mBoundVertexBufferGPU->GetGPUVirtualAddress();
         vbv.StrideInBytes = sizeof(ColorVertex);
-        vbv.SizeInBytes = 8 * sizeof(ColorVertex);
-
+        vbv.SizeInBytes = (UINT)mBoundVertexBufferGPU->GetDesc().Width;
         return vbv;
     }
+    return {};
 }
 
 D3D12_INDEX_BUFFER_VIEW GameObject::BoundingBoxIndexBufferView() const
@@ -145,9 +222,9 @@ D3D12_INDEX_BUFFER_VIEW GameObject::BoundingBoxIndexBufferView() const
         D3D12_INDEX_BUFFER_VIEW ibv;
         ibv.BufferLocation = mBoundIndexBufferGPU->GetGPUVirtualAddress();
         ibv.Format = DXGI_FORMAT_R32_UINT;
-        ibv.SizeInBytes = 24 * sizeof(UINT);
-
+        ibv.SizeInBytes = mBoundIndexCount * sizeof(UINT);
         return ibv;
     }
+    return {};
 }
 

@@ -2568,7 +2568,7 @@ void DummyApp::BuildGameObjects()
 	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[0]);
 	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[1]);
 	Skinned1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Skinned1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	Skinned1->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
@@ -2582,7 +2582,7 @@ void DummyApp::BuildGameObjects()
 	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[0]);
 	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[1]);
 	Knight->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Knight->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	Knight->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
@@ -3156,14 +3156,12 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
 
-	// 각 렌더항목에 대해:
 	for (UINT i = 0; i < gameObjects.size(); ++i)
 	{
 		if (gameObjects[i]->GetName() == "terrain") continue;
-		// 그리기 명령 시작
+
 		cmdList->IASetVertexBuffers(0, 1, &gameObjects[i]->BoundingBoxVertexBufferView());
 		cmdList->IASetIndexBuffer(&gameObjects[i]->BoundingBoxIndexBufferView());
 		cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
@@ -3173,7 +3171,8 @@ void DummyApp::DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::ve
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + gameObjects[i]->GetObjCBIndex(0) * objCBByteSize;
 		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
-		cmdList->DrawIndexedInstanced(24, 1, 0, 0, 0);
+		// ★ 변경: 고정 24 대신 실제 인덱스 수 사용
+		cmdList->DrawIndexedInstanced(gameObjects[i]->GetBoundIndexCount(), 1, 0, 0, 0);
 	}
 }
 
@@ -3215,7 +3214,7 @@ void DummyApp::SummonKnight()
 	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
 	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
 	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject1->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	playerGameObject1->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
@@ -3253,7 +3252,7 @@ void DummyApp::SummonHunter()
 	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
 	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
 	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject2->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	playerGameObject2->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);

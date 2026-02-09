@@ -53,6 +53,7 @@ public:
 	UINT GetBaseVertex(UINT index) { return mDrawIndex[index].mBaseVertex; };
 	UINT GetFramesDirty() { return mNumFramesDirty; }
 	UINT GetNumSubmeshes() { return mNumSubmeshes; }
+	UINT GetBoundIndexCount() { return mBoundIndexCount; }
 
 	void AddSubmesh(const Submesh& submesh);
 	void SetScale(float x, float y, float z);
@@ -65,6 +66,7 @@ public:
 	XMFLOAT4X4 GetTexTransform() { return mTexTransform; }
 
 	void CreateBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList);
+	void CreateCylinderBoundingBox(ID3D12Device* d3dDevice, ID3D12GraphicsCommandList* commandList, int segments = 16);
 
 	void SetBoundingBox(XMFLOAT3 center, XMFLOAT3 extents) { mBoundingBox = BoundingBox(center, extents); }
 	void SetBoundingBox(BoundingBox boundingBox) { mBoundingBox = boundingBox; }
@@ -103,6 +105,8 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferUploader = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferUploader = nullptr;
+
+	UINT mBoundIndexCount = 24;
 };
 
 class Weapon : public GameObject
