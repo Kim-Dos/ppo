@@ -89,6 +89,12 @@ void Player::Update(const GameTimer& gt)
 {
 	float deltaTime = gt.DeltaTime();
 
+	if (mPathRetryTimer > 0.0f)
+	{
+		mPathRetryTimer -= deltaTime;
+		if (mPathRetryTimer < 0.0f) mPathRetryTimer = 0.0f;
+	}
+
 	HandleInput();
 
 	mCurrentLowerState->Update(*this, deltaTime);

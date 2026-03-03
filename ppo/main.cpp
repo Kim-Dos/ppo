@@ -6,6 +6,9 @@
 #include "DummyApp.h"
 
 
+#include <boost/asio.hpp>
+#include <thread>
+
 #ifdef _DEBUG
 #ifdef UNICODE
 #pragma comment(linker, "/entry:wWinMainCRTStartup /subsystem:console")
@@ -30,9 +33,22 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     try
     {
         boost::asio::io_context ioservice;
+
+		auto work = boost::asio::make_work_guard(ioservice);
+		std::thread ioThread([&ioservice]() { ioservice.run(); });
+
         DummyApp theApp(hInstance, std::ref(ioservice));
-        if (!theApp.Initialize())
-            return 0;
+
+        if (!theApp.Initialize()) {
+            work.reset();
+            ioservice.stop();
+            if (ioThread.joinable()) { ioThread.join(); }
+			return 0;
+        }
+
+        work.reset();
+        ioservice.stop();
+        if (ioThread.joinable()) { ioThread.join(); }
 
         return theApp.Run();
     }

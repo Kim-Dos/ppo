@@ -125,6 +125,8 @@ public:
 	void ClearPath() { mPathWaypoints.clear(); }
 	XMFLOAT3 GetCurrentWaypoint() const;
 	void AdvanceWaypoint();
+	bool CanRetryPath() const { return mPathRetryTimer <= 0.0f; }
+	void ResetPathRetryTimer() { mPathRetryTimer = PATH_RETRY_COOLDOWN; }
 
 private:
 	void InitPlayer();

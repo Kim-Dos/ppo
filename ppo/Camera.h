@@ -115,7 +115,7 @@ private:
 	XMFLOAT3 mMovingDirection = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	CamInput mKeyInput;
 
-	XMFLOAT3 MAXPosition = { 9999.f, 3000.f, 9999.f };
+	XMFLOAT3 MAXPosition = { 9999.f, 5000.f, 9999.f };
 	XMFLOAT3 MINPosition = { -9999.f, 0.f , -9999.f };
 
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);

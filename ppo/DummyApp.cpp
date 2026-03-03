@@ -1,4 +1,5 @@
 ﻿#include "DummyApp.h"
+
 const int gNumFrameResources = 3;
 
 DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
@@ -75,15 +76,22 @@ void DummyApp::OnResize()
 
 void DummyApp::Update(const GameTimer& gt)
 {
+
+	for (auto& x : mAllGameObjects) {
+		x->Update(gt);
+	}
+
 	//OnKeyboardInput(gt);
 
 	//float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 	//DebugPrint("height: %f\n", terrainY);
 	//std::cout << terrainY << std::endl;
-	for (auto& x : mAllGameObjects) {
-		float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
+	for (auto& x : mRenderLayer[(int)GameObjectLayer::Object]) {
+		float terrainY = mTerrain.GetHeight(x->GetPosition().x, x->GetPosition().z);
+
 		if (x->GetPosition().y < terrainY) {
 			x->SetPosition(x->GetPosition().x, terrainY, x->GetPosition().z);
+			
 			if (x->GetObjType() == ObjectsType::CHARACTER) {
 				auto k = dynamic_cast<Player*>(x);
 				k->SetVelocity(XMFLOAT3(k->GetVelocity().x, 0.0f, k->GetVelocity().z));
@@ -103,9 +111,6 @@ void DummyApp::Update(const GameTimer& gt)
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
 	}
 
-	for (auto& x : mAllGameObjects) {
-		x->Update(gt);
-	}
 
 	static float cooltime = 1.0f;
 	cooltime -= gt.DeltaTime();
@@ -2837,24 +2842,15 @@ void DummyApp::ResolveAllCollisions()
 			bool movingA = false;
 			bool movingB = false;
 
-			if (objA->GetObjType() == ObjectsType::CHARACTER)
+			if (auto pA = dynamic_cast<Player*>(objA))
 			{
-				Player* pA = dynamic_cast<Player*>(objA);
-				if (pA)
-				{
-					StateId stA = pA->GetLowerStateId();
-					movingA = (stA == StateId::Walk || stA == StateId::Run);
-				}
+				XMFLOAT3 v = pA->GetVelocity();
+				movingA = (fabsf(v.x) + fabsf(v.z)) > 0.01f;
 			}
-
-			if (objB->GetObjType() == ObjectsType::CHARACTER)
+			if (auto pB = dynamic_cast<Player*>(objB))
 			{
-				Player* pB = dynamic_cast<Player*>(objB);
-				if (pB)
-				{
-					StateId stB = pB->GetLowerStateId();
-					movingB = (stB == StateId::Walk || stB == StateId::Run);
-				}
+				XMFLOAT3 v = pB->GetVelocity();
+				movingB = (fabsf(v.x) + fabsf(v.z)) > 0.01f;
 			}
 
 			bool collided = PhysicsHelper::ResolveDynamicCollision(
@@ -2926,6 +2922,7 @@ void DummyApp::ResolveAllCollisions()
 	// Player.h에 다음 멤버 추가 필요:
 	//   float mPathRetryTimer = 0.0f;
 	//   static constexpr float PATH_RETRY_COOLDOWN = 0.5f; // 0.5초마다 재탐색
+
 	for (auto& obj : mDynamicColliders)
 	{
 		if (obj->GetObjType() != ObjectsType::CHARACTER)
@@ -3015,6 +3012,10 @@ void DummyApp::ResolveAllCollisions()
 
 		if (blocked)
 		{
+
+			if (!player->CanRetryPath())
+				continue;
+			player->ResetPathRetryTimer();
 			// 재탐색 쿨타임 체크 (매 프레임 재탐색 방지)
 			// Player.h에 mPathRetryTimer 추가 필요
 			// player->mPathRetryTimer가 0 이하일 때만 재탐색

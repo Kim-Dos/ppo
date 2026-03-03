@@ -24,7 +24,7 @@ void HeightMapImage::LoadHeightMapImage(const wchar_t* filepath, int width, int 
 	std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
 	if (!file.is_open()) {
-		std::cerr << "Failed to open file: " << filepath << std::endl;
+		//std::cerr << "Failed to open file: " << filepath << std::endl;
 		return;
 	}
 
