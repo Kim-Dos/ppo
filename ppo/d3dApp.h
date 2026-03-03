@@ -9,6 +9,7 @@
 #include "d3dUtil.h"
 #include "GameTimer.h"
 #include "Resource.h"
+#include "NetEvent.hpp"
 
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -38,6 +39,8 @@ public:
 
 	virtual bool Initialize();
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+	NetSpscQueue& GetNetQueue() { return mNetQueue; }
 
 protected:
 
@@ -130,5 +133,6 @@ protected:
 	UDPC* udp_client;
 	TCPC* tcp_client;
 
+	NetSpscQueue mNetQueue;
 };
 

@@ -46,11 +46,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
 			return 0;
         }
 
+		int ret = theApp.Run();
+
         work.reset();
         ioservice.stop();
         if (ioThread.joinable()) { ioThread.join(); }
 
-        return theApp.Run();
+        return ret;
     }
     catch (DxException& e)
     {
