@@ -66,7 +66,7 @@ class DummyApp : public D3DApp
 {
 public:
 
-	DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext);
+	DummyApp(HINSTANCE hInstance, NetworkBridge* bridge);
 	DummyApp(const DummyApp& rhs) = delete;
 	DummyApp& operator=(const DummyApp& rhs) = delete;
 	~DummyApp();
@@ -134,8 +134,8 @@ private:
 	void BuildGameObjects();
 
 	void BuildStaticColliders();
-	void BuildDynamicColliders();                       // 매 프레임 or 오브젝트 추가 시 갱신
-	void ResolveAllCollisions();                        // 정적 + 동적 충돌 전부 해소
+	void BuildDynamicColliders();                       
+	void ResolveAllCollisions();                        
 
 	void InitPathfinder();
 
@@ -153,6 +153,10 @@ private:
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 private:
+
+	NetworkBridge* mNetworkBridge = nullptr;
+
+	void ProcessReceivedPackets();
 
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
 	FrameResource* mCurrFrameResource = nullptr;
@@ -187,8 +191,8 @@ private:
 	std::vector<GameObject*> mTeamObjects;
 	std::vector<GameObject*> mEnemyObjects;
 
-	std::vector<BoundingBox> mStaticColliders;          // 맵 정적 충돌체 (벽, 건물, 크리스탈 등)
-	std::vector<GameObject*> mDynamicColliders;         // 동적 충돌 대상 (캐릭터 + 동적 장애물)
+	std::vector<BoundingBox> mStaticColliders;          
+	std::vector<GameObject*> mDynamicColliders;         
 
 	Pathfinder mPathfinder;
 
@@ -264,4 +268,3 @@ private:
 
 	D3D12_GPU_DESCRIPTOR_HANDLE mDepthSrvGpuHandle{};
 };
-

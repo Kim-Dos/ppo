@@ -1,4 +1,3 @@
-
 #include "d3dApp.h"
 #include <WindowsX.h>
 
@@ -16,15 +15,11 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 D3DApp* D3DApp::mApp = nullptr;
 
-D3DApp::D3DApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
+D3DApp::D3DApp(HINSTANCE hInstance)
 {
 	mhAppInst = hInstance;
-	// 하나의 D3DApp만 만들어 지도록 한다
 	assert(mApp == nullptr);
 	mApp = this;
-
-	udp_client = new UDPC{ IOContext };
-	tcp_client = new TCPC{ IOContext };
 }
 
 D3DApp::~D3DApp()
@@ -64,7 +59,6 @@ void D3DApp::Set4xMsaaState(bool value)
 	{
 		m4xMsaaState = value;
 
-		// 후면 버퍼와 스왑체인을 다시만든다.
 		CreateSwapChain();
 		OnResize();
 	}
@@ -123,7 +117,6 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	switch (msg)
 	{
-	// 응용 프로그램이 비활성화되면 프로그램과 타이머를 정지한다.
 	case WM_ACTIVATE:
 		if (LOWORD(wParam) == WA_INACTIVE)
 		{
@@ -137,9 +130,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		return 0;
 
-	// 응용 프로그램의 창의 크기가 바뀔 때 전달
 	case WM_SIZE:
-		// 새 클라이언트 영역을 저장
 		mClientWidth = LOWORD(lParam);
 		mClientHeight = HIWORD(lParam);
 
@@ -178,14 +169,6 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				}
 				else if (mResizing)
 				{
-					// If user is dragging the resize bars, we do not resize 
-					// the buffers here because as the user continuously 
-					// drags the resize bars, a stream of WM_SIZE messages are
-					// sent to the window, and it would be pointless (and slow)
-					// to resize for each WM_SIZE message received from dragging
-					// the resize bars.  So instead, we reset after the user is 
-					// done resizing the window and releases the resize bars, which 
-					// sends a WM_EXITSIZEMOVE message.
 				}
 				else // API call such as SetWindowPos or mSwapChain->SetFullscreenState.
 				{
@@ -195,23 +178,18 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		return 0;
 
-	// 창이 파괴되려 할 때 전달
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		return 0;
 
-	// 메뉴가 활성화되어서 사용자가 키를 눌렀지만 그 키가 어떤 단축키에도 해당하지 않을 때 전달
 	case WM_MENUCHAR:
-		// alt-enter 를 눌렀을 때 소리가 나지 않게 한다.
 		return MAKELRESULT(0, MNC_CLOSE);
 
-	// 창이 너무 작아지지 않게 한다.
 	case WM_GETMINMAXINFO:
 		((MINMAXINFO*)lParam)->ptMinTrackSize.x = 200;
 		((MINMAXINFO*)lParam)->ptMinTrackSize.y = 200;
 		return 0;
 
-	// 마우스 처리
 	case WM_LBUTTONDOWN:
 	case WM_MBUTTONDOWN:
 	case WM_RBUTTONDOWN:
@@ -227,7 +205,6 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return 0;
 	case WM_MOUSEWHEEL:
 		OnMouseWheel(wParam);
-	// 키보드 처리
 	case WM_KEYDOWN:
 	case WM_KEYUP:
 		OnKeyboardMessage(hwnd, msg, wParam, lParam);
@@ -306,14 +283,7 @@ void D3DApp::OnResize()
 	depthStencilDesc.Height = mClientHeight;
 	depthStencilDesc.DepthOrArraySize = 1;
 	depthStencilDesc.MipLevels = 1;
-
-	// Correction 11/12/2016: SSAO chapter requires an SRV to the depth buffer to read from 
-	// the depth buffer.  Therefore, because we need to create two views to the same resource:
-	//   1. SRV format: DXGI_FORMAT_R24_UNORM_X8_TYPELESS
-	//   2. DSV Format: DXGI_FORMAT_D24_UNORM_S8_UINT
-	// we need to create the depth buffer resource with a typeless format.  
 	depthStencilDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
-
 	depthStencilDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	depthStencilDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -360,58 +330,34 @@ void D3DApp::OnResize()
 	mScreenViewport.MaxDepth = 1.0f;
 
 	mScissorRect = { 0, 0, mClientWidth, mClientHeight };
-
-	RECT rect;
-	//// 클라이언트 영역의 좌표를 얻습니다.
-	//GetClientRect(mhMainWnd, &rect);
-	//// 윈도우 좌표로 변환합니다.
-	MapWindowPoints(mhMainWnd, nullptr, (POINT*)&rect, 2);
-	//// 커서가 이 사각형을 벗어나지 않도록 설정합니다.
-	//ClipCursor(&rect);
 }
 
 bool D3DApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
-	switch (nMessageID)
-	{
-	case WM_KEYDOWN:
-		switch (wParam)
-		{
-		default:
-			break;
-		}
-		break;
-	default:
-		break;
-	}
-
-	return(false);
+	return false;
 }
 
 bool D3DApp::InitMainWindow()
 {
-	WNDCLASSEXW wcex;
+	WNDCLASS wc;
+	wc.style = CS_HREDRAW | CS_VREDRAW;
+	wc.lpfnWndProc = MainWndProc;
+	wc.cbClsExtra = 0;
+	wc.cbWndExtra = 0;
+	wc.hInstance = mhAppInst;
+	wc.hIcon = LoadIcon(0, IDI_APPLICATION);
+	wc.hCursor = LoadCursor(0, IDC_ARROW);
+	wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
+	wc.lpszMenuName = 0;
+	wc.lpszClassName = L"MainWnd";
 
-	wcex.cbSize = sizeof(WNDCLASSEX);
-
-	wcex.style = CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc = MainWndProc;
-	wcex.cbClsExtra = 0;
-	wcex.cbWndExtra = 0;
-	wcex.hInstance = mhAppInst;
-	wcex.hIcon = LoadIcon(mhAppInst, MAKEINTRESOURCE(IDI_PPO));
-	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-	wcex.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
-	wcex.lpszMenuName = 0;
-	wcex.lpszClassName = L"MainWnd";
-	wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-	if (!RegisterClassExW(&wcex))
+	if (!RegisterClass(&wc))
 	{
 		MessageBox(0, L"RegisterClass Failed.", 0, 0);
 		return false;
 	}
 
+	// Compute window rectangle dimensions based on requested client area dimensions.
 	RECT R = { 0, 0, mClientWidth, mClientHeight };
 	AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
 	int width = R.right - R.left;
@@ -433,9 +379,8 @@ bool D3DApp::InitMainWindow()
 
 bool D3DApp::InitDirect3D()
 {
-	// 1. D3D12 디바이스 생성
 #if defined(DEBUG) || defined(_DEBUG) 
-	// D3D12 디버그층 활성화
+	// Enable the D3D12 debug layer.
 	{
 		ComPtr<ID3D12Debug> debugController;
 		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
@@ -443,66 +388,55 @@ bool D3DApp::InitDirect3D()
 	}
 #endif
 
-	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
+ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
 
-	// 하드웨어 어댑터를 나타내는 장치를 생성
-	HRESULT hardwareResult = D3D12CreateDevice(
-		nullptr,				// 기본 어댑터
+HRESULT hardwareResult = D3D12CreateDevice(
+	nullptr,
+	D3D_FEATURE_LEVEL_11_0,
+	IID_PPV_ARGS(&md3dDevice));
+
+if (FAILED(hardwareResult))
+{
+	ComPtr<IDXGIAdapter> pWarpAdapter;
+	ThrowIfFailed(mdxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWarpAdapter)));
+
+	ThrowIfFailed(D3D12CreateDevice(
+		pWarpAdapter.Get(),
 		D3D_FEATURE_LEVEL_11_0,
-		IID_PPV_ARGS(&md3dDevice));
-
-	// 실패했다면 WARP 어댑터를 나타내는 장치를 생성
-	if (FAILED(hardwareResult))
-	{
-		ComPtr<IDXGIAdapter> pWarpAdapter;
-		ThrowIfFailed(mdxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWarpAdapter)));
-
-		ThrowIfFailed(D3D12CreateDevice(
-			pWarpAdapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&md3dDevice)));
-	}
-
-	// 2. Fence 생성 및 서술자 크기 얻기
-	ThrowIfFailed(md3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-		IID_PPV_ARGS(&mFence)));
-
-	mRtvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	mDsvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-	mCbvSrvUavDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	// 3. 4X MSAA 품질 수준 지원점검
-	// 4X MSAA를 기본으로 설정
-	D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
-	msQualityLevels.Format = mBackBufferFormat;
-	msQualityLevels.SampleCount = 4;
-	msQualityLevels.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
-	msQualityLevels.NumQualityLevels = 0;
-	ThrowIfFailed(md3dDevice->CheckFeatureSupport(
-		D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
-		&msQualityLevels,
-		sizeof(msQualityLevels)));
-
-	m4xMsaaQuality = msQualityLevels.NumQualityLevels;
-	assert(m4xMsaaQuality > 0 && "Unexpected MSAA quality level.");
-
-#ifdef _DEBUG
-	LogAdapters();
-#endif
-
-	// 4. CommandQueue, CommandAllocator, CommandList 생성
-	CreateCommandObjects();
-
-	// 5. SwapChain의 서술과 생성
-	CreateSwapChain();
-
-	// 6. 서술자 힙 생성
-	CreateRtvAndDsvDescriptorHeaps();
-
-	return true;
+		IID_PPV_ARGS(&md3dDevice)));
 }
 
-// CommandQueue, CommandAllocator, CommandList 를 1개씩 생성
+ThrowIfFailed(md3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+	IID_PPV_ARGS(&mFence)));
+
+mRtvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+mDsvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+mCbvSrvUavDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
+msQualityLevels.Format = mBackBufferFormat;
+msQualityLevels.SampleCount = 4;
+msQualityLevels.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
+msQualityLevels.NumQualityLevels = 0;
+ThrowIfFailed(md3dDevice->CheckFeatureSupport(
+	D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+	&msQualityLevels,
+	sizeof(msQualityLevels)));
+
+m4xMsaaQuality = msQualityLevels.NumQualityLevels;
+assert(m4xMsaaQuality > 0 && "Unexpected MSAA quality level.");
+
+#ifdef _DEBUG
+LogAdapters();
+#endif
+
+CreateCommandObjects();
+CreateSwapChain();
+CreateRtvAndDsvDescriptorHeaps();
+
+return true;
+}
+
 void D3DApp::CreateCommandObjects()
 {
 	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
@@ -517,28 +451,23 @@ void D3DApp::CreateCommandObjects()
 	ThrowIfFailed(md3dDevice->CreateCommandList(
 		0,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		mDirectCmdListAlloc.Get(), // 연관된 명령 할당자
-		nullptr,                   // 초기 파이프라인 상태 객체
+		mDirectCmdListAlloc.Get(),
+		nullptr,
 		IID_PPV_ARGS(mCommandList.GetAddressOf())));
 
-	
-	// 닫힌 상태로 시작한다.
-	// 이후 명령목록을 참조할 때 Reet을 호출 하는데 Reset을 
-	// 호출 하려면 명령목록이 닫혀 있어야 하기때문이다.
 	mCommandList->Close();
 }
 
 void D3DApp::CreateSwapChain()
 {
-	// Release the previous swapchain we will be recreating.
 	mSwapChain.Reset();
 
 	DXGI_SWAP_CHAIN_DESC sd;
-	sd.BufferDesc.Width = mClientWidth;			// 버퍼 해상도 너비
-	sd.BufferDesc.Height = mClientHeight;		// 버퍼 해상도 높이
+	sd.BufferDesc.Width = mClientWidth;
+	sd.BufferDesc.Height = mClientHeight;
 	sd.BufferDesc.RefreshRate.Numerator = 60;
 	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.BufferDesc.Format = mBackBufferFormat;	// 버퍼 디스플레이 형식
+	sd.BufferDesc.Format = mBackBufferFormat;
 	sd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
 	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
 	sd.SampleDesc.Count = m4xMsaaState ? 4 : 1;
@@ -550,7 +479,6 @@ void D3DApp::CreateSwapChain()
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
-	// 참고: swap chain은 명령 대기열을 사용하여 flush를 수행g
 	ThrowIfFailed(mdxgiFactory->CreateSwapChain(
 		mCommandQueue.Get(),
 		&sd,
@@ -559,23 +487,16 @@ void D3DApp::CreateSwapChain()
 
 void D3DApp::FlushCommandQueue()
 {
-	// Advance the fence value to mark commands up to this fence point.
 	mCurrentFence++;
 
-	// Add an instruction to the command queue to set a new fence point.  Because we 
-	// are on the GPU timeline, the new fence point won't be set until the GPU finishes
-	// processing all the commands prior to this Signal().
 	ThrowIfFailed(mCommandQueue->Signal(mFence.Get(), mCurrentFence));
 
-	// Wait until the GPU has completed commands up to this fence point.
 	if (mFence->GetCompletedValue() < mCurrentFence)
 	{
 		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
 
-		// Fire event when GPU hits current fence.  
 		ThrowIfFailed(mFence->SetEventOnCompletion(mCurrentFence, eventHandle));
 
-		// Wait until the GPU hits current fence event is fired.
 		WaitForSingleObject(eventHandle, INFINITE);
 		CloseHandle(eventHandle);
 	}
@@ -601,19 +522,14 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3DApp::DepthStencilView() const
 
 void D3DApp::CalculateFrameStats()
 {
-	// 평균 FPS 계산
-	// 렌더링하는 데 걸리는 평균시간
-	// 위 정보를 창의 제목줄에 추가
-
 	static int frameCnt = 0;
 	static float timeElapsed = 0.0f;
 
 	frameCnt++;
 
-	// 1초 동안 평균 프레임 수 계산
 	if ((mTimer.TotalTime() - timeElapsed) >= 1.0f)
 	{
-		float fps = (float)frameCnt; // fps = frameCnt / 1
+		float fps = (float)frameCnt;
 		float mspf = 1000.0f / fps;
 
 		wstring fpsStr = to_wstring(fps);
@@ -625,15 +541,11 @@ void D3DApp::CalculateFrameStats()
 
 		SetWindowText(mhMainWnd, windowText.c_str());
 
-		// 다음 평균을 위해 수치 초기화
 		frameCnt = 0;
 		timeElapsed += 1.0f;
 	}
 }
 
-// 시스템에 있는 모든 어댑터를 열거한다.
-// 출력예시)
-// ***Adapter: NVIDIA GeForece GTX 760
 void D3DApp::LogAdapters()
 {
 	UINT i = 0;
@@ -662,7 +574,6 @@ void D3DApp::LogAdapters()
 	}
 }
 
-// 한 어댑터에 연결된 모든 출력을 열거
 void D3DApp::LogAdapterOutputs(IDXGIAdapter* adapter)
 {
 	UINT i = 0;
@@ -685,13 +596,11 @@ void D3DApp::LogAdapterOutputs(IDXGIAdapter* adapter)
 	}
 }
 
-// 해당 어댑터가 지원가는 디스플레이 모드를 열거
 void D3DApp::LogOutputDisplayModes(IDXGIOutput* output, DXGI_FORMAT format)
 {
 	UINT count = 0;
 	UINT flags = 0;
 
-	// Call with nullptr to get list count.
 	output->GetDisplayModeList(format, flags, &count, nullptr);
 
 	std::vector<DXGI_MODE_DESC> modeList(count);

@@ -9,7 +9,6 @@
 #include "d3dUtil.h"
 #include "GameTimer.h"
 #include "Resource.h"
-#include "NetEvent.hpp"
 
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -19,7 +18,7 @@ class D3DApp
 {
 protected:
 
-	D3DApp(HINSTANCE hInstance, boost::asio::io_context& IOContext);
+	D3DApp(HINSTANCE hInstance);
 	D3DApp(const D3DApp& rhs) = delete;
 	D3DApp& operator=(const D3DApp& rhs) = delete;
 	virtual ~D3DApp();
@@ -40,7 +39,6 @@ public:
 	virtual bool Initialize();
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-	NetSpscQueue& GetNetQueue() { return mNetQueue; }
 
 protected:
 
@@ -50,10 +48,10 @@ protected:
 	virtual void Draw(const GameTimer& gt) = 0;
 
 	// Convenience overrides for handling mouse input.
-	virtual void OnMouseWheel(WPARAM wheeldelta) { }
-	virtual void OnMouseDown(UINT msg, WPARAM btnState, int x, int y) { }
-	virtual void OnMouseUp(UINT msg, WPARAM btnState, int x, int y) { }
-	virtual void OnMouseMove(WPARAM btnState, int x, int y) { }
+	virtual void OnMouseWheel(WPARAM wheeldelta) {}
+	virtual void OnMouseDown(UINT msg, WPARAM btnState, int x, int y) {}
+	virtual void OnMouseUp(UINT msg, WPARAM btnState, int x, int y) {}
+	virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 protected:
 
@@ -75,7 +73,7 @@ protected:
 	void LogOutputDisplayModes(IDXGIOutput* output, DXGI_FORMAT format);
 
 protected:
-	
+
 	static D3DApp* mApp;
 
 	HINSTANCE mhAppInst = nullptr;		// app instance handle
@@ -85,12 +83,10 @@ protected:
 	bool      mMaximized = false;		// is the application maximized?
 	bool      mResizing = false;		// are the resize bars being dragged?
 	bool      mFullscreenState = false;	// fullscreen enabled
-	
-	// 4x MSAA 지원여부
+
 	bool m4xMsaaState = false;
 	bool m4xMsaaQuality = 0;
 
-	// 경과 시간과 게임 전체시간을 측정
 	GameTimer mTimer;
 
 	Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
@@ -119,7 +115,6 @@ protected:
 	UINT mDsvDescriptorSize = 0;
 	UINT mCbvSrvUavDescriptorSize = 0;
 
-	// 파생클래스는 목적에 맞는 다른 초기값으로 설정해야함.
 	std::wstring mMainWndCaption = L"d3d App";
 	D3D_DRIVER_TYPE md3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
 	DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -129,10 +124,4 @@ protected:
 
 	int mClientWidth = 1200;
 	int mClientHeight = 800;
-
-	UDPC* udp_client;
-	TCPC* tcp_client;
-
-	NetSpscQueue mNetQueue;
 };
-

@@ -2,8 +2,8 @@
 
 const int gNumFrameResources = 3;
 
-DummyApp::DummyApp(HINSTANCE hInstance, boost::asio::io_context& IOContext)
-	: D3DApp(hInstance, IOContext)
+DummyApp::DummyApp(HINSTANCE hInstance, NetworkBridge* bridge)
+	: D3DApp(hInstance), mNetworkBridge(bridge)
 {
 
 }
@@ -76,6 +76,7 @@ void DummyApp::OnResize()
 
 void DummyApp::Update(const GameTimer& gt)
 {
+	ProcessReceivedPackets();
 
 	for (auto& x : mAllGameObjects) {
 		x->Update(gt);
@@ -91,7 +92,7 @@ void DummyApp::Update(const GameTimer& gt)
 
 		if (x->GetPosition().y < terrainY) {
 			x->SetPosition(x->GetPosition().x, terrainY, x->GetPosition().z);
-			
+
 			if (x->GetObjType() == ObjectsType::CHARACTER) {
 				auto k = dynamic_cast<Player*>(x);
 				k->SetVelocity(XMFLOAT3(k->GetVelocity().x, 0.0f, k->GetVelocity().z));
@@ -3370,3 +3371,28 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DummyApp::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp };
 }
 
+void DummyApp::ProcessReceivedPackets()
+{
+	//auto packets = mNetworkBridge->DequeueRecvAll();
+	//for (auto& pkt : packets)
+	//{
+	//	unsigned char packetType = pkt.data[1]; // Protocol에 따라 오프셋 조정
+
+	//	switch (packetType)
+	//	{
+	//		// case SC_MOVE_PLAYER:
+	//		// {
+	//		//     auto* p = reinterpret_cast<const SCMovePlayer*>(pkt.data);
+	//		//     // 해당 플레이어 오브젝트 위치 업데이트
+	//		//     break;
+	//		// }
+	//		// case SC_ATTACK:
+	//		// {
+	//		//     ...
+	//		//     break;
+	//		// }
+	//	default:
+	//		break;
+	//	}
+	//}
+}
