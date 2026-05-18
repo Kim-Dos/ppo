@@ -62,6 +62,13 @@ struct UIKeyInput
 	bool isT = false; //Tower
 };
 
+struct SpawnInfo
+{
+	XMFLOAT3 playerPos;
+	XMFLOAT3 cameraPos;
+	XMFLOAT3 cameraLook;
+};
+
 class DummyApp : public D3DApp
 {
 public:

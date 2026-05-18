@@ -108,8 +108,17 @@ void DummyApp::Update(const GameTimer& gt)
 	}
 	else {
 		mMainCamera->Move(gt);
+
+		XMFLOAT3 camPos = mMainCamera->GetPosition3f();
+		float terrainY = mTerrain.GetHeight(camPos.x, camPos.z);
+		float minCamHeight = terrainY + 50.0f; // 지형 위 최소 높이 (조절 가능)
+		if (camPos.y < minCamHeight) {
+			mMainCamera->SetPosition(camPos.x, minCamHeight, camPos.z);
+		}
+
 		mMainCamera->UpdateViewMatrix();
 		//std::cout << mMainCamera->GetPosition3f().x << ", " << mMainCamera->GetPosition3f().z << std::endl;
+
 	}
 
 
@@ -743,12 +752,14 @@ void DummyApp::PickingMove()
 					}
 
 					// waypoint 경로 설정
+					player->SetFinalDestination(destPos);
 					player->SetPath(path);
 					player->SetFollowerKeyInput(FollowerKeyInput::Move);
 					player->FollowerEvent();
 				}
 				else
 				{
+					player->SetFinalDestination(destPos);
 					// 경로를 찾지 못함 → 직선 이동 fallback
 					player->ClearPath();
 					player->SetDestination(destPos);
@@ -3031,6 +3042,14 @@ void DummyApp::ResolveAllCollisions()
 				// GetDestination()은 현재 waypoint이므로, 
 				// 최종 목적지는 따로 저장해둬야 하지만
 				// 없으면 현재 dest로 재탐색
+				XMFLOAT3 finalDest = player->GetFinalDestination();
+
+				// finalDest가 현재 위치와 동일하면 (초기값 or 미설정) dest로 fallback
+				float distToFinal = std::sqrt(
+					(finalDest.x - pos.x) * (finalDest.x - pos.x) +
+					(finalDest.z - pos.z) * (finalDest.z - pos.z));
+				if (distToFinal < 1.0f)
+					finalDest = dest;
 			}
 
 			// A* 재탐색

@@ -82,6 +82,9 @@ public:
 
 	void SetDestination(XMFLOAT3 destination) { mDestination = destination; }
 	XMFLOAT3 GetDestination() { return mDestination; }
+	void SetFinalDestination(const XMFLOAT3& dest) { mFinalDestination = dest; }
+	XMFLOAT3 GetFinalDestination() const { return mFinalDestination; }
+
 
 	void FollowerEvent();
 	void SetFollowerKeyInput(FollowerKeyInput x) { mFollowInput = x; }
@@ -143,12 +146,14 @@ private:
 	float mFriction = 400.f;
 
 
+
 	float mPathRetryTimer = 0.0f;
 	static constexpr float PATH_RETRY_COOLDOWN = 0.5f;
 	std::deque<XMFLOAT3> mPathWaypoints;   // A* 경로의 waypoint 목록
 	float mWaypointArriveRadius = 30.0f;    // waypoint 도착 판정 거리
 
 	XMFLOAT3 mDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	XMFLOAT3 mFinalDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	FollowerKeyInput mFollowInput;
 
 	Camera* mCamera = nullptr;
