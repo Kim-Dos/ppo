@@ -845,7 +845,7 @@ void DummyApp::SummonObject()
 			//SummonTower();
 		}
 		else if (mUIkey.isH) {
-			//SummonHouse();
+			SummonCommandCenter();
 		}
 	}
 
@@ -867,7 +867,7 @@ void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 	int count = 0;
 
 	// 네가 실제로 관리하는 유닛 리스트에 맞게 변경
-	for (GameObject* obj : mAllGameObjects)
+	for (GameObject* obj : mTeamObjects)
 	{
 		if (count >= MaxFogUnits)
 			break;
@@ -1228,7 +1228,8 @@ void DummyApp::LoadTextures()
 		"crystalDiffuse",
 		"bowDiffuse",
 		"archerDiffuse",
-		"cursor"
+		"cursor",
+		"CommandCenter"
 	};
 
 	std::vector<std::wstring> texFilenames =
@@ -1243,7 +1244,8 @@ void DummyApp::LoadTextures()
 		L"Textures/Environment/crystal.dds",
 		L"Textures/Weapon/Bow/BowDiffuse.dds",
 		L"Textures/Character/Archer_diffuse.dds",
-		L"Textures/cursor.dds"
+		L"Textures/cursor.dds",
+		L"Textures/Building/CommandCenter.dds"
 	};
 
 	for (int i = 0; i < (int)texNames.size(); ++i)
@@ -1372,6 +1374,8 @@ void DummyApp::BuildDescriptorHeaps()
 
 	auto cursorTex = mTextures["cursor"]->Resource;
 
+	auto CommandCenterTex = mTextures["CommandCenter"]->Resource;
+
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 
@@ -1459,6 +1463,15 @@ void DummyApp::BuildDescriptorHeaps()
 	srvDesc.Format = cursorTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = cursorTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(cursorTex.Get(), &srvDesc, hDescriptor);
+
+
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = CommandCenterTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = CommandCenterTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(CommandCenterTex.Get(), &srvDesc, hDescriptor);
+
+
 
 	// --- Depth SRV는 힙의 맨 끝 1개를 고정 인덱스로 사용한다.
 	//   depthIndex = mTextures.size()
@@ -1985,6 +1998,7 @@ void DummyApp::LoadMeshes()
 			indices.push_back(bowMesh->mIndices[i]);
 		}
 
+
 		//
 		// Pack the indices of all the meshes into one index buffer.
 		bowMesh->mName = "Bow";
@@ -1997,6 +2011,60 @@ void DummyApp::LoadMeshes()
 		mMeshes[bowMesh->mName] = bowMesh;
 	}
 
+	//Load CommandCenter Mesh
+	{
+		Mesh* commandcenterMesh = new Mesh;
+
+		commandcenterMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 0.f);
+		commandcenterMesh->LoadMesh("Models/Environment/commandcenter.fbx");
+		//commandcenterMesh->LoadMesh("Models/mech.fbx");
+		UINT vcount = 0;
+		UINT tcount = 0;
+		std::vector<Vertex> vertices;
+		std::vector<UINT> indices;
+		UINT index;
+		UINT dindex = 0;
+
+		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+		XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
+
+		UINT numVertices = commandcenterMesh->mPositions.size();
+		for (int j = 0; j < numVertices; j++)
+		{
+			Vertex vertex;
+			vertex.Pos.x = commandcenterMesh->mPositions[j].x;
+			vertex.Pos.y = commandcenterMesh->mPositions[j].y;
+			vertex.Pos.z = commandcenterMesh->mPositions[j].z;
+			XMStoreFloat3(&vertex.Pos, XMVector3Transform(XMLoadFloat3(&vertex.Pos), offsetMat));
+
+			vertex.Normal.x = commandcenterMesh->mNormals[j].x;
+			vertex.Normal.y = commandcenterMesh->mNormals[j].y;
+			vertex.Normal.z = commandcenterMesh->mNormals[j].z;
+			XMStoreFloat3(&vertex.Normal, XMVector3TransformNormal(XMLoadFloat3(&vertex.Normal), offsetMat));
+
+			vertex.TexC.x = commandcenterMesh->mTexCoords[j].x;
+			vertex.TexC.y = commandcenterMesh->mTexCoords[j].y;
+
+			vertices.push_back(vertex);
+		}
+
+		UINT numIndices = commandcenterMesh->mIndices.size();
+		for (UINT i = 0; i < numIndices; i++)
+		{
+			indices.push_back(commandcenterMesh->mIndices[i]);
+		}
+
+		//
+	// Pack the indices of all the meshes into one index buffer.
+		commandcenterMesh->mName = "CommandCenter";
+
+		commandcenterMesh->CreateBlob(vertices, indices);
+		commandcenterMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
+
+		commandcenterMesh->mSubmeshes[0].name = "commandcenter";
+
+		mMeshes[commandcenterMesh->mName] = commandcenterMesh;
+	}
 	LoadSkinnedMesh();
 }
 
@@ -2348,6 +2416,16 @@ void DummyApp::BuildMaterials()
 	archer->Roughness = 0.1f;
 
 	mMaterials["archer"] = std::move(archer);
+
+	auto commandCenter = std::make_unique<Material>();
+	commandCenter->Name = "commandCenterDiffuse";
+	commandCenter->MatCBIndex = matCBIndex++;
+	commandCenter->DiffuseSrvHeapIndex = SRVIndex++;
+	commandCenter->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	commandCenter->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	commandCenter->Roughness = 0.1f;
+
+	mMaterials["commandCenter"] = std::move(commandCenter);
 
 	mCursorTexHeapIndex = SRVIndex++;
 }
@@ -2709,6 +2787,7 @@ void DummyApp::BuildCrystal(const float& x, const float& y, const float& degree)
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(crystalGameObject);
 	mAllGameObjects.push_back(crystalGameObject);
 }
+
 
 // ============================================================
 // [2] BuildStaticColliders() - 정적 충돌체 수집
@@ -3245,6 +3324,8 @@ void DummyApp::SummonKnight()
 	playerGameObject1->SetWeapon(swordGameObject);
 	swordGameObject->SetOwner(playerGameObject1);
 
+	if (mDebugMode) std::cout << "[Debug] Summoned Knight at (" << pos.x << ", " << pos.z << ")" << std::endl;
+
 	mUIkey.isK = false;
 	mUIkey.isO = false;
 }
@@ -3283,6 +3364,9 @@ void DummyApp::SummonHunter()
 	playerGameObject2->SetWeapon(bowGameObject);
 	bowGameObject->SetOwner(playerGameObject2);
 
+	if (mDebugMode) std::cout << "[Debug] Summoned Hunter at (" << pos.x << ", " << pos.z << ")" << std::endl;
+
+
 	mUIkey.isN = false;
 	mUIkey.isO = false;
 }
@@ -3295,8 +3379,9 @@ void DummyApp::DoUpgrade()
 {
 }
 
-void DummyApp::SetBuilding()
+void DummyApp::SummonCommandCenter()
 {
+
 }
 
 void DummyApp::ReleseMemory()
@@ -3390,28 +3475,292 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DummyApp::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp };
 }
 
+void DummyApp::SendLinkRequest()
+{
+	if (!mNetworkBridge) return;
+
+	CGLinkInfo info{};
+	info.size = sizeof(CGLinkInfo);
+	info.type = CG_LINKGAMESERVER;
+	strncpy_s(info.RoomCode, "DEMO", RoomCodeLen - 1);  // 데모용 하드코딩
+	info.userID = 0;                                    // TODO: 로비 연동 시 실제 ID
+
+	mNetworkBridge->EnqueueSend(info);
+}
+
+void DummyApp::OnLinkResult(const SCLinkResult* p)
+{
+	if (p->playerNumber == 0) {
+		std::cout << "[Net] link FAILED (room full / not found)\n";
+		return;
+	}
+	mMyPlayerNumber = p->playerNumber;
+	std::cout << "[Net] linked as player " << mMyPlayerNumber << "\n";
+}
+
+void DummyApp::OnGameStart(const SCGameStart* p)
+{
+	int count = (p->unitCount < MAX_TOTAL_START_UNITS)
+		? p->unitCount : MAX_TOTAL_START_UNITS;
+
+	for (int i = 0; i < count; ++i)
+		BindNetworkUnit(p->units[i]);
+
+	mGameStarted = true;
+	std::cout << "[Net] GAME START, units: " << count << "\n";
+}
+
+void DummyApp::BindNetworkUnit(const SCStartUnit& u)
+{
+	// 내 유닛 / 상대 유닛을 로컬 캐릭터 풀에서 순서대로 할당하는 예시.
+	// mAllGameObjects에서 CHARACTER 타입을 순회하며 아직 매핑 안 된
+	// 오브젝트를 하나 집어 바인딩한다.
+	for (auto& obj : mAllGameObjects) {
+		if (obj->GetObjType() != ObjectsType::CHARACTER) continue;
+
+		// 이미 매핑된 오브젝트인지 검사
+		bool taken = false;
+		for (auto& [k, v] : mNetworkObjects)
+			if (v == obj) { taken = true; break; }
+		if (taken) continue;
+
+		// 바인딩: 서버 스폰 위치로 이동시키고 매핑 등록
+		float y = mTerrain.GetHeight(u.position.x, u.position.z);
+		obj->SetPosition(u.position.x, y, u.position.z);
+
+		mNetworkObjects[NetKey(u.ownerPlayer, u.objNumber)] = obj;
+
+		std::cout << "  bind: owner " << (int)u.ownerPlayer
+			<< " obj " << (int)u.objNumber << "\n";
+		return;
+	}
+
+	std::cout << "[Net] WARN: no free local object for owner "
+		<< (int)u.ownerPlayer << " obj " << (int)u.objNumber << "\n";
+}
+
 void DummyApp::ProcessReceivedPackets()
 {
-	//auto packets = mNetworkBridge->DequeueRecvAll();
-	//for (auto& pkt : packets)
-	//{
-	//	unsigned char packetType = pkt.data[1]; // Protocol에 따라 오프셋 조정
+	if (!mNetworkBridge) return;
 
-	//	switch (packetType)
-	//	{
-	//		// case SC_MOVE_PLAYER:
-	//		// {
-	//		//     auto* p = reinterpret_cast<const SCMovePlayer*>(pkt.data);
-	//		//     // 해당 플레이어 오브젝트 위치 업데이트
-	//		//     break;
-	//		// }
-	//		// case SC_ATTACK:
-	//		// {
-	//		//     ...
-	//		//     break;
-	//		// }
-	//	default:
-	//		break;
-	//	}
-	//}
+	auto packets = mNetworkBridge->DequeueRecvAll();
+	for (auto& pkt : packets)
+	{
+		if (pkt.length < 2) continue;
+		unsigned char packetType = pkt.data[1]; // [0]=size, [1]=type
+
+		switch (packetType)
+		{
+		case SC_MOVE_OBJ_RESULT:
+			OnMoveObjResult(
+				reinterpret_cast<const SCMoveObjResult*>(pkt.data));
+			break;
+
+		case SC_MOVE_MULTI_RESULT:
+			OnMoveMultiResult(
+				reinterpret_cast<const SCMoveMultiResult*>(pkt.data));
+			break;
+
+		case SC_OBJ_POSITION_SYNC:
+			OnPositionSync(
+				reinterpret_cast<const SCPositionSync*>(pkt.data));
+			break;
+
+		case SC_MOVE_REJECTED:
+			OnMoveRejected(
+				reinterpret_cast<const SCMoveRejected*>(pkt.data));
+			break;
+
+		case SC_HACK_WARNING:
+			OnHackWarning(
+				reinterpret_cast<const SCHackWarning*>(pkt.data));
+			break;
+		case SC_LINK_RESULT:
+			OnLinkResult(reinterpret_cast<const SCLinkResult*>(pkt.data));
+			break;
+
+		case SC_GAME_START:
+			OnGameStart(reinterpret_cast<const SCGameStart*>(pkt.data));
+			break;
+
+		default:
+			std::cout << "[Net] unknown packet type: "
+				<< (int)packetType << std::endl;
+			break;
+		}
+	}
+}
+
+//-----------------------------------------------------------------
+// 서버가 검증 완료한 단일 이동 결과 (내 것 + 남의 것 모두 수신)
+//-----------------------------------------------------------------
+void DummyApp::OnMoveObjResult(const SCMoveObjResult* p)
+{
+	GameObject* obj = FindNetworkObject(p->ownerPlayer, p->objNumber);
+	if (!obj) return;
+
+	Player* unit = dynamic_cast<Player*>(obj);
+	if (!unit) return;
+
+	// 서버 확정 위치와 크게 어긋나면 스냅 (작으면 클라 보간에 맡김)
+	XMFLOAT3 cur = unit->GetPosition();
+	float dx = cur.x - p->currentPos.x;
+	float dz = cur.z - p->currentPos.z;
+	if (dx * dx + dz * dz > 100.0f) { // 10 units 이상 어긋남
+		float y = mTerrain.GetHeight(p->currentPos.x, p->currentPos.z);
+		unit->SetPosition(p->currentPos.x, y, p->currentPos.z);
+	}
+
+	// 서버 확정 목적지로 이동 시작
+	float destY = mTerrain.GetHeight(p->destination.x, p->destination.z);
+	unit->ClearPath();
+	unit->SetDestination(XMFLOAT3(p->destination.x, destY, p->destination.z));
+	unit->SetFollowerKeyInput(FollowerKeyInput::Move);
+	unit->FollowerEvent();
+}
+
+//-----------------------------------------------------------------
+// 다중 이동 결과
+//-----------------------------------------------------------------
+void DummyApp::OnMoveMultiResult(const SCMoveMultiResult* p)
+{
+	int count = (p->objCount < MAX_MULTI_MOVE) ? p->objCount : MAX_MULTI_MOVE;
+
+	for (int i = 0; i < count; ++i)
+	{
+		GameObject* obj = FindNetworkObject(p->ownerPlayer, p->objNumbers[i]);
+		if (!obj) continue;
+
+		Player* unit = dynamic_cast<Player*>(obj);
+		if (!unit) continue;
+
+		const FXYZ& d = p->destinations[i];
+		float destY = mTerrain.GetHeight(d.x, d.z);
+
+		unit->ClearPath();
+		unit->SetDestination(XMFLOAT3(d.x, destY, d.z));
+		unit->SetFollowerKeyInput(FollowerKeyInput::Move);
+		unit->FollowerEvent();
+	}
+}
+
+//-----------------------------------------------------------------
+// 주기적 위치 동기화 (서버 → 전원, POSITION_SYNC_INTERVAL 주기)
+//  ※ 내 소유 오브젝트는 스냅하지 않고 임계값 초과 시에만 보정
+//-----------------------------------------------------------------
+void DummyApp::OnPositionSync(const SCPositionSync* p)
+{
+	int count = (p->objCount < MAX_SYNC_OBJECTS) ? p->objCount : MAX_SYNC_OBJECTS;
+
+	for (int i = 0; i < count; ++i)
+	{
+		const SCSyncEntry& e = p->entries[i];
+		GameObject* obj = FindNetworkObject(e.ownerPlayer, e.objNumber);
+		if (!obj) continue;
+
+		XMFLOAT3 cur = obj->GetPosition();
+		float dx = cur.x - e.position.x;
+		float dz = cur.z - e.position.z;
+		float errSq = dx * dx + dz * dz;
+
+		bool isMine = (e.ownerPlayer == mMyPlayerNumber);
+		float snapThresholdSq = isMine ? 400.0f : 25.0f; // 내 것 20u, 남의 것 5u
+
+		if (errSq > snapThresholdSq) {
+			float y = mTerrain.GetHeight(e.position.x, e.position.z);
+			obj->SetPosition(e.position.x, y, e.position.z);
+		}
+	}
+}
+
+//-----------------------------------------------------------------
+// 이동 거부 → 서버가 지정한 위치로 강제 보정
+//-----------------------------------------------------------------
+void DummyApp::OnMoveRejected(const SCMoveRejected* p)
+{
+	static const char* reasons[] = { "collision", "speed", "no-auth", "out-of-map" };
+	std::cout << "[Net] move rejected, obj " << (int)p->objNumber
+		<< " reason=" << reasons[p->reason % 4] << std::endl;
+
+	GameObject* obj = FindNetworkObject(mMyPlayerNumber, p->objNumber);
+	if (!obj) return;
+
+	Player* unit = dynamic_cast<Player*>(obj);
+	if (unit) {
+		unit->ClearPath();
+		float y = mTerrain.GetHeight(p->correctedPos.x, p->correctedPos.z);
+		unit->SetPosition(p->correctedPos.x, y, p->correctedPos.z);
+	}
+}
+
+void DummyApp::OnHackWarning(const SCHackWarning* p)
+{
+	std::cout << "[Net] HACK WARNING " << (int)p->warningCount
+		<< "/" << (int)p->maxWarnings << std::endl;
+	// TODO: UI 경고 표시
+}
+
+//-----------------------------------------------------------------
+// objNumber → GameObject 매핑
+//  TODO: 오브젝트 생성 시 (ownerPlayer, objNumber)를 부여하고
+//        unordered_map<int, GameObject*> 로 관리하는 게 좋음.
+//        임시로 mAllGameObjects 선형 탐색 예시:
+//-----------------------------------------------------------------
+GameObject* DummyApp::FindNetworkObject(int ownerPlayer, unsigned char objNumber)
+{
+	// 예시 구현 — GameObject에 GetOwnerPlayer()/GetObjNumber()가
+	// 없다면 추가 필요
+	//
+	// for (auto* obj : mAllGameObjects) {
+	//     if (obj->GetOwnerPlayer() == ownerPlayer &&
+	//         obj->GetObjNumber() == objNumber)
+	//         return obj;
+	// }
+	return nullptr;
+}
+
+
+//=================================================================
+// [4] DummyApp.cpp — 송신 헬퍼
+//     PickingMove()에서 로컬 A* 대신(또는 A*와 병행해서) 호출.
+//     서버 권위 구조이므로: 요청만 보내고, 실제 이동 시작은
+//     SC_MOVE_*_RESULT 수신 시점에 한다.
+//=================================================================
+
+void DummyApp::SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest)
+{
+	if (!mNetworkBridge) return;
+
+	CSMoveObjRequest pkt;
+	pkt.playerNumber = (unsigned char)mMyPlayerNumber;
+	pkt.objNumber = objNumber;
+	pkt.destination = { dest.x, dest.y, dest.z };
+
+	mNetworkBridge->EnqueueSend(pkt);
+}
+
+void DummyApp::SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers,
+	const XMFLOAT3& dest)
+{
+	if (!mNetworkBridge || objNumbers.empty()) return;
+
+	CSMoveMultiRequest pkt;
+	pkt.playerNumber = (unsigned char)mMyPlayerNumber;
+	pkt.objCount = (unsigned char)std::min<size_t>(objNumbers.size(), MAX_MULTI_MOVE);
+	for (int i = 0; i < pkt.objCount; ++i)
+		pkt.objNumbers[i] = objNumbers[i];
+	pkt.destination = { dest.x, dest.y, dest.z };
+
+	mNetworkBridge->EnqueueSend(pkt);
+}
+
+void DummyApp::SendStopRequest(unsigned char objNumber)
+{
+	if (!mNetworkBridge) return;
+
+	CSStopObjRequest pkt;
+	pkt.playerNumber = (unsigned char)mMyPlayerNumber;
+	pkt.objNumber = objNumber;
+
+	mNetworkBridge->EnqueueSend(pkt);
 }

@@ -81,9 +81,9 @@ public:
 	void SummonKnight();
 	void SummonHunter();
 	void SummonSlave();
+	void SummonCommandCenter();
 
 	void DoUpgrade();
-	void SetBuilding();
 
 	virtual bool Initialize()override;
 
@@ -159,12 +159,48 @@ private:
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
+
+	// 송신 헬퍼 (피킹 이동 시 호출)
+	void SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest);
+	void SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers, const XMFLOAT3& dest);
+	void SendStopRequest(unsigned char objNumber);
+
 private:
 
+	bool mGameStarted = false;
+
+	// (owner, objNumber) → GameObject* 매핑. 키 = owner*256 + objNumber
+	std::unordered_map<int, GameObject*> mNetworkObjects;
+
+	static int NetKey(int owner, unsigned char objNumber) {
+		return owner * 256 + objNumber;
+	}
+
+
+	void SendLinkRequest();
+	void OnLinkResult(const SCLinkResult* p);
+	void OnGameStart(const SCGameStart* p);
+
+	// 시작 유닛 1개를 로컬 오브젝트와 연결(또는 생성)
+	void BindNetworkUnit(const SCStartUnit& u);
+
+	// 통신용 
 	NetworkBridge* mNetworkBridge = nullptr;
+	int mMyPlayerNumber = -1;
 
 	void ProcessReceivedPackets();
 
+	// 수신 패킷별 핸들러
+	void OnMoveObjResult(const SCMoveObjResult* p);
+	void OnMoveMultiResult(const SCMoveMultiResult* p);
+	void OnPositionSync(const SCPositionSync* p);
+	void OnMoveRejected(const SCMoveRejected* p);
+	void OnHackWarning(const SCHackWarning* p);
+
+	// objNumber → GameObject 매핑 (컨테이너에 맞게 구현 필요)
+	GameObject* FindNetworkObject(int ownerPlayer, unsigned char objNumber);
+
+	// 프레임용
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
 	FrameResource* mCurrFrameResource = nullptr;
 	int mCurrFrameResourceIndex = 0;
@@ -190,19 +226,19 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSelectionInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mDarknessInputLayout;
 
-	// List of all the render items.
-	//std::vector<std::unique_ptr<RenderItem>> mAllRi
-	// 
-	// tems;
+
+	// 오브젝트 관리용
 	std::vector<GameObject*> mAllGameObjects;
 	std::vector<GameObject*> mTeamObjects;
 	std::vector<GameObject*> mEnemyObjects;
 
+	// 충돌	관리용
 	std::vector<BoundingBox> mStaticColliders;          
 	std::vector<GameObject*> mDynamicColliders;         
 
 	Pathfinder mPathfinder;
 
+	// UI 관리용
 	bool mDarknessEnabled = true;
 	bool mPicking = false;
 	bool mDragFlag = false;

@@ -7,7 +7,6 @@
 #include "../../Grad/GRClient/GRClient/TCPClient.hpp"
 
 #include <boost/asio.hpp>
-#include <boost/asio/steady_timer.hpp>
 #include <thread>
 #include <memory>
 
@@ -34,47 +33,28 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
 
     try
     {
-        // ── 통신 인프라 (통신스레드 소유) ──
         boost::asio::io_context ioservice;
         auto work = boost::asio::make_work_guard(ioservice);
 
-        auto bridge = std::make_unique<NetworkBridge>();
-        TCPC tcpClient(ioservice, bridge.get());
+        auto bridge = std::make_unique< NetworkBridge>();
 
-        // ── 게임 앱 (메인스레드 소유) ──
+        TCPC tcpClient(ioservice, *bridge);
+        tcpClient.Connect("127.0.0.1", SERVERPORT);
+        // ↑ Connect 성공 시 TCPC 내부에서
+        //   recv 루프 + SendQ 펌프(5ms)가 자동 시작됨.
+        //   main에서 별도의 SendQ poll 타이머는 필요 없음.
+
+        // io_context는 반드시 스레드 1개만! (spsc_queue 제약)
+        std::thread ioThread([&ioservice]() { ioservice.run(); });
+
         DummyApp theApp(hInstance, bridge.get());
 
         if (!theApp.Initialize()) {
             work.reset();
             ioservice.stop();
+            if (ioThread.joinable()) { ioThread.join(); }
             return 0;
         }
-
-        // ── SendQ poll 타이머: 통신스레드에서 주기적으로 SendQ → 실제 전송 ──
-        std::function<void(boost::asio::steady_timer&)> pollSendQ;
-        boost::asio::steady_timer sendTimer(ioservice);
-
-        pollSendQ = [&](boost::asio::steady_timer& timer)
-            {
-                auto packets = bridge->DequeueSendAll();
-                for (auto& pkt : packets)
-                {
-                    tcpClient.SendRaw(pkt.data, pkt.length);
-                }
-
-                timer.expires_after(std::chrono::milliseconds(16));
-                timer.async_wait([&](boost::system::error_code ec) {
-                    if (!ec) pollSendQ(timer);
-                    });
-            };
-
-        sendTimer.expires_after(std::chrono::milliseconds(16));
-        sendTimer.async_wait([&](boost::system::error_code ec) {
-            if (!ec) pollSendQ(sendTimer);
-            });
-
-        // ── 통신스레드 시작 ──
-        std::thread ioThread([&ioservice]() { ioservice.run(); });
 
         // ── 메인스레드: Win32 메시지루프 + DX12 렌더링 ──
         int ret = theApp.Run();
