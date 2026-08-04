@@ -120,6 +120,19 @@ XMVECTOR MathHelper::ScreenToWorld(int screenX, int screenY, int screenWidth, in
 	return intersectionPoint;
 }
 
+void MathHelper::ScreenToRay(int screenX, int screenY, int screenWidth, int screenHeight, const DirectX::XMMATRIX& viewMatrix, const DirectX::XMMATRIX& projMatrix, DirectX::XMVECTOR& outRayOrigin, DirectX::XMVECTOR& outRayDirection)
+{
+	float ndcX = (2.0f * screenX) / screenWidth - 1.0f;
+	float ndcY = 1.0f - (2.0f * screenY) / screenHeight;
+	// near plane과 살짝 더 먼 거리만 사용
+	XMVECTOR rayOrigin = XMVectorSet(ndcX, ndcY, 0.0f, 1.0f);    // near plane
+	XMVECTOR rayTarget = XMVectorSet(ndcX, ndcY, 1.0, 1.0f);    // 1.0f에서 0.1f로 변경
+	XMMATRIX invViewProj = XMMatrixInverse(nullptr, XMMatrixMultiply(viewMatrix, projMatrix));
+	outRayOrigin = XMVector3TransformCoord(rayOrigin, invViewProj);
+	XMVECTOR worldRayTarget = XMVector3TransformCoord(rayTarget, invViewProj);
+	outRayDirection = XMVector3Normalize(XMVectorSubtract(worldRayTarget, outRayOrigin));
+}
+
 float MathHelper::AngleFromXY(float x, float y)
 {
 	float theta = 0.0f;

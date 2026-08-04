@@ -1,6 +1,7 @@
 ﻿#include "DummyApp.h"
 
 const int gNumFrameResources = 3;
+constexpr float VisionRadiusWorld = 800.f;
 
 DummyApp::DummyApp(HINSTANCE hInstance, NetworkBridge* bridge)
 	: D3DApp(hInstance), mNetworkBridge(bridge)
@@ -29,6 +30,7 @@ bool DummyApp::Initialize()
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	ShowCursor(false);
+	CenterMouseCursor();
 
 	LoadTextures();
 	BuildRootSignature();
@@ -50,6 +52,8 @@ bool DummyApp::Initialize()
 	BuildFrameResources();
 	BuildPSOs();
 
+
+
 	// 초기화 명령 실행
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
@@ -57,6 +61,8 @@ bool DummyApp::Initialize()
 
 	// 초기화 명령들이 모두 처리되기 기다린다.
 	FlushCommandQueue();
+
+	SendLinkRequest();
 
 	return true;
 }
@@ -71,7 +77,7 @@ void DummyApp::OnResize()
 		mMainCamera = new Camera;
 	}
 
-	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio());
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.f, 30000.f);
 }
 
 void DummyApp::Update(const GameTimer& gt)
@@ -87,7 +93,7 @@ void DummyApp::Update(const GameTimer& gt)
 	//float terrainY = mTerrain.GetHeight(mPlayer->GetPosition().x, mPlayer->GetPosition().z);
 	//DebugPrint("height: %f\n", terrainY);
 	//std::cout << terrainY << std::endl;
-	for (auto& x : mRenderLayer[(int)GameObjectLayer::Object]) {
+	for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
 		float terrainY = mTerrain.GetHeight(x->GetPosition().x, x->GetPosition().z);
 
 		if (x->GetPosition().y < terrainY) {
@@ -106,7 +112,7 @@ void DummyApp::Update(const GameTimer& gt)
 
 	if (mFPSmode) {
 	}
-	else {
+	else if(!mSpecialKeyinput.isCtrl) {
 		mMainCamera->Move(gt);
 
 		XMFLOAT3 camPos = mMainCamera->GetPosition3f();
@@ -162,6 +168,8 @@ void DummyApp::Draw(const GameTimer& gt)
 	// 추가했다면 명령 목록을 재설정할 수 있다. 
 	// 명령 목록을 재성정하면 메모리가 재활용된다.
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
+
+	BuildPendingBoundingBox();
 
 	// 뷰포트와 가위 직사각형을 설정한다.
 	mCommandList->RSSetViewports(1, &mScreenViewport);
@@ -231,7 +239,7 @@ void DummyApp::Draw(const GameTimer& gt)
 		mCommandList->ResourceBarrier(1, &depthToWrite);
 	}
 	DrawSelectionRect();
-	if (!(mSpecialKeyinput.isCtrl || mFPSmode)) { DrawCursor(); }
+	if (mSpecialKeyinput.isCtrl &&  !mFPSmode) { DrawCursor(); }
 
 	// test
 	DrawButtons(mCommandList.Get());
@@ -467,6 +475,31 @@ void DummyApp::DrawBoundingBox()
 	DrawBoundingBox(mCommandList.Get(), mGameObjectLayer[(int)GameObjectLayer::Environment]);
 }
 
+void DummyApp::BuildPendingBoundingBox()
+{
+	for (const auto& pending : mPendingBoundingBuilds)
+	{
+		if (pending.object == nullptr)
+			continue;
+
+		if (pending.shape == BoundingShape::Cylinder)
+		{
+			pending.object->CreateCylinderBoundingBox(
+				md3dDevice.Get(),
+				mCommandList.Get(),
+				pending.segments);
+		}
+		else
+		{
+			pending.object->CreateBoundingBox(
+				md3dDevice.Get(),
+				mCommandList.Get());
+		}
+	}
+
+	mPendingBoundingBuilds.clear();
+}
+
 void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 {
 	mStartMousePos.x = x;
@@ -479,10 +512,11 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 	}
 	else {
 		if (msg == WM_RBUTTONDOWN) {
-			//std::cout << x << ", " << y << std::endl;
+			mRotateFlag = false;
 		}
 		//else if ((btnState & MK_RBUTTON) != 0 && (btnState & MK_LBUTTON) == 0) { }
 		else if (msg == WM_LBUTTONDOWN) {
+			mDragFlag = false;
 		}
 
 	}
@@ -506,25 +540,27 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 		mLastMousePos.y = y;
 
 		if (msg == WM_LBUTTONUP) {
-			if (mUIkey.isO || mUIkey.isB) {
-				SummonObject();
+			if (mSpecialKeyinput.isCtrl) {
+				if (mUIkey.isO || mUIkey.isB) {
+					SummonObject();
+					std::cout << mUIkey.isB << mUIkey.isH << std::endl;
+				}
+				else {
+					//std::cout << "DragFlag - " << mDragFlag << std::endl;
+					//드래그 이벤트 입력
+					if (mDragFlag) DragEvent();
+					else FollowerKeyEvent();
+				}
 			}
-			else {
-				//std::cout << "DragFlag - " << mDragFlag << std::endl;
-				//드래그 이벤트 입력
-				if (mDragFlag) DragEvent();
-				else FollowerKeyEvent();
 				mDragFlag = false;
-			}
 		}
-		else if (msg == WM_RBUTTONUP && mRoateFlag == false && !mSpecialKeyinput.isCtrl) {
+		else if (msg == WM_RBUTTONUP && !mRotateFlag && mSpecialKeyinput.isCtrl) {
 			if (mPicking) {
 				mFollowerinput = FollowerKeyInput::Move;
 				FollowerKeyEvent();
 			}
 		}
-		mRoateFlag = false;
-
+		mRotateFlag = false;
 	}
 
 	ReleaseCapture();
@@ -535,30 +571,67 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 
 	// Make each pixel correspond to a quarter of a degree.
-	float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-	float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-	if (mFPSmode) {
-		mPlayer->MouseInput(dx, dy);
+	if(mIgnoreMouseMove) {
+		mIgnoreMouseMove = false;
+		return;
 	}
 
-	if ((btnState & MK_RBUTTON) != 0)
-	{
-		if ((!mFPSmode) && mSpecialKeyinput.isCtrl) {
-			mRoateFlag = true;
-			mMainCamera->Pitch(dy);
-			mMainCamera->RotateY(dx);
+	if (mFPSmode) {
 
-			mMainCamera->UpdateViewMatrix();
-		}
+		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
+		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
+
+		mPlayer->MouseInput(dx, dy);
+		mLastMousePos = { x, y };
+	}
+	else if (!mSpecialKeyinput.isCtrl) {
+
+		int centerX = mClientWidth / 2;
+		int centerY = mClientHeight / 2;
+		
+		int deltaX = x - centerX;
+		int deltaY = y - centerY;
+
+		if (deltaX == 0 && deltaY == 0) return;
+
+		float dx = XMConvertToRadians(0.25f * static_cast<float>(deltaX));
+		float dy = XMConvertToRadians(0.25f * static_cast<float>(deltaY));
+
+		mMainCamera->Pitch(dy);
+		mMainCamera->RotateY(dx);
+		mMainCamera->UpdateViewMatrix();
+
+		if ((btnState & MK_RBUTTON) != 0) mRotateFlag = true;
+		
+		CenterMouseCursor();
+
+		return;
 	}
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
 
-	if ((btnState & MK_LBUTTON) != 0) {
+	if (!mFPSmode && mSpecialKeyinput.isCtrl && (btnState & MK_LBUTTON) != 0) {
 		if (mLastMousePos.x != mStartMousePos.x || mLastMousePos.y != mStartMousePos.y) mDragFlag = true;
 	}
 
+}
+
+void DummyApp::CenterMouseCursor()
+{
+	int centerX = mClientWidth / 2;
+	int centerY = mClientHeight / 2;
+
+	mLastMousePos.x = centerX;
+	mLastMousePos.y = centerY;
+
+	POINT CenterPoint = { centerX, centerY };
+
+	ClientToScreen(mhMainWnd, &CenterPoint);
+
+	mIgnoreMouseMove = true;
+
+	SetCursorPos(CenterPoint.x, CenterPoint.y);
 }
 
 void DummyApp::DragEvent()
@@ -664,6 +737,7 @@ void DummyApp::AddPicking()
 #ifdef _DEBUG
 		//std::cout << "Picked Object - " << closestObject->GetName() << "\n";
 #endif
+		mPicking = !mGameObjectLayer[(int)GameObjectLayer::Picking].empty();
 	}
 
 }
@@ -672,23 +746,39 @@ void DummyApp::PickingMove()
 {
 	if (mPicking)
 	{
-		XMVECTOR worldPos = MathHelper::ScreenToWorld(
-			mLastMousePos.x, mLastMousePos.y,
-			mClientWidth, mClientHeight,
-			mMainCamera->GetView(), mMainCamera->GetProj());
 
+		int enemyOwner; unsigned char enemyObj;
+		if (PickEnemyUnit(mLastMousePos.x, mLastMousePos.y,
+			enemyOwner, enemyObj))
+		{
+			for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+				int myObj = GetNetworkObjNumber(x);
+				if (myObj >= 0)
+					SendAttackRequest((unsigned char)myObj,
+						(unsigned char)enemyOwner, enemyObj);
+			}
+			return;   // 이동 로직 건너뜀
+		}
+
+
+		XMFLOAT3 pickedTerrainPoint;
+		if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pickedTerrainPoint))
+			return;
+
+		std::vector<unsigned char> netObjNumbers;
+		XMFLOAT3 netDest = pickedTerrainPoint;
 		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
 		{
-			XMFLOAT3 destPos = {
-				XMVectorGetX(worldPos),
-				x->GetPosition().y,
-				XMVectorGetZ(worldPos)
-			};
+			XMFLOAT3 destPos = pickedTerrainPoint;
 
 			if (x->GetObjType() == ObjectsType::CHARACTER)
 			{
 				Player* player = dynamic_cast<Player*>(x);
 				if (!player) continue;
+
+				int netNum = GetNetworkObjNumber(x);
+				if (netNum >= 0)
+					netObjNumbers.push_back((unsigned char)netNum);
 
 				// 멈춰있는 동적 오브젝트만 임시 장애물로 마킹
 				// (이동 중인 유닛은 곧 자리를 비우므로 장애물 취급 안 함)
@@ -769,10 +859,125 @@ void DummyApp::PickingMove()
 			}
 		}
 
-		for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object])
-		{
+		if (!netObjNumbers.empty()) {
+			if (netObjNumbers.size() == 1)
+				SendMoveRequest(netObjNumbers[0], netDest);
+			else
+				SendMultiMoveRequest(netObjNumbers, netDest);
 		}
+	/*	for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object])
+		{
+		}*/
 	}
+}
+
+bool DummyApp::PickTerrainPoint(int sx, int sy, XMFLOAT3& outPoint)
+{
+	XMVECTOR rayOriginVector;
+	XMVECTOR rayDirectionVector;
+
+	MathHelper::ScreenToRay(sx, sy, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj(), rayOriginVector, rayDirectionVector);
+
+	XMFLOAT3 rayOrigin;
+	XMFLOAT3 rayDirection;
+
+	XMStoreFloat3(&rayOrigin, rayOriginVector);
+
+	XMStoreFloat3(&rayDirection, rayDirectionVector);
+	const float halfWidth = mTerrain.GetWidth() * 0.5f;
+
+	const float halfLength = mTerrain.GetLength() * 0.5f;
+
+	// 현재 지형 셀 간격이 약 20이므로 절반 정도 사용
+	const float stepDistance = 10.0f;
+	const float maxDistance = mMainCamera->GetFarZ();
+
+	bool hasPreviousSample = false;
+
+	float previousT = 0.0f;
+	float previousDifference = 0.0f;
+
+	for (float t = 0.0f;
+		t <= maxDistance;
+		t += stepDistance)
+	{
+		XMFLOAT3 rayPoint = {
+			rayOrigin.x + rayDirection.x * t,
+			rayOrigin.y + rayDirection.y * t,
+			rayOrigin.z + rayDirection.z * t
+		};
+
+		bool insideTerrain =
+			rayPoint.x >= -halfWidth &&
+			rayPoint.x <= halfWidth &&
+			rayPoint.z >= -halfLength &&
+			rayPoint.z <= halfLength;
+
+		if (!insideTerrain)
+		{
+			hasPreviousSample = false;
+			continue;
+		}
+
+		float terrainY = mTerrain.GetHeight( rayPoint.x, rayPoint.z);
+
+		// 양수: 레이가 지형 위
+		// 음수: 레이가 지형 아래
+		float difference = rayPoint.y - terrainY;
+
+		if (hasPreviousSample &&
+			previousDifference > 0.0f &&
+			difference <= 0.0f)
+		{
+			// 이전 샘플과 현재 샘플 사이에서 첫 접점 정밀 탐색
+			float low = previousT;
+			float high = t;
+
+			for (int i = 0; i < 18; ++i)
+			{
+				float middle =
+					(low + high) * 0.5f;
+
+				float x = rayOrigin.x + rayDirection.x * middle;
+
+				float y =
+					rayOrigin.y +
+					rayDirection.y * middle;
+
+				float z =
+					rayOrigin.z +
+					rayDirection.z * middle;
+
+				float height =
+					mTerrain.GetHeight(x, z);
+
+				if (y > height)
+					low = middle;
+				else
+					high = middle;
+			}
+
+			outPoint.x =
+				rayOrigin.x +
+				rayDirection.x * high;
+
+			outPoint.z =
+				rayOrigin.z +
+				rayDirection.z * high;
+
+			outPoint.y =
+				mTerrain.GetHeight(
+					outPoint.x,
+					outPoint.z);
+
+			return true;
+		}
+
+		hasPreviousSample = true;
+		previousT = t;
+		previousDifference = difference;
+	}
+	return false;
 }
 
 void DummyApp::PickingAttackMove()
@@ -829,6 +1034,9 @@ void DummyApp::RsetUIInput()
 
 void DummyApp::SummonObject()
 {
+
+	std::cout << mUIkey.isB << mUIkey.isH << std::endl;
+
 	if (mUIkey.isO) {
 		if (mUIkey.isN) {
 			SummonHunter();
@@ -851,6 +1059,56 @@ void DummyApp::SummonObject()
 
 }
 
+void DummyApp::RegisterVisionObject(GameObject* obj, int ownerPlayer)
+{
+	if (!obj) return;
+
+	mTeamObjects.erase(std::remove(mTeamObjects.begin(), mTeamObjects.end(), obj), mTeamObjects.end());	
+	mEnemyObjects.erase(std::remove(mEnemyObjects.begin(), mEnemyObjects.end(), obj), mEnemyObjects.end());
+
+	if (ownerPlayer == mMyPlayerNumber) {
+		mTeamObjects.push_back(obj);
+	}
+	else {
+		mEnemyObjects.push_back(obj);
+	}
+}
+
+bool DummyApp::isInTeamVision(GameObject* obj) const
+{
+	if (!obj) return false;
+
+	XMFLOAT3 objPos = obj->GetPosition();
+	float visionRadiusSquared = VisionRadiusWorld * VisionRadiusWorld;
+
+	for (GameObject* teamObj : mTeamObjects)
+	{
+		XMFLOAT3 teamPos = teamObj->GetPosition();
+		float dx = objPos.x - teamPos.x;
+		//float dy = objPos.y - teamPos.y;
+		float dz = objPos.z - teamPos.z;
+		float distanceSquared = dx * dx + dz * dz;
+		if (distanceSquared <= visionRadiusSquared)
+		{
+			return true; // 팀 유닛의 시야 범위 안에 있음
+		}
+	}
+}
+
+bool DummyApp::ShouldRenderObject(GameObject* obj) const
+{
+	if(!mDarknessEnabled || !obj) return true;
+
+	//GameObject* visibilityObj = obj;
+
+	bool isEnemy = std::find(mEnemyObjects.begin(), mEnemyObjects.end(), obj) != mEnemyObjects.end();
+
+	if (!isEnemy) return true;
+
+	return isInTeamVision(obj);
+}
+
+
 void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 {
 	DarknessConstants dc = {};
@@ -862,7 +1120,7 @@ void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 	dc.GlowColor = DirectX::XMFLOAT4(1.2f, 1.1f, 0.9f, 0.4f);
 
 	// 월드 기준 시야 반경 (맵 스케일에 맞춰 값 조정)
-	const float visionRadiusWorld = 800.0f;
+	//const float visionRadiusWorld = 800.0f;
 
 	int count = 0;
 
@@ -876,7 +1134,7 @@ void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 		DirectX::XMFLOAT3 pos = obj->GetPosition();
 
 		dc.Units[count].CenterPosRadius =
-			DirectX::XMFLOAT4(pos.x, pos.y, pos.z, visionRadiusWorld);
+			DirectX::XMFLOAT4(pos.x, pos.y, pos.z, VisionRadiusWorld);
 
 		++count;
 	}
@@ -972,24 +1230,24 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case VK_TAB:
 			if (mFPSmode) {
 				mFPSmode = false;
-				mRoateFlag = false;
+				mRotateFlag = false;
 				mMainCamera = mSubCamera[0];
 				mMainCamera->ResetKeyInput();
 				mMainCamera->SetPosition(Vector3::Add(XMFLOAT3(0.f, 1000.f, 0.f), mPlayer->GetPosition()));
 				//mMainCamera->LookAt(mMainCamera->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
-				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.f, 30000.f);
 			}
 			else {
 				mFPSmode = true;
-				mRoateFlag = true;
+				mRotateFlag = true;
 				mPlayer->ResetKeyInput();
 				mMainCamera->SetVelocity(XMFLOAT3(0.f, 0.f, 0.f));
 				mMainCamera = mPlayer->GetCamera();
-				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
+				mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.f, 30000.f);
 			}
 			break;
 		case VK_CONTROL:
-			mSpecialKeyinput.isCtrl = true;
+
 			break;
 		case VK_LSHIFT:
 			mSpecialKeyinput.isShift = true;
@@ -1013,7 +1271,18 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 		case VK_F1:
 			break;
 		case VK_CONTROL:
-			mSpecialKeyinput.isCtrl = false;
+			if (!mFPSmode) {
+				mSpecialKeyinput.isCtrl = !mSpecialKeyinput.isCtrl;
+				
+				mDragFlag = false;
+				mRotateFlag = false;
+
+				if(mSpecialKeyinput.isCtrl){
+					mIgnoreMouseMove = false;
+					//mMainCamera->SetVelocity(XMFLOAT3(0.f, 0.f, 0.f));
+				}
+				else CenterMouseCursor();
+			}
 			break;
 		case VK_LSHIFT:
 			mSpecialKeyinput.isShift = false;
@@ -1227,9 +1496,9 @@ void DummyApp::LoadTextures()
 		"terrainDiffuseMap",
 		"crystalDiffuse",
 		"bowDiffuse",
-		"archerDiffuse",
-		"cursor",
-		"CommandCenter"
+		"hunterDiffuse",
+		"commandcenterDiffuse",
+		"cursor"
 	};
 
 	std::vector<std::wstring> texFilenames =
@@ -1244,8 +1513,8 @@ void DummyApp::LoadTextures()
 		L"Textures/Environment/crystal.dds",
 		L"Textures/Weapon/Bow/BowDiffuse.dds",
 		L"Textures/Character/Archer_diffuse.dds",
-		L"Textures/cursor.dds",
-		L"Textures/Building/CommandCenter.dds"
+		L"Textures/Building/CommandCenter_diffuse.dds",
+		L"Textures/cursor.dds"
 	};
 
 	for (int i = 0; i < (int)texNames.size(); ++i)
@@ -1359,7 +1628,7 @@ void DummyApp::BuildDescriptorHeaps()
 	auto swordTex = mTextures["swordDiffuse"]->Resource;
 	auto vanguardTex = mTextures["vanguardDiffuse"]->Resource;
 
-	auto archerTex = mTextures["archerDiffuse"]->Resource;
+	auto hunterTex = mTextures["hunterDiffuse"]->Resource;
 
 	auto bricksTex = mTextures["bricksDiffuseMap"]->Resource;
 	auto stoneTex = mTextures["stoneDiffuseMap"]->Resource;
@@ -1372,9 +1641,9 @@ void DummyApp::BuildDescriptorHeaps()
 
 	auto bowTex = mTextures["bowDiffuse"]->Resource;
 
-	auto cursorTex = mTextures["cursor"]->Resource;
+	auto CommandCenterTex = mTextures["commandcenterDiffuse"]->Resource;
 
-	auto CommandCenterTex = mTextures["CommandCenter"]->Resource;
+	auto cursorTex = mTextures["cursor"]->Resource;
 
 	// 텍스처에 대한 실제 서술자들을 앞에서 생성한 힙에 생성한다.
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -1455,21 +1724,26 @@ void DummyApp::BuildDescriptorHeaps()
 	//// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	srvDesc.Format = archerTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = archerTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(archerTex.Get(), &srvDesc, hDescriptor);
+	srvDesc.Format = hunterTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = hunterTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(hunterTex.Get(), &srvDesc, hDescriptor);
 
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-	srvDesc.Format = cursorTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = cursorTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(cursorTex.Get(), &srvDesc, hDescriptor);
-
-
+	//// 다음 서술자로 넘어간다.
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
 	srvDesc.Format = CommandCenterTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = CommandCenterTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(CommandCenterTex.Get(), &srvDesc, hDescriptor);
+	
+	//// 다음 서술자로 넘어간다.
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = cursorTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = cursorTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(cursorTex.Get(), &srvDesc, hDescriptor);
+
+
+
 
 
 
@@ -1834,7 +2108,7 @@ void DummyApp::LoadSkinnedMesh()
 			indices.push_back(mSkinnedMesh->mIndices[i]);
 		}
 
-		mSkinnedMesh->mName = "Archer";
+		mSkinnedMesh->mName = "Hunter";
 
 		mSkinnedMesh->CreateBlob(vertices, indices);
 		mSkinnedMesh->UploadBuffer(md3dDevice.Get(), mCommandList.Get(), vertices, indices);
@@ -2016,7 +2290,7 @@ void DummyApp::LoadMeshes()
 		Mesh* commandcenterMesh = new Mesh;
 
 		commandcenterMesh->SetOffsetMatrix(XMFLOAT3(0.0f, 1.0f, 0.0f), 0.f);
-		commandcenterMesh->LoadMesh("Models/Environment/commandcenter.fbx");
+		commandcenterMesh->LoadMesh("Models/Building/CommandCenter.fbx");
 		//commandcenterMesh->LoadMesh("Models/mech.fbx");
 		UINT vcount = 0;
 		UINT tcount = 0;
@@ -2026,7 +2300,7 @@ void DummyApp::LoadMeshes()
 		UINT dindex = 0;
 
 		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
-		XMMATRIX offsetMat = XMMatrixScaling(7.0f, 7.0f, 7.0f);
+		XMMATRIX offsetMat = XMMatrixRotationX(XM_PIDIV2) * XMMatrixScaling(1.5f, 1.5f, 1.5f);
 
 		UINT numVertices = commandcenterMesh->mPositions.size();
 		for (int j = 0; j < numVertices; j++)
@@ -2407,18 +2681,18 @@ void DummyApp::BuildMaterials()
 
 	mMaterials["bow"] = std::move(bow);
 
-	auto archer = std::make_unique<Material>();
-	archer->Name = "archerDiffuse";
-	archer->MatCBIndex = matCBIndex++;
-	archer->DiffuseSrvHeapIndex = SRVIndex++;
-	archer->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	archer->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	archer->Roughness = 0.1f;
+	auto hunter = std::make_unique<Material>();
+	hunter->Name = "hunterDiffuse";
+	hunter->MatCBIndex = matCBIndex++;
+	hunter->DiffuseSrvHeapIndex = SRVIndex++;
+	hunter->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	hunter->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	hunter->Roughness = 0.1f;
 
-	mMaterials["archer"] = std::move(archer);
+	mMaterials["hunter"] = std::move(hunter);
 
 	auto commandCenter = std::make_unique<Material>();
-	commandCenter->Name = "commandCenterDiffuse";
+	commandCenter->Name = "commandcenterDiffuse";
 	commandCenter->MatCBIndex = matCBIndex++;
 	commandCenter->DiffuseSrvHeapIndex = SRVIndex++;
 	commandCenter->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -2427,6 +2701,7 @@ void DummyApp::BuildMaterials()
 
 	mMaterials["commandCenter"] = std::move(commandCenter);
 
+	//Cursor Material는 무조건 마지막에 있어야한다.
 	mCursorTexHeapIndex = SRVIndex++;
 }
 
@@ -2709,7 +2984,7 @@ void DummyApp::BuildGameObjects()
 	if (mFPSmode) mMainCamera = mPlayer->GetCamera();
 	else mMainCamera = m;
 
-	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 30000.f);
+	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.f, 30000.f);
 
 	Skinned1->SetWeapon(swordGameObject);
 	swordGameObject->SetOwner(Skinned1);
@@ -3228,6 +3503,8 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 	{
 		auto gameObj = gameObjects[i];
 
+		if(!ShouldRenderObject(gameObj)) continue;
+
 		cmdList->IASetVertexBuffers(0, 1, &gameObj->GetMesh()->VertexBufferView());
 		cmdList->IASetIndexBuffer(&gameObj->GetMesh()->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(gameObj->GetPrimitiveType());
@@ -3291,30 +3568,34 @@ void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
 
 void DummyApp::SummonKnight()
 {
+	XMFLOAT3 pos;
+
+	if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos))
+		return;
+
 	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
 	swordGameObject->SetCBIndex(objCBIndex);
 	swordGameObject->SetMesh(mMeshes["Sword"]);
 	swordGameObject->SetMaterial(mMaterials["sword"].get());
 	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
 	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	mPendingBoundingBuilds.push_back({ swordGameObject, BoundingShape::Box, 16 });
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
 	mAllGameObjects.push_back(swordGameObject);
 
-	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
-	XMFLOAT3 pos;
-	XMStoreFloat3(&pos, worldPos);
 
-	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+
+	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x,pos.y,pos.z), XMMatrixIdentity());
+	playerGameObject1->SetMaxHP(GetDefaultMaxHp(ObjType::Knight));
 	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
 	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
 	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
 	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
 	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
 	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject1->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
+	mPendingBoundingBuilds.push_back({ playerGameObject1, BoundingShape::Cylinder, 16 });
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
@@ -3338,26 +3619,29 @@ void DummyApp::SummonHunter()
 	bowGameObject->SetMaterial(mMaterials["bow"].get());
 	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
 	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
+	mPendingBoundingBuilds.push_back({ bowGameObject, BoundingShape::Box, 16 });
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
 	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+	mAllGameObjects.push_back(bowGameObject);
 
 	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
 	XMFLOAT3 pos;
 
 	XMStoreFloat3(&pos, worldPos);
 	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
+	playerGameObject2->SetMaxHP(GetDefaultMaxHp(ObjType::Hunter));
 	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject2->SetMesh(mMeshes["Archer"]);
-	playerGameObject2->SetMaterials(2, { mMaterials["archer"].get(),  mMaterials["archer"].get() });
+	playerGameObject2->SetMesh(mMeshes["Hunter"]);
+	playerGameObject2->SetMaterials(2, { mMaterials["hunter"].get(),  mMaterials["hunter"].get() });
 	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
 	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
 	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	playerGameObject2->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
+	mPendingBoundingBuilds.push_back({ playerGameObject2, BoundingShape::Cylinder, 16 });
 
 	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+
 	mAllGameObjects.push_back(playerGameObject2);
 	mTeamObjects.push_back(playerGameObject2);
 
@@ -3379,9 +3663,190 @@ void DummyApp::DoUpgrade()
 {
 }
 
+int DummyApp::GetNetworkObjNumber(GameObject* obj) const
+{
+	for (const auto& [key, v] : mNetworkObjects) {
+		if (v == obj && (key / 256) == mMyPlayerNumber)
+			return key % 256;
+	}
+	return -1;
+}
+
+void DummyApp::OnPlayerLeft(const SCPlayerLeft* p)
+{
+	std::cout << "[Net] player " << (int)p->playerNumber << " left the game\n";
+
+	// 나간 플레이어의 유닛 매핑 해제 (오브젝트 자체는 남겨두고 정지)
+	for (auto it = mNetworkObjects.begin(); it != mNetworkObjects.end(); )
+	{
+		if (it->first / 256 == p->playerNumber) {
+			if (Player* unit = dynamic_cast<Player*>(it->second)) {
+				unit->ClearPath();
+				unit->SetDestination(unit->GetPosition());  // 제자리 정지
+			}
+			it = mNetworkObjects.erase(it);
+		}
+		else ++it;
+	}
+}
+
+void DummyApp::SendAttackRequest(unsigned char attackerObj, unsigned char targetOwner, unsigned char targetObj)
+{
+	if (!mNetworkBridge || mMyPlayerNumber == 0) return;
+
+	CSAttackRequest req;
+	req.playerNumber = (unsigned char)mMyPlayerNumber;
+	req.attackerObj = attackerObj;
+	req.targetOwner = targetOwner;
+	req.targetObj = targetObj;
+
+	mNetworkBridge->EnqueueSend(req);
+}
+
+void DummyApp::OnAttackResult(const SCAttackResult* p)
+{
+	// 공격자 애니메이션
+	if (GameObject* atk = FindNetworkObject(p->attackerOwner, p->attackerObj)) {
+		if (Player* unit = dynamic_cast<Player*>(atk)) {
+			// 대상 바라보기 + 공격 모션
+			if (GameObject* tgt = FindNetworkObject(p->targetOwner, p->targetObj)) {
+				XMFLOAT3 tp = tgt->GetPosition();
+				unit->SetDestination(unit->GetPosition());   // 제자리
+				// TODO: unit->LookAt(tp) 같은 회전 함수가 있으면 호출
+			}
+			unit->SetFollowerKeyInput(FollowerKeyInput::Attack);  // ※ enum 이름 확인
+			unit->FollowerEvent();
+		}
+	}
+
+	// 대상 HP 반영
+	std::cout << "[Combat] obj " << (int)p->targetObj
+		<< " (owner " << (int)p->targetOwner << ") hp -> "
+		<< p->targetHpRemaining << "\n";
+	// TODO: HP바 UI. GameObject에 hp 멤버가 없으면 추가하거나
+	//       DummyApp에 unordered_map<int,int> mUnitHp 로 관리.
+}
+
+void DummyApp::OnObjDead(const SCObjDead* p)
+{
+	std::cout << "[Combat] obj " << (int)p->objNumber
+		<< " (owner " << (int)p->ownerPlayer << ") DIED\n";
+
+	auto it = mNetworkObjects.find(NetKey(p->ownerPlayer, p->objNumber));
+	if (it == mNetworkObjects.end()) return;
+
+	if (Player* unit = dynamic_cast<Player*>(it->second)) {
+		unit->ClearPath();
+		unit->SetDestination(unit->GetPosition());
+		// TODO: 사망 애니메이션 (StateId::Death 등이 있으면 전환)
+		//       렌더 레이어에서 제거 or 눕히기. 당장은 매핑 해제로
+		//       추가 명령 대상에서만 빠진다.
+	}
+	mNetworkObjects.erase(it);
+}
+
+GameObject* DummyApp::PickEnemyUnit(int sx, int sy, int& outOwner, unsigned char& outObjNum)
+{
+	XMVECTOR rayOrigin, rayDir;
+	MathHelper::ScreenToRay(sx, sy, mClientWidth, mClientHeight,
+		mMainCamera->GetView(), mMainCamera->GetProj(),	rayOrigin, rayDir);  
+
+	for (const auto& [key, obj] : mNetworkObjects) {
+		int owner = key / 256;
+		if (owner == mMyPlayerNumber) continue;      // 적만
+		if (obj->GetObjType() != ObjectsType::CHARACTER) continue; // 유닛만
+		if (mDarknessEnabled && !isInTeamVision(obj)) continue;  // 시야 밖이면 스킵
+
+		BoundingBox worldBB;
+		obj->GetBoundingBox().Transform(worldBB,
+			XMLoadFloat4x4(&obj->GetWorld()));
+
+		float dist;
+		if (worldBB.Intersects(rayOrigin, rayDir, dist)) {
+			outOwner = owner;
+			outObjNum = (unsigned char)(key % 256);
+			return obj;
+		}
+	}
+	return nullptr;
+}
+
 void DummyApp::SummonCommandCenter()
 {
+	if (!mNetworkBridge || mMyPlayerNumber == 0) {
+		std::cout << "[Build] not linked to server yet\n";
+		mUIkey.isH = false;
+		mUIkey.isB = false;
+		return;
+	}
 
+	XMVECTOR worldPos = MathHelper::ScreenToWorld(
+		mLastMousePos.x, mLastMousePos.y,
+		mClientWidth, mClientHeight,
+		mMainCamera->GetView(), mMainCamera->GetProj());
+
+	XMFLOAT3 pos;
+	XMStoreFloat3(&pos, worldPos);
+
+	CSBuildRequest req;
+	req.playerNumber = (unsigned char)mMyPlayerNumber;
+	req.buildType = (unsigned char)ObjType::Base;
+	req.position = { pos.x, 0.0f, pos.z };
+
+	mNetworkBridge->EnqueueSend(req);
+
+	mUIkey.isH = false;
+	mUIkey.isB = false;
+}
+
+void DummyApp::OnBuildResult(const SCBuildResult* p)
+{
+	if (!p->success) {
+		std::cout << "[Build] rejected by server\n";
+		// TODO: UI 피드백 (빨간 표시 등)
+		return;
+	}
+
+	CreateCommandCenterAt(p->ownerPlayer, p->buildNumber,
+		XMFLOAT3(p->position.x, 0.0f, p->position.z));
+}
+
+void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos)
+{
+	float y = mTerrain.GetHeight(pos.x, pos.z);
+
+	GameObject* cc = new GameObject("CommandCenter",
+		ObjectsType::ENVIRONMENT,
+		XMMatrixTranslation(pos.x, y, pos.z),
+		XMMatrixIdentity());
+
+	cc->SetCBIndex(objCBIndex);
+	cc->SetMesh(mMeshes["CommandCenter"]);
+	cc->SetMaterial(mMaterials["commandCenter"].get());
+	cc->AddSubmesh(cc->GetMesh()->GetSubmesh("commandcenter"));
+	cc->SetBoundingBox(XMFLOAT3(0.0f, CC_EXTENT_Y, 0.0f),
+		XMFLOAT3(CC_EXTENT_X, CC_EXTENT_Y, CC_EXTENT_Z));
+	mPendingBoundingBuilds.push_back({ cc, BoundingShape::Box, 16 });
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(cc);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(cc);
+	mAllGameObjects.push_back(cc);
+
+	//if (ownerPlayer == mMyPlayerNumber)
+	//	mTeamObjects.push_back(cc);   // 내 건물 → 시야(암흑) 시스템에 포함
+	RegisterVisionObject(cc, ownerPlayer);
+
+	// 클라 물리에도 즉시 반영: 월드 BB를 정적 충돌체로 등록
+	BoundingBox worldBB;
+	cc->GetBoundingBox().Transform(worldBB, XMLoadFloat4x4(&cc->GetWorld()));
+	mStaticColliders.push_back(worldBB);
+
+	// 네트워크 매핑 등록 (건물 번호는 유닛과 겹치지 않게 +100 오프셋)
+	mNetworkObjects[NetKey(ownerPlayer, buildNumber + 100)] = cc;
+
+	std::cout << "[Build] CommandCenter #" << (int)buildNumber
+		<< " (owner " << ownerPlayer << ") at ("
+		<< pos.x << ", " << pos.z << ")\n";
 }
 
 void DummyApp::ReleseMemory()
@@ -3486,6 +3951,7 @@ void DummyApp::SendLinkRequest()
 	info.userID = 0;                                    // TODO: 로비 연동 시 실제 ID
 
 	mNetworkBridge->EnqueueSend(info);
+	std::cout << "[Net] link request queued\n";
 }
 
 void DummyApp::OnLinkResult(const SCLinkResult* p)
@@ -3500,6 +3966,9 @@ void DummyApp::OnLinkResult(const SCLinkResult* p)
 
 void DummyApp::OnGameStart(const SCGameStart* p)
 {
+	mTeamObjects.clear();
+	mEnemyObjects.clear();
+
 	int count = (p->unitCount < MAX_TOTAL_START_UNITS)
 		? p->unitCount : MAX_TOTAL_START_UNITS;
 
@@ -3526,9 +3995,11 @@ void DummyApp::BindNetworkUnit(const SCStartUnit& u)
 
 		// 바인딩: 서버 스폰 위치로 이동시키고 매핑 등록
 		float y = mTerrain.GetHeight(u.position.x, u.position.z);
+		obj->SetMaxHP(GetDefaultMaxHp((ObjType)u.objType));
 		obj->SetPosition(u.position.x, y, u.position.z);
 
 		mNetworkObjects[NetKey(u.ownerPlayer, u.objNumber)] = obj;
+		RegisterVisionObject(obj, u.ownerPlayer);
 
 		std::cout << "  bind: owner " << (int)u.ownerPlayer
 			<< " obj " << (int)u.objNumber << "\n";
@@ -3575,14 +4046,26 @@ void DummyApp::ProcessReceivedPackets()
 			OnHackWarning(
 				reinterpret_cast<const SCHackWarning*>(pkt.data));
 			break;
+
 		case SC_LINK_RESULT:
 			OnLinkResult(reinterpret_cast<const SCLinkResult*>(pkt.data));
 			break;
-
 		case SC_GAME_START:
 			OnGameStart(reinterpret_cast<const SCGameStart*>(pkt.data));
 			break;
 
+		case SC_BUILD_RESULT:
+			OnBuildResult(reinterpret_cast<const SCBuildResult*>(pkt.data));
+			break;
+		case SC_PLAYER_LEFT:
+			OnPlayerLeft(reinterpret_cast<const SCPlayerLeft*>(pkt.data));
+			break;
+		case SC_ATTACK_RESULT:
+			OnAttackResult(reinterpret_cast<const SCAttackResult*>(pkt.data));
+			break;
+		case SC_OBJ_DEAD:
+			OnObjDead(reinterpret_cast<const SCObjDead*>(pkt.data));
+			break;
 		default:
 			std::cout << "[Net] unknown packet type: "
 				<< (int)packetType << std::endl;
@@ -3602,19 +4085,39 @@ void DummyApp::OnMoveObjResult(const SCMoveObjResult* p)
 	Player* unit = dynamic_cast<Player*>(obj);
 	if (!unit) return;
 
-	// 서버 확정 위치와 크게 어긋나면 스냅 (작으면 클라 보간에 맡김)
+	float destY = mTerrain.GetHeight(p->destination.x, p->destination.z);
+	XMFLOAT3 serverDest(p->destination.x, destY, p->destination.z);
+
+	//--- 내 유닛: 이미 A*로 이동 중 (예측). 서버가 목적지를
+	//    보정했을 때만 서버 확정 목적지로 갈아탄다.
+	if (p->ownerPlayer == mMyPlayerNumber)
+	{
+		XMFLOAT3 fin = unit->GetFinalDestination();  // ※ getter 없으면 Player에 추가
+		float dx = fin.x - serverDest.x;
+		float dz = fin.z - serverDest.z;
+
+		if (dx * dx + dz * dz > 25.0f) {   // 5유닛 이상 보정됨 → 서버 우선
+			unit->SetFinalDestination(serverDest);
+			unit->ClearPath();
+			unit->SetDestination(serverDest);
+			unit->SetFollowerKeyInput(FollowerKeyInput::Move);
+			unit->FollowerEvent();
+			std::cout << "[Net] my move corrected by server\n";
+		}
+		return;   // 보정 없으면 아무것도 안 함 (예측 신뢰)
+	}
+
+	//--- 상대 유닛: 서버 결과로 이동 시작 (기존 로직)
 	XMFLOAT3 cur = unit->GetPosition();
 	float dx = cur.x - p->currentPos.x;
 	float dz = cur.z - p->currentPos.z;
-	if (dx * dx + dz * dz > 100.0f) { // 10 units 이상 어긋남
+	if (dx * dx + dz * dz > 100.0f) {
 		float y = mTerrain.GetHeight(p->currentPos.x, p->currentPos.z);
 		unit->SetPosition(p->currentPos.x, y, p->currentPos.z);
 	}
 
-	// 서버 확정 목적지로 이동 시작
-	float destY = mTerrain.GetHeight(p->destination.x, p->destination.z);
 	unit->ClearPath();
-	unit->SetDestination(XMFLOAT3(p->destination.x, destY, p->destination.z));
+	unit->SetDestination(serverDest);
 	unit->SetFollowerKeyInput(FollowerKeyInput::Move);
 	unit->FollowerEvent();
 }
@@ -3624,6 +4127,11 @@ void DummyApp::OnMoveObjResult(const SCMoveObjResult* p)
 //-----------------------------------------------------------------
 void DummyApp::OnMoveMultiResult(const SCMoveMultiResult* p)
 {
+	//--- 내 유닛 묶음: 예측 신뢰, 개별 보정은 위치동기화가 처리
+	if (p->ownerPlayer == mMyPlayerNumber)
+		return;
+
+	//--- 상대 유닛: 기존 로직 그대로
 	int count = (p->objCount < MAX_MULTI_MOVE) ? p->objCount : MAX_MULTI_MOVE;
 
 	for (int i = 0; i < count; ++i)

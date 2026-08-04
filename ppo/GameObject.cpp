@@ -228,3 +228,26 @@ D3D12_INDEX_BUFFER_VIEW GameObject::BoundingBoxIndexBufferView() const
     return {};
 }
 
+void GameObject::SetMaxHP(int maxHP)
+{
+   if (maxHP  < 0 ) {
+        mMaxHP = 0;
+    } else {
+        mMaxHP = maxHP;
+    }
+    // 현재 HP가 최대 HP를 초과하지 않도록 조정
+    if (mCurrentHP > mMaxHP) {
+        mCurrentHP = mMaxHP;
+	}
+}
+
+void GameObject::SetCurrentHP(int currentHP)
+{
+    if (currentHP < 0) {
+        mCurrentHP = 0;
+    } else if (currentHP > mMaxHP) {
+        mCurrentHP = mMaxHP;
+    } else {
+        mCurrentHP = currentHP;
+    }
+}

@@ -79,7 +79,21 @@ public:
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundVertexBufferGPU = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
 
+public:
+	int GetCurrentHP() const { return mCurrentHP; }
+	int GetMaxHP() const { return mMaxHP; }
+
+	void SetMaxHP(int maxHP);
+	void SetCurrentHP(int currentHP);
+
+	bool isDamageable() const { return mCurrentHP > 0; }
+	bool isDead() const { return isDamageable() && mCurrentHP <= 0; }
+
+	float GetHPRatio() const { return mMaxHP > 0 ? static_cast<float>(mCurrentHP) / mMaxHP : 0.0f; }
 private:
+
+	int mCurrentHP = 0;
+	int mMaxHP = 0;
 	
 	bool mWorldMatDirty = true;
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();

@@ -36,35 +36,35 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
         boost::asio::io_context ioservice;
         auto work = boost::asio::make_work_guard(ioservice);
 
-        auto bridge = std::make_unique< NetworkBridge>();
-
+        auto bridge = std::make_unique<NetworkBridge>();
         TCPC tcpClient(ioservice, *bridge);
         tcpClient.Connect("127.0.0.1", SERVERPORT);
-        // ↑ Connect 성공 시 TCPC 내부에서
-        //   recv 루프 + SendQ 펌프(5ms)가 자동 시작됨.
-        //   main에서 별도의 SendQ poll 타이머는 필요 없음.
 
-        // io_context는 반드시 스레드 1개만! (spsc_queue 제약)
-        std::thread ioThread([&ioservice]() { ioservice.run(); });
+        // 예외로 스택이 풀려도 반드시 join되도록 RAII로 감싼다
+        std::thread ioThread([&ioservice]() {
+            try { ioservice.run(); }
+            catch (const std::exception& e) {
+                std::cout << "[ioThread] exception: " << e.what() << std::endl;
+            }
+            });
+
+        struct ThreadJoiner {                       // 스코프 탈출 시 무조건 정리
+            boost::asio::io_context& ioc;
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type>& wg;
+            std::thread& t;
+            ~ThreadJoiner() {
+                wg.reset();
+                ioc.stop();
+                if (t.joinable()) t.join();
+            }
+        } joiner{ ioservice, work, ioThread };
 
         DummyApp theApp(hInstance, bridge.get());
 
-        if (!theApp.Initialize()) {
-            work.reset();
-            ioservice.stop();
-            if (ioThread.joinable()) { ioThread.join(); }
-            return 0;
-        }
+        if (!theApp.Initialize())
+            return 0;                               // joiner가 알아서 정리
 
-        // ── 메인스레드: Win32 메시지루프 + DX12 렌더링 ──
-        int ret = theApp.Run();
-
-        // ── 정리 ──
-        work.reset();
-        ioservice.stop();
-        if (ioThread.joinable()) { ioThread.join(); }
-
-        return ret;
+        return theApp.Run();                        // 예외가 나도 joiner가 join
     }
     catch (DxException& e)
     {

@@ -69,6 +69,19 @@ struct SpawnInfo
 	XMFLOAT3 cameraLook;
 };
 
+enum class BoundingShape
+{
+	Box,
+	Cylinder
+};
+
+struct PendingBoundingBuild
+{
+	GameObject* object = nullptr;
+	BoundingShape shape = BoundingShape::Box;
+	int segments = 16;
+};
+
 class DummyApp : public D3DApp
 {
 public:
@@ -83,7 +96,7 @@ public:
 	void SummonSlave();
 	void SummonCommandCenter();
 
-	void DoUpgrade();
+	
 
 	virtual bool Initialize()override;
 
@@ -98,6 +111,7 @@ private:
 	void DrawDarkness();
 	void DrawDebug();
 	void DrawBoundingBox();
+	void BuildPendingBoundingBox();
 
 	virtual void OnMouseDown(UINT msg, WPARAM btnState, int x, int y)override;
 	virtual void OnMouseUp(UINT msg, WPARAM btnState, int x, int y)override;
@@ -105,15 +119,22 @@ private:
 	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 
+	void CenterMouseCursor();
 	void DragEvent();
 	void FollowerKeyEvent();
 	void AddPicking();
 	void PickingMove();
+	bool PickTerrainPoint(int sx, int sy, XMFLOAT3& outPoint);
 	void PickingAttackMove();
 	void PickingPatrolMove();
 	void UIPicking(WPARAM wParam);
 	void RsetUIInput();
 	void SummonObject();
+
+	void RegisterVisionObject(GameObject* obj, int ownerPlayer);
+
+	bool isInTeamVision(GameObject* obj) const;
+	bool ShouldRenderObject(GameObject* obj) const;
 
 	void UpdateDarknessCB(const GameTimer& gt);
 	void BuildDarknessGeometry();
@@ -164,6 +185,23 @@ private:
 	void SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest);
 	void SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers, const XMFLOAT3& dest);
 	void SendStopRequest(unsigned char objNumber);
+
+	void OnBuildResult(const SCBuildResult* p);
+
+	void CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos);
+
+	void DoUpgrade();
+
+	int GetNetworkObjNumber(GameObject* obj) const;
+	void OnPlayerLeft(const SCPlayerLeft* p);
+
+	void SendAttackRequest(unsigned char attackerObj,
+		unsigned char targetOwner, unsigned char targetObj);
+	void OnAttackResult(const SCAttackResult* p);
+	void OnObjDead(const SCObjDead* p);
+
+	// 화면 좌표에서 적 네트워크 유닛 피킹 (없으면 nullptr)
+	GameObject* PickEnemyUnit(int sx, int sy, int& outOwner, unsigned char& outObjNum);
 
 private:
 
@@ -234,7 +272,8 @@ private:
 
 	// 충돌	관리용
 	std::vector<BoundingBox> mStaticColliders;          
-	std::vector<GameObject*> mDynamicColliders;         
+	std::vector<GameObject*> mDynamicColliders;
+	std::vector<PendingBoundingBuild> mPendingBoundingBuilds;
 
 	Pathfinder mPathfinder;
 
@@ -242,7 +281,8 @@ private:
 	bool mDarknessEnabled = true;
 	bool mPicking = false;
 	bool mDragFlag = false;
-	bool mRoateFlag = true;
+	bool mRotateFlag = false;
+	bool mIgnoreMouseMove = false;
 
 	int objCBIndex = 0;
 	int skinnedCBIndex = 0;
