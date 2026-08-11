@@ -645,6 +645,8 @@ void DummyApp::DragEvent()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
+		if (GetNetworkObjNumber(obj) < 0) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
+
 		// 예시: 바운딩 박스 center를 화면 좌표로 투영
 		XMFLOAT3 center = obj->GetBoundingBox().Center;
 		XMVECTOR centerW = XMVector3Transform(XMLoadFloat3(&center),
@@ -710,6 +712,8 @@ void DummyApp::AddPicking()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
+		if (GetNetworkObjNumber(obj) < 0) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
+
 		auto k = obj->GetBoundingBox().Center;
 		auto j = obj->GetBoundingBox().Extents;
 		//std::cout << obj->GetName() << std::endl;
@@ -777,8 +781,9 @@ void DummyApp::PickingMove()
 				if (!player) continue;
 
 				int netNum = GetNetworkObjNumber(x);
-				if (netNum >= 0)
-					netObjNumbers.push_back((unsigned char)netNum);
+				if (netNum < 0) continue;
+
+				netObjNumbers.push_back((unsigned char)netNum);
 
 				// 멈춰있는 동적 오브젝트만 임시 장애물로 마킹
 				// (이동 중인 유닛은 곧 자리를 비우므로 장애물 취급 안 함)
@@ -3568,91 +3573,46 @@ void DummyApp::DrawButtons(ID3D12GraphicsCommandList* cmdList)
 
 void DummyApp::SummonKnight()
 {
+	if (!mNetworkBridge || mMyPlayerNumber == 0) {
+		std::cout << "[Produce] not linked to server yet\n";
+		mUIkey.isO = false; mUIkey.isK = false;
+		return;
+	}
+
 	XMFLOAT3 pos;
 
-	if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos))
+	if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos)) {
+		std::cout << "[Produce] invalid terrain point\n";
+		mUIkey.isO = false; mUIkey.isK = false;
 		return;
+	}
 
-	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	swordGameObject->SetCBIndex(objCBIndex);
-	swordGameObject->SetMesh(mMeshes["Sword"]);
-	swordGameObject->SetMaterial(mMaterials["sword"].get());
-	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
-	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	mPendingBoundingBuilds.push_back({ swordGameObject, BoundingShape::Box, 16 });
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
-	mAllGameObjects.push_back(swordGameObject);
-
-
-
-	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x,pos.y,pos.z), XMMatrixIdentity());
-	playerGameObject1->SetMaxHP(GetDefaultMaxHp(ObjType::Knight));
-	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
-	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
-	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
-	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	mPendingBoundingBuilds.push_back({ playerGameObject1, BoundingShape::Cylinder, 16 });
-
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
-	mAllGameObjects.push_back(playerGameObject1);
-	mTeamObjects.push_back(playerGameObject1);
-
-	playerGameObject1->SetWeapon(swordGameObject);
-	swordGameObject->SetOwner(playerGameObject1);
-
-	if (mDebugMode) std::cout << "[Debug] Summoned Knight at (" << pos.x << ", " << pos.z << ")" << std::endl;
-
-	mUIkey.isK = false;
-	mUIkey.isO = false;
+	SendUnitProduceRequest(ObjType::Knight, pos);
+	
+	mUIkey.isO= false; mUIkey.isK = false;
+	
 }
 
 void DummyApp::SummonHunter()
 {
-	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	bowGameObject->SetCBIndex(objCBIndex);
-	bowGameObject->SetMesh(mMeshes["Bow"]);
-	bowGameObject->SetMaterial(mMaterials["bow"].get());
-	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
-	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	mPendingBoundingBuilds.push_back({ bowGameObject, BoundingShape::Box, 16 });
+	if (!mNetworkBridge || mMyPlayerNumber == 0) {
+		std::cout << "[Produce] not linked to server yet\n";
+		mUIkey.isO = false; mUIkey.isN = false;   // 헌터 키 조합에 맞게
+		return;
+	}
 
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
-	mAllGameObjects.push_back(bowGameObject);
-
-	XMVECTOR worldPos = MathHelper::ScreenToWorld(mLastMousePos.x, mLastMousePos.y, mClientWidth, mClientHeight, mMainCamera->GetView(), mMainCamera->GetProj());
 	XMFLOAT3 pos;
 
-	XMStoreFloat3(&pos, worldPos);
-	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(pos.x, mTerrain.GetHeight(pos.x, pos.z), pos.z), XMMatrixIdentity());
-	playerGameObject2->SetMaxHP(GetDefaultMaxHp(ObjType::Hunter));
-	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	playerGameObject2->SetMesh(mMeshes["Hunter"]);
-	playerGameObject2->SetMaterials(2, { mMaterials["hunter"].get(),  mMaterials["hunter"].get() });
-	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
-	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
-	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	mPendingBoundingBuilds.push_back({ playerGameObject2, BoundingShape::Cylinder, 16 });
+	if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos)) {
+		std::cout << "[Produce] invalid terrain point\n";
+		mUIkey.isO = false; mUIkey.isN = false;
+		return;
+	}
 
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+	SendUnitProduceRequest(ObjType::Hunter, pos);
 
-	mAllGameObjects.push_back(playerGameObject2);
-	mTeamObjects.push_back(playerGameObject2);
+	mUIkey.isO = false; mUIkey.isN = false;
 
-	playerGameObject2->SetWeapon(bowGameObject);
-	bowGameObject->SetOwner(playerGameObject2);
-
-	if (mDebugMode) std::cout << "[Debug] Summoned Hunter at (" << pos.x << ", " << pos.z << ")" << std::endl;
-
-
-	mUIkey.isN = false;
-	mUIkey.isO = false;
 }
 
 void DummyApp::SummonSlave()
@@ -3811,6 +3771,40 @@ void DummyApp::OnBuildResult(const SCBuildResult* p)
 		XMFLOAT3(p->position.x, 0.0f, p->position.z));
 }
 
+void DummyApp::SendUnitProduceRequest(unsigned char unitType, const XMFLOAT3& pos)
+{
+	CSUnitProduceRequest req;
+	req.playerNumber = (unsigned char)mMyPlayerNumber;
+	req.unitType = unitType;
+	req.position = { pos.x, pos.y, pos.z };
+
+	mNetworkBridge->EnqueueSend(req);
+}
+
+void DummyApp::OnUnitProduced(const SCUnitProduced* p)
+{
+	if (!p->success) {
+		std::cout << "[Produce] rejected by server\n";
+		return;
+	}
+
+	XMFLOAT3 pos(p->position.x, 0.0f, p->position.z);
+
+	Player* unit = nullptr;
+	if (p->unitType == (unsigned char)ObjType::Knight)
+		unit = CreateKnightAt(p->ownerPlayer, p->objNumber, pos);
+	else if (p->unitType == (unsigned char)ObjType::Hunter)
+		unit = CreateHunterAt(p->ownerPlayer, p->objNumber, pos);
+
+	if (!unit) {
+		std::cout << "[Produce] local creation FAILED\n";
+		return;
+	}
+
+	std::cout << "[Produce] unit #" << (int)p->objNumber
+		<< " (owner " << (int)p->ownerPlayer << ") created\n";
+}
+
 void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos)
 {
 	float y = mTerrain.GetHeight(pos.x, pos.z);
@@ -3847,6 +3841,100 @@ void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber,
 	std::cout << "[Build] CommandCenter #" << (int)buildNumber
 		<< " (owner " << ownerPlayer << ") at ("
 		<< pos.x << ", " << pos.z << ")\n";
+}
+
+Player* DummyApp::CreateKnightAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos)
+{
+	XMFLOAT3 spawnPos = {pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z};
+
+	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	swordGameObject->SetCBIndex(objCBIndex);
+	swordGameObject->SetMesh(mMeshes["Sword"]);
+	swordGameObject->SetMaterial(mMaterials["sword"].get());
+	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
+	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	mPendingBoundingBuilds.push_back({ swordGameObject, BoundingShape::Box, 16 });
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
+	mAllGameObjects.push_back(swordGameObject);
+
+
+
+	Player* playerGameObject1 = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(spawnPos.x,spawnPos.y,spawnPos.z), XMMatrixIdentity());
+	playerGameObject1->SetMaxHP(GetDefaultMaxHp(ObjType::Knight));
+	playerGameObject1->SetMesh(mMeshes["Vanguard"]);
+	playerGameObject1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[0]);
+	playerGameObject1->AddSubmesh(playerGameObject1->GetMesh()->mSubmeshes[1]);
+	playerGameObject1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	mPendingBoundingBuilds.push_back({ playerGameObject1, BoundingShape::Cylinder, 16 });
+
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject1);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
+	mAllGameObjects.push_back(playerGameObject1);
+	//mTeamObjects.push_back(playerGameObject1);
+	RegisterVisionObject(playerGameObject1, ownerPlayer);
+
+	playerGameObject1->SetWeapon(swordGameObject);
+	swordGameObject->SetOwner(playerGameObject1);
+
+	if (mDebugMode) std::cout << "[Debug] Summoned Knight at (" << spawnPos.x << ", " << spawnPos.z << ")" << std::endl;
+
+
+	mNetworkObjects[NetKey(ownerPlayer, objNumber)] = playerGameObject1;
+
+	return playerGameObject1;
+}
+
+Player* DummyApp::CreateHunterAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos)
+{
+	XMFLOAT3 spawnPos = { pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z };
+	
+	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
+	bowGameObject->SetCBIndex(objCBIndex);
+	bowGameObject->SetMesh(mMeshes["Bow"]);
+	bowGameObject->SetMaterial(mMaterials["bow"].get());
+	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
+	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
+	mPendingBoundingBuilds.push_back({ bowGameObject, BoundingShape::Box, 16 });
+
+	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
+	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
+	mAllGameObjects.push_back(bowGameObject);
+
+
+
+	Player* playerGameObject2 = new Player("Hunter", ObjectsType::CHARACTER, XMMatrixTranslation(spawnPos.x,spawnPos.y,spawnPos.z), XMMatrixIdentity());
+	playerGameObject2->SetMaxHP(GetDefaultMaxHp(ObjType::Hunter));
+	playerGameObject2->SetCBIndex(2, objCBIndex, skinnedCBIndex);
+	playerGameObject2->SetMesh(mMeshes["Hunter"]);
+	playerGameObject2->SetMaterials(2, { mMaterials["hunter"].get(),  mMaterials["hunter"].get() });
+	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[0]);
+	playerGameObject2->AddSubmesh(playerGameObject2->GetMesh()->mSubmeshes[1]);
+	playerGameObject2->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
+	mPendingBoundingBuilds.push_back({ playerGameObject2, BoundingShape::Cylinder, 16 });
+
+	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(playerGameObject2);
+	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject2);
+
+	mAllGameObjects.push_back(playerGameObject2);
+	//mTeamObjects.push_back(playerGameObject2);
+	RegisterVisionObject(playerGameObject2, ownerPlayer);
+
+	playerGameObject2->SetWeapon(bowGameObject);
+	bowGameObject->SetOwner(playerGameObject2);
+
+
+
+	if (mDebugMode) std::cout << "[Debug] Summoned Hunter at (" << spawnPos.x << ", " << spawnPos.z << ")" << std::endl;
+
+
+	// (4) 네트워크 매핑 등록 — 이게 핵심
+	mNetworkObjects[NetKey(ownerPlayer, objNumber)] = playerGameObject2;
+
+	return playerGameObject2;
 }
 
 void DummyApp::ReleseMemory()
@@ -4057,6 +4145,13 @@ void DummyApp::ProcessReceivedPackets()
 		case SC_BUILD_RESULT:
 			OnBuildResult(reinterpret_cast<const SCBuildResult*>(pkt.data));
 			break;
+		case SC_UNIT_PRODUCED:
+			OnUnitProduced(
+				reinterpret_cast<
+				const SCUnitProduced*>(
+					pkt.data));
+			break;
+
 		case SC_PLAYER_LEFT:
 			OnPlayerLeft(reinterpret_cast<const SCPlayerLeft*>(pkt.data));
 			break;
@@ -4216,14 +4311,11 @@ void DummyApp::OnHackWarning(const SCHackWarning* p)
 //-----------------------------------------------------------------
 GameObject* DummyApp::FindNetworkObject(int ownerPlayer, unsigned char objNumber)
 {
-	// 예시 구현 — GameObject에 GetOwnerPlayer()/GetObjNumber()가
-	// 없다면 추가 필요
-	//
-	// for (auto* obj : mAllGameObjects) {
-	//     if (obj->GetOwnerPlayer() == ownerPlayer &&
-	//         obj->GetObjNumber() == objNumber)
-	//         return obj;
-	// }
+	auto iter = mNetworkObjects.find(NetKey(ownerPlayer, objNumber));
+	
+	if (iter != mNetworkObjects.end())
+		return iter->second;
+
 	return nullptr;
 }
 

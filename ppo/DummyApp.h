@@ -188,7 +188,13 @@ private:
 
 	void OnBuildResult(const SCBuildResult* p);
 
+	void SendUnitProduceRequest(unsigned char unitType, const XMFLOAT3& pos);
+	void OnUnitProduced(const SCUnitProduced* p);
+
+
 	void CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos);
+	Player* CreateKnightAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos);
+	Player* CreateHunterAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos);
 
 	void DoUpgrade();
 
