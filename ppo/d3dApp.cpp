@@ -118,6 +118,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	switch (msg)
 	{
 	case WM_ACTIVATE:
+		OnWindowActivate(LOWORD(wParam) != WA_INACTIVE);
 		if (LOWORD(wParam) == WA_INACTIVE)
 		{
 			ReleaseCapture();

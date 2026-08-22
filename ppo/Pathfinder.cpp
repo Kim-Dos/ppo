@@ -23,6 +23,12 @@ void Pathfinder::Initialize(float mapWidth, float mapLength, float cellSize)
 }
 
 
+void Pathfinder::SetStaticObstacle(int gx, int gz)
+{
+   if (gx < 0 || gx >= mGridX || gz < 0 || gz >= mGridZ) return;
+      mGrid[gz * mGridX + gx] = true;   // BakeStaticObstacles가 쓰는 그 배열
+}
+
 // ============================================================
 // 정적 충돌체 → 그리드에 bake
 // ============================================================

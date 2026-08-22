@@ -113,12 +113,15 @@ private:
 	void DrawBoundingBox();
 	void BuildPendingBoundingBox();
 
+	virtual void OnWindowActivate(bool active)override;
 	virtual void OnMouseDown(UINT msg, WPARAM btnState, int x, int y)override;
 	virtual void OnMouseUp(UINT msg, WPARAM btnState, int x, int y)override;
 	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseWheel(WPARAM wheeldelta)override;
 	virtual bool OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam);
 
+
+	void SetStartCamera(const XMFLOAT3& startPos);
 	void CenterMouseCursor();
 	void DragEvent();
 	void FollowerKeyEvent();
@@ -166,6 +169,8 @@ private:
 	void ResolveAllCollisions();                        
 
 	void InitPathfinder();
+	void BakeTerainSlopeObstacles();
+	bool ClampToWalkable(XMFLOAT3& dest);
 
 	void BuildUICursor();
 
@@ -289,6 +294,8 @@ private:
 	bool mDragFlag = false;
 	bool mRotateFlag = false;
 	bool mIgnoreMouseMove = false;
+	bool mMouseInputActive = false;
+	bool mIgnoreActivationMouseUp = false;
 
 	int objCBIndex = 0;
 	int skinnedCBIndex = 0;

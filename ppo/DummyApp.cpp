@@ -29,8 +29,8 @@ bool DummyApp::Initialize()
 	mCbvSrvDescriptorSize = md3dDevice->
 		GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	ShowCursor(false);
-	CenterMouseCursor();
+	//ShowCursor(false);
+	//CenterMouseCursor();
 
 	LoadTextures();
 	BuildRootSignature();
@@ -500,8 +500,44 @@ void DummyApp::BuildPendingBoundingBox()
 	mPendingBoundingBuilds.clear();
 }
 
+void DummyApp::OnWindowActivate(bool active)
+{
+	if (active || !mMouseInputActive) return;
+
+	mMouseInputActive = false;
+	mIgnoreActivationMouseUp = false;
+	mIgnoreMouseMove = false;
+	mDragFlag = false;
+	mRotateFlag = false;
+
+	if (mMainCamera) {
+		mMainCamera->ResetKeyInput();
+		mMainCamera->SetVelocity(XMFLOAT3(0.0f, 0.0f, 0.0f));
+	}
+
+	ReleaseCapture();
+	ShowCursor(true);
+}
+
 void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 {
+	if (!mMouseInputActive) {
+		mMouseInputActive = true;
+		mIgnoreActivationMouseUp = true;
+
+		ShowCursor(false);
+
+		if (!mSpecialKeyinput.isCtrl) {
+			CenterMouseCursor();
+		}
+		else {
+			mLastMousePos.x = x;
+			mLastMousePos.y = y;
+		}
+
+		return;
+	}
+
 	mStartMousePos.x = x;
 	mStartMousePos.y = y;
 
@@ -531,6 +567,12 @@ void DummyApp::OnMouseDown(UINT msg, WPARAM btnState, int x, int y)
 
 void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 {
+	if (mIgnoreActivationMouseUp) {
+		mIgnoreActivationMouseUp = false;
+		return;
+	}
+
+	if (!mMouseInputActive) return;
 
 	if (mFPSmode) {
 
@@ -571,6 +613,11 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 
 	// Make each pixel correspond to a quarter of a degree.
+	if (!mMouseInputActive) {
+		mLastMousePos.x = x;
+		mLastMousePos.y = y;
+		return;
+	}
 
 	if(mIgnoreMouseMove) {
 		mIgnoreMouseMove = false;
@@ -617,8 +664,55 @@ void DummyApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 }
 
+void DummyApp::SetStartCamera(const XMFLOAT3& startPos)
+{
+	if (mSubCamera.empty()) return;
+
+	float groundY = mTerrain.GetHeight(startPos.x, startPos.z);
+
+	float length = sqrtf(
+		startPos.x * startPos.x +
+		startPos.z * startPos.z);
+	XMFLOAT3 inward = { 0.0f, 0.0f, 1.0f };
+
+	if (length > 0.001f) {
+		inward.x = -startPos.x / length;
+		inward.z = -startPos.z / length;
+	}
+
+	const float cameraHeight = 2500.f;
+	const float cameraDistance = 1100.0f;
+
+	XMFLOAT3 cameraPos = {
+		startPos.x + inward.x * cameraDistance,
+		groundY + cameraHeight,
+		startPos.z + inward.z * cameraDistance
+	};
+
+	XMFLOAT3 lookTarget = {
+		startPos.x,
+		groundY + 50.0f,
+		startPos.z
+	};
+
+	Camera* camera = mSubCamera[0];
+
+	camera->ResetKeyInput();
+	camera->SetVelocity(XMFLOAT3(0.0f, 0.0f, 0.0f));
+	camera->SetPosition(cameraPos);
+	camera->LookAt(cameraPos, lookTarget, XMFLOAT3(0.0f, 1.0f, 0.0f));
+	camera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.0f, 30000.0f);
+	camera->UpdateViewMatrix();
+
+	if (!mFPSmode) {
+		mMainCamera = camera;
+	}
+}
+
 void DummyApp::CenterMouseCursor()
 {
+	if(!mMouseInputActive) return;
+
 	int centerX = mClientWidth / 2;
 	int centerY = mClientHeight / 2;
 
@@ -768,6 +862,8 @@ void DummyApp::PickingMove()
 		XMFLOAT3 pickedTerrainPoint;
 		if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pickedTerrainPoint))
 			return;
+		if(!ClampToWalkable(pickedTerrainPoint))
+			return;
 
 		std::vector<unsigned char> netObjNumbers;
 		XMFLOAT3 netDest = pickedTerrainPoint;
@@ -849,7 +945,7 @@ void DummyApp::PickingMove()
 					// waypoint 경로 설정
 					player->SetFinalDestination(destPos);
 					player->SetPath(path);
-					player->SetFollowerKeyInput(FollowerKeyInput::Move);
+					player->SetFollowerKeyInput(FollowerKeyInput::None);
 					player->FollowerEvent();
 				}
 				else
@@ -858,7 +954,7 @@ void DummyApp::PickingMove()
 					// 경로를 찾지 못함 → 직선 이동 fallback
 					player->ClearPath();
 					player->SetDestination(destPos);
-					player->SetFollowerKeyInput(FollowerKeyInput::Move);
+					player->SetFollowerKeyInput(FollowerKeyInput::None);
 					player->FollowerEvent();
 				}
 			}
@@ -3483,6 +3579,7 @@ void DummyApp::InitPathfinder()
 
 	mPathfinder.Initialize(mapWidth, mapLength, pathCellSize);
 	mPathfinder.BakeStaticObstacles(mStaticColliders);
+	BakeTerainSlopeObstacles();
 
 #ifdef _DEBUG
 	int total = mPathfinder.GetGridX() * mPathfinder.GetGridZ();
@@ -3493,6 +3590,82 @@ void DummyApp::InitPathfinder()
 	std::cout << "[Pathfinder] Grid: " << mPathfinder.GetGridX() << "x" << mPathfinder.GetGridZ()
 		<< " | Blocked: " << blocked << "/" << total << std::endl;
 #endif
+}
+
+void DummyApp::BakeTerainSlopeObstacles()
+{
+	const float maxSlopeDeg = 30.0f;                       // 이 각도 초과 = 통행 불가
+	const float maxSlopeTan = tanf(XMConvertToRadians(maxSlopeDeg));
+
+	const float cell = mPathfinder.GetCellSize();
+	const float halfW = mTerrain.GetWidth() * 0.5f;
+	const float halfL = mTerrain.GetLength() * 0.5f;
+
+	// 하이트맵 텍셀 간격(~19.7)보다 짧게 샘플링하면 좁은 절벽도 안 놓침
+	const float step = cell * 0.5f;
+
+	int blockedCount = 0;
+
+	for (int gz = 0; gz < mPathfinder.GetGridZ(); ++gz)
+	{
+		for (int gx = 0; gx < mPathfinder.GetGridX(); ++gx)
+		{
+			// 셀 중심 월드 좌표 (WorldToGrid와 같은 기준: 좌하단 = (-halfW, -halfL))
+			float wx = -halfW + (gx + 0.5f) * cell;
+			float wz = -halfL + (gz + 0.5f) * cell;
+
+			float h = mTerrain.GetHeight(wx, wz);
+			float maxDiff = 0.0f;
+
+			// 4방향 샘플로 셀 주변 최대 경사 측정
+			const float offs[4][2] = { {step,0}, {-step,0}, {0,step}, {0,-step} };
+			for (auto& o : offs)
+			{
+				float sx = wx + o[0], sz = wz + o[1];
+				if (sx < -halfW || sx > halfW || sz < -halfL || sz > halfL) continue;
+				maxDiff = max(maxDiff, fabsf(mTerrain.GetHeight(sx, sz) - h));
+			}
+
+			if (maxDiff / step > maxSlopeTan)
+			{
+				mPathfinder.SetStaticObstacle(gx, gz);
+				++blockedCount;
+			}
+		}
+	}
+
+#ifdef _DEBUG
+	std::cout << "[Pathfinder] Terrain slope blocked: " << blockedCount << " cells\n";
+#endif
+}
+
+bool DummyApp::ClampToWalkable(XMFLOAT3& dest)
+{
+	int gx, gz;
+	mPathfinder.WorldToGrid(dest.x, dest.z, gx, gz);
+	if (mPathfinder.IsWalkable(gx, gz)) return true;
+
+	// 나선형으로 주변에서 가장 가까운 walkable 셀 탐색
+	const float cell = mPathfinder.GetCellSize();
+	const float halfW = mTerrain.GetWidth() * 0.5f;
+	const float halfL = mTerrain.GetLength() * 0.5f;
+
+	for (int r = 1; r <= 20; ++r)                 // 최대 20셀(480유닛) 반경
+	{
+		for (int dz = -r; dz <= r; ++dz)
+			for (int dx = -r; dx <= r; ++dx)
+			{
+				if (max(abs(dx), abs(dz)) != r) continue;   // 링 둘레만
+				int nx = gx + dx, nz = gz + dz;
+				if (!mPathfinder.IsWalkable(nx, nz)) continue;
+
+				dest.x = -halfW + (nx + 0.5f) * cell;
+				dest.z = -halfL + (nz + 0.5f) * cell;
+				dest.y = mTerrain.GetHeight(dest.x, dest.z);
+				return true;
+			}
+	}
+	return false;   // 주변에 갈 수 있는 곳이 없음
 }
 
 void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
@@ -4072,26 +4245,34 @@ void DummyApp::BindNetworkUnit(const SCStartUnit& u)
 	// 내 유닛 / 상대 유닛을 로컬 캐릭터 풀에서 순서대로 할당하는 예시.
 	// mAllGameObjects에서 CHARACTER 타입을 순회하며 아직 매핑 안 된
 	// 오브젝트를 하나 집어 바인딩한다.
-	for (auto& obj : mAllGameObjects) {
-		if (obj->GetObjType() != ObjectsType::CHARACTER) continue;
+	XMFLOAT3 pos = { u.position.x, 0.f, u.position.z };
 
-		// 이미 매핑된 오브젝트인지 검사
-		bool taken = false;
-		for (auto& [k, v] : mNetworkObjects)
-			if (v == obj) { taken = true; break; }
-		if (taken) continue;
+	switch ((ObjType)u.objType) {
+	case ObjType::Base:
+		CreateCommandCenterAt(u.ownerPlayer, u.objNumber, pos);
+		break;
 
-		// 바인딩: 서버 스폰 위치로 이동시키고 매핑 등록
-		float y = mTerrain.GetHeight(u.position.x, u.position.z);
-		obj->SetMaxHP(GetDefaultMaxHp((ObjType)u.objType));
-		obj->SetPosition(u.position.x, y, u.position.z);
+	case ObjType::Knight:
+	{
+		Player* knight = CreateKnightAt(
+			u.ownerPlayer,
+			u.objNumber,
+			pos);
 
-		mNetworkObjects[NetKey(u.ownerPlayer, u.objNumber)] = obj;
-		RegisterVisionObject(obj, u.ownerPlayer);
+		if (u.ownerPlayer == mMyPlayerNumber && !mPlayer) {
+			mPlayer = knight;
+		}
+		break;
+	}
 
-		std::cout << "  bind: owner " << (int)u.ownerPlayer
-			<< " obj " << (int)u.objNumber << "\n";
-		return;
+	case ObjType::Hunter:
+		CreateHunterAt(u.ownerPlayer, u.objNumber, pos);
+		break;
+
+	default:
+		std::cout << "[Net] unsupported start type: "
+			<< (int)u.objType << "\n";
+		break;
 	}
 
 	std::cout << "[Net] WARN: no free local object for owner "

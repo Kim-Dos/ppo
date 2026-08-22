@@ -26,6 +26,8 @@ public:
     void Initialize(float mapWidth, float mapLength, float cellSize);
 
     // 정적 충돌체로 그리드 장애물 마킹
+    // 
+    void SetStaticObstacle(int gx, int gz);
     // colliders: 월드 공간 AABB 목록
     void BakeStaticObstacles(const std::vector<BoundingBox>& colliders);
 
@@ -54,6 +56,8 @@ public:
     int GetGridX() const { return mGridX; }
     int GetGridZ() const { return mGridZ; }
     float GetCellSize() const { return mCellSize; }
+
+
 
 private:
     // 그리드 데이터
