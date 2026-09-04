@@ -3,6 +3,8 @@
 #include "Mesh.h"
 #include "GameTimer.h"
 #include "Actor.h"
+#include "../../Grad/GRServer/GRServer/Protocol.h"
+
 
 #define MAX_NUM_SUBMESHES 4
 
@@ -90,10 +92,23 @@ public:
 	bool isDead() const { return isDamageable() && mCurrentHP <= 0; }
 
 	float GetHPRatio() const { return mMaxHP > 0 ? static_cast<float>(mCurrentHP) / mMaxHP : 0.0f; }
+
+	void SetNetworkInfo(NetworkObjID objNumber, int ownerPlayerNumber) {
+		mNetworkObjNumber = objNumber;
+		mOwnerPlayerNumber = ownerPlayerNumber;
+	}
+
+	NetworkObjID GetNetworkObjNumber() const { return mNetworkObjNumber; }
+
+	int GetOwnerPlayerNumber() const { return mOwnerPlayerNumber; }
+
 private:
 
 	int mCurrentHP = 0;
 	int mMaxHP = 0;
+
+	NetworkObjID mNetworkObjNumber = INVALID_NETWORK_OBJ_ID;
+	int mOwnerPlayerNumber = 0;
 	
 	bool mWorldMatDirty = true;
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();

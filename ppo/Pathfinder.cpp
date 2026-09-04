@@ -19,7 +19,12 @@ void Pathfinder::Initialize(float mapWidth, float mapLength, float cellSize)
     mGridX = (int)(mapWidth / cellSize);
     mGridZ = (int)(mapLength / cellSize);
 
-    mGrid.assign(mGridX * mGridZ, 0); // 모두 walkable
+    int gridSize = mGridX * mGridZ;
+
+    mGrid.assign(gridSize, 0);
+    mGScore.resize(gridSize);
+    mCameFrom.resize(gridSize);
+    mClosed.resize(gridSize);
 }
 
 
@@ -240,9 +245,15 @@ bool Pathfinder::FindPath(
     static const float COST[8] = { 1.f, 1.f, 1.f, 1.f, 1.414f, 1.414f, 1.414f, 1.414f };
 
     std::priority_queue<Node, std::vector<Node>, std::greater<Node>> openSet;
-    std::vector<float> gScore(mGridX * mGridZ, 1e18f);
-    std::vector<int> cameFrom(mGridX * mGridZ, -1);
-    std::vector<bool> closed(mGridX * mGridZ, false);
+    std::fill(mGScore.begin(), mGScore.end(), 1e18f);
+
+    std::fill(mCameFrom.begin(), mCameFrom.end(), -1);
+
+    std::fill(mClosed.begin(), mClosed.end(), 0);
+
+    auto& gScore = mGScore;
+    auto& cameFrom = mCameFrom;
+    auto& closed = mClosed;
 
     int startIdx = Index(startGX, startGZ);
     int goalIdx = Index(goalGX, goalGZ);
@@ -349,6 +360,7 @@ void Pathfinder::SmoothPath(std::vector<DirectX::XMFLOAT3>& path, int expandCell
     if (path.size() <= 2) return;
 
     std::vector<DirectX::XMFLOAT3> smoothed;
+	smoothed.reserve(path.size());
     smoothed.push_back(path.front());
 
     size_t current = 0;
@@ -358,7 +370,7 @@ void Pathfinder::SmoothPath(std::vector<DirectX::XMFLOAT3>& path, int expandCell
         size_t farthest = current + 1;
 
         // 가장 먼 LOS 가능한 waypoint를 찾음
-        for (size_t test = current + 2; test < path.size(); ++test)
+        for (size_t test = path.size() -1; test > current + 1; --test)
         {
             int x0, z0, x1, z1;
             WorldToGrid(path[current].x, path[current].z, x0, z0);
@@ -367,10 +379,7 @@ void Pathfinder::SmoothPath(std::vector<DirectX::XMFLOAT3>& path, int expandCell
             if (HasLineOfSight(x0, z0, x1, z1, expandCells))
             {
                 farthest = test;
-            }
-            else
-            {
-                break; // LOS 끊기면 중단
+                break;
             }
         }
 
@@ -378,7 +387,7 @@ void Pathfinder::SmoothPath(std::vector<DirectX::XMFLOAT3>& path, int expandCell
         current = farthest;
     }
 
-    path = smoothed;
+    path = std::move(smoothed);
 }
 
 

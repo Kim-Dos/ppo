@@ -67,6 +67,11 @@ private:
     float mMapWidth = 0.0f;
     float mMapLength = 0.0f;
 
+    std::vector<float> mGScore;
+	std::vector<int> mCameFrom;
+	std::vector<uint8_t> mClosed;
+
+
     // 0 = walkable, 1 = static obstacle, 2 = dynamic obstacle (юс╫ц)
     std::vector<uint8_t> mGrid;
 

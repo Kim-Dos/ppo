@@ -94,6 +94,11 @@ void DummyApp::Update(const GameTimer& gt)
 	//DebugPrint("height: %f\n", terrainY);
 	//std::cout << terrainY << std::endl;
 	for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Object]) {
+		
+		if (x->GetObjType() != ObjectsType::CHARACTER) continue;
+		
+		auto K = dynamic_cast<Player*>(x);
+
 		float terrainY = mTerrain.GetHeight(x->GetPosition().x, x->GetPosition().z);
 
 		if (x->GetPosition().y < terrainY) {
@@ -739,7 +744,7 @@ void DummyApp::DragEvent()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
-		if (GetNetworkObjNumber(obj) < 0) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
+		if (GetNetworkObjNumber(obj) ==  INVALID_NETWORK_OBJ_ID) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
 
 		// 예시: 바운딩 박스 center를 화면 좌표로 투영
 		XMFLOAT3 center = obj->GetBoundingBox().Center;
@@ -850,10 +855,9 @@ void DummyApp::PickingMove()
 			enemyOwner, enemyObj))
 		{
 			for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
-				int myObj = GetNetworkObjNumber(x);
-				if (myObj >= 0)
-					SendAttackRequest((unsigned char)myObj,
-						(unsigned char)enemyOwner, enemyObj);
+				NetworkObjID myObj = GetNetworkObjNumber(x);
+				if (myObj != INVALID_NETWORK_OBJ_ID)
+					SendAttackRequest((unsigned char)myObj, (unsigned char)enemyOwner, enemyObj);
 			}
 			return;   // 이동 로직 건너뜀
 		}
@@ -865,7 +869,7 @@ void DummyApp::PickingMove()
 		if(!ClampToWalkable(pickedTerrainPoint))
 			return;
 
-		std::vector<unsigned char> netObjNumbers;
+		std::vector<NetworkObjID> netObjNumbers;
 		XMFLOAT3 netDest = pickedTerrainPoint;
 		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
 		{
@@ -876,10 +880,10 @@ void DummyApp::PickingMove()
 				Player* player = dynamic_cast<Player*>(x);
 				if (!player) continue;
 
-				int netNum = GetNetworkObjNumber(x);
-				if (netNum < 0) continue;
+				NetworkObjID netNum = GetNetworkObjNumber(x);
+				if (netNum == INVALID_NETWORK_OBJ_ID) continue;
 
-				netObjNumbers.push_back((unsigned char)netNum);
+				netObjNumbers.push_back(netNum);
 
 				// 멈춰있는 동적 오브젝트만 임시 장애물로 마킹
 				// (이동 중인 유닛은 곧 자리를 비우므로 장애물 취급 안 함)
@@ -945,7 +949,7 @@ void DummyApp::PickingMove()
 					// waypoint 경로 설정
 					player->SetFinalDestination(destPos);
 					player->SetPath(path);
-					player->SetFollowerKeyInput(FollowerKeyInput::None);
+					player->SetFollowerKeyInput(FollowerKeyInput::Move);
 					player->FollowerEvent();
 				}
 				else
@@ -954,7 +958,7 @@ void DummyApp::PickingMove()
 					// 경로를 찾지 못함 → 직선 이동 fallback
 					player->ClearPath();
 					player->SetDestination(destPos);
-					player->SetFollowerKeyInput(FollowerKeyInput::None);
+					player->SetFollowerKeyInput(FollowerKeyInput::Move);
 					player->FollowerEvent();
 				}
 			}
@@ -3399,6 +3403,9 @@ void DummyApp::ResolveAllCollisions()
 		if (!player)
 			continue;
 
+		if(GetNetworkObjNumber(obj) < 0)
+			continue;
+
 		// 이동 중이 아니면 스킵
 		StateId lowerState = player->GetLowerStateId();
 		if (lowerState != StateId::Walk && lowerState != StateId::Run)
@@ -3497,12 +3504,13 @@ void DummyApp::ResolveAllCollisions()
 				// GetDestination()은 현재 waypoint이므로, 
 				// 최종 목적지는 따로 저장해둬야 하지만
 				// 없으면 현재 dest로 재탐색
-				XMFLOAT3 finalDest = player->GetFinalDestination();
+				finalDest = player->GetFinalDestination();
 
 				// finalDest가 현재 위치와 동일하면 (초기값 or 미설정) dest로 fallback
 				float distToFinal = std::sqrt(
 					(finalDest.x - pos.x) * (finalDest.x - pos.x) +
 					(finalDest.z - pos.z) * (finalDest.z - pos.z));
+
 				if (distToFinal < 1.0f)
 					finalDest = dest;
 			}
@@ -3575,11 +3583,11 @@ void DummyApp::InitPathfinder()
 
 	// Fog와 동일한 cellSize 사용 (또는 유닛 크기에 맞게 조정)
 	// Fog: cellSize = 24.f → pathfinding은 좀 더 세밀하게 하고 싶으면 줄일 수 있음
-	float pathCellSize = 24.0f;
+	float pathCellSize = 32.0f;
 
 	mPathfinder.Initialize(mapWidth, mapLength, pathCellSize);
 	mPathfinder.BakeStaticObstacles(mStaticColliders);
-	BakeTerainSlopeObstacles();
+	BakeTerrainSlopeObstacles();
 
 #ifdef _DEBUG
 	int total = mPathfinder.GetGridX() * mPathfinder.GetGridZ();
@@ -3592,7 +3600,7 @@ void DummyApp::InitPathfinder()
 #endif
 }
 
-void DummyApp::BakeTerainSlopeObstacles()
+void DummyApp::BakeTerrainSlopeObstacles()
 {
 	const float maxSlopeDeg = 30.0f;                       // 이 각도 초과 = 통행 불가
 	const float maxSlopeTan = tanf(XMConvertToRadians(maxSlopeDeg));
@@ -3612,7 +3620,7 @@ void DummyApp::BakeTerainSlopeObstacles()
 		{
 			// 셀 중심 월드 좌표 (WorldToGrid와 같은 기준: 좌하단 = (-halfW, -halfL))
 			float wx = -halfW + (gx + 0.5f) * cell;
-			float wz = -halfL + (gz + 0.5f) * cell;
+			float wz = halfL - (gz + 0.5f) * cell;
 
 			float h = mTerrain.GetHeight(wx, wz);
 			float maxDiff = 0.0f;
@@ -3660,7 +3668,7 @@ bool DummyApp::ClampToWalkable(XMFLOAT3& dest)
 				if (!mPathfinder.IsWalkable(nx, nz)) continue;
 
 				dest.x = -halfW + (nx + 0.5f) * cell;
-				dest.z = -halfL + (nz + 0.5f) * cell;
+				dest.z = halfL - (nz + 0.5f) * cell;
 				dest.y = mTerrain.GetHeight(dest.x, dest.z);
 				return true;
 			}
@@ -3796,13 +3804,25 @@ void DummyApp::DoUpgrade()
 {
 }
 
-int DummyApp::GetNetworkObjNumber(GameObject* obj) const
+NetworkObjID DummyApp::GetNetworkObjNumber(GameObject* obj) const
 {
-	for (const auto& [key, v] : mNetworkObjects) {
-		if (v == obj && (key / 256) == mMyPlayerNumber)
-			return key % 256;
-	}
-	return -1;
+	if (obj == nullptr)
+		return INVALID_NETWORK_OBJ_ID;
+
+	if (obj->GetOwnerPlayerNumber() != mMyPlayerNumber)
+		return INVALID_NETWORK_OBJ_ID;
+
+	NetworkObjID objNumber =obj->GetNetworkObjNumber();
+
+	if (objNumber == INVALID_NETWORK_OBJ_ID)
+		return INVALID_NETWORK_OBJ_ID;
+
+	auto it = mNetworkObjects.find(objNumber);
+
+	if (it == mNetworkObjects.end() || it->second != obj)
+		return INVALID_NETWORK_OBJ_ID;
+
+	return objNumber;
 }
 
 void DummyApp::OnPlayerLeft(const SCPlayerLeft* p)
@@ -3812,11 +3832,8 @@ void DummyApp::OnPlayerLeft(const SCPlayerLeft* p)
 	// 나간 플레이어의 유닛 매핑 해제 (오브젝트 자체는 남겨두고 정지)
 	for (auto it = mNetworkObjects.begin(); it != mNetworkObjects.end(); )
 	{
-		if (it->first / 256 == p->playerNumber) {
-			if (Player* unit = dynamic_cast<Player*>(it->second)) {
-				unit->ClearPath();
-				unit->SetDestination(unit->GetPosition());  // 제자리 정지
-			}
+		GameObject* obj = it->second;
+		if (obj != nullptr && obj->GetOwnerPlayerNumber() == mMyPlayerNumber) {
 			it = mNetworkObjects.erase(it);
 		}
 		else ++it;
@@ -3839,10 +3856,10 @@ void DummyApp::SendAttackRequest(unsigned char attackerObj, unsigned char target
 void DummyApp::OnAttackResult(const SCAttackResult* p)
 {
 	// 공격자 애니메이션
-	if (GameObject* atk = FindNetworkObject(p->attackerOwner, p->attackerObj)) {
+	if (GameObject* atk = FindNetworkObject(p->attackerObj)) {
 		if (Player* unit = dynamic_cast<Player*>(atk)) {
 			// 대상 바라보기 + 공격 모션
-			if (GameObject* tgt = FindNetworkObject(p->targetOwner, p->targetObj)) {
+			if (GameObject* tgt = FindNetworkObject(p->targetObj)) {
 				XMFLOAT3 tp = tgt->GetPosition();
 				unit->SetDestination(unit->GetPosition());   // 제자리
 				// TODO: unit->LookAt(tp) 같은 회전 함수가 있으면 호출
@@ -3865,7 +3882,7 @@ void DummyApp::OnObjDead(const SCObjDead* p)
 	std::cout << "[Combat] obj " << (int)p->objNumber
 		<< " (owner " << (int)p->ownerPlayer << ") DIED\n";
 
-	auto it = mNetworkObjects.find(NetKey(p->ownerPlayer, p->objNumber));
+	auto it = mNetworkObjects.find(p->objNumber);
 	if (it == mNetworkObjects.end()) return;
 
 	if (Player* unit = dynamic_cast<Player*>(it->second)) {
@@ -3913,18 +3930,17 @@ void DummyApp::SummonCommandCenter()
 		return;
 	}
 
-	XMVECTOR worldPos = MathHelper::ScreenToWorld(
-		mLastMousePos.x, mLastMousePos.y,
-		mClientWidth, mClientHeight,
-		mMainCamera->GetView(), mMainCamera->GetProj());
-
 	XMFLOAT3 pos;
-	XMStoreFloat3(&pos, worldPos);
+	if (!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos)) {
+		std::cout << "[BUILD] invalid terrain point \n";
+		mUIkey.isH = false;
+		mUIkey.isB = false;
+	}
 
 	CSBuildRequest req;
 	req.playerNumber = (unsigned char)mMyPlayerNumber;
 	req.buildType = (unsigned char)ObjType::Base;
-	req.position = { pos.x, 0.0f, pos.z };
+	req.position = { pos.x, pos.y, pos.z };
 
 	mNetworkBridge->EnqueueSend(req);
 
@@ -3940,7 +3956,7 @@ void DummyApp::OnBuildResult(const SCBuildResult* p)
 		return;
 	}
 
-	CreateCommandCenterAt(p->ownerPlayer, p->buildNumber,
+	CreateCommandCenterAt(p->ownerPlayer, p->objNumber,
 		XMFLOAT3(p->position.x, 0.0f, p->position.z));
 }
 
@@ -3978,12 +3994,12 @@ void DummyApp::OnUnitProduced(const SCUnitProduced* p)
 		<< " (owner " << (int)p->ownerPlayer << ") created\n";
 }
 
-void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos)
+void DummyApp::CreateCommandCenterAt(int ownerPlayerNumber, NetworkObjID objNumber, const XMFLOAT3& pos)
 {
 	float y = mTerrain.GetHeight(pos.x, pos.z);
 
 	GameObject* cc = new GameObject("CommandCenter",
-		ObjectsType::ENVIRONMENT,
+		ObjectsType::BUILDING,
 		XMMatrixTranslation(pos.x, y, pos.z),
 		XMMatrixIdentity());
 
@@ -3993,6 +4009,8 @@ void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber,
 	cc->AddSubmesh(cc->GetMesh()->GetSubmesh("commandcenter"));
 	cc->SetBoundingBox(XMFLOAT3(0.0f, CC_EXTENT_Y, 0.0f),
 		XMFLOAT3(CC_EXTENT_X, CC_EXTENT_Y, CC_EXTENT_Z));
+	cc->SetMaxHP(GetDefaultMaxHp(ObjType::Base));
+
 	mPendingBoundingBuilds.push_back({ cc, BoundingShape::Box, 16 });
 
 	mRenderLayer[(int)RenderLayer::Opaque].push_back(cc);
@@ -4001,7 +4019,7 @@ void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber,
 
 	//if (ownerPlayer == mMyPlayerNumber)
 	//	mTeamObjects.push_back(cc);   // 내 건물 → 시야(암흑) 시스템에 포함
-	RegisterVisionObject(cc, ownerPlayer);
+	RegisterVisionObject(cc, ownerPlayerNumber);
 
 	// 클라 물리에도 즉시 반영: 월드 BB를 정적 충돌체로 등록
 	BoundingBox worldBB;
@@ -4009,14 +4027,15 @@ void DummyApp::CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber,
 	mStaticColliders.push_back(worldBB);
 
 	// 네트워크 매핑 등록 (건물 번호는 유닛과 겹치지 않게 +100 오프셋)
-	mNetworkObjects[NetKey(ownerPlayer, buildNumber + 100)] = cc;
+	cc->SetNetworkInfo(objNumber, ownerPlayerNumber);
+	mNetworkObjects[objNumber] = cc;
 
-	std::cout << "[Build] CommandCenter #" << (int)buildNumber
-		<< " (owner " << ownerPlayer << ") at ("
+	std::cout << "[Build] CommandCenter #" << (int)objNumber
+		<< " (owner " << ownerPlayerNumber << ") at ("
 		<< pos.x << ", " << pos.z << ")\n";
 }
 
-Player* DummyApp::CreateKnightAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos)
+Player* DummyApp::CreateKnightAt(int ownerPlayerNumber, NetworkObjID objNumber, const XMFLOAT3& pos)
 {
 	XMFLOAT3 spawnPos = {pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z};
 
@@ -4048,7 +4067,7 @@ Player* DummyApp::CreateKnightAt(int ownerPlayer, unsigned char objNumber, const
 	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(playerGameObject1);
 	mAllGameObjects.push_back(playerGameObject1);
 	//mTeamObjects.push_back(playerGameObject1);
-	RegisterVisionObject(playerGameObject1, ownerPlayer);
+	RegisterVisionObject(playerGameObject1, ownerPlayerNumber);
 
 	playerGameObject1->SetWeapon(swordGameObject);
 	swordGameObject->SetOwner(playerGameObject1);
@@ -4056,12 +4075,13 @@ Player* DummyApp::CreateKnightAt(int ownerPlayer, unsigned char objNumber, const
 	if (mDebugMode) std::cout << "[Debug] Summoned Knight at (" << spawnPos.x << ", " << spawnPos.z << ")" << std::endl;
 
 
-	mNetworkObjects[NetKey(ownerPlayer, objNumber)] = playerGameObject1;
+	playerGameObject1->SetNetworkInfo(objNumber, ownerPlayerNumber);
+	mNetworkObjects[objNumber] = playerGameObject1;
 
 	return playerGameObject1;
 }
 
-Player* DummyApp::CreateHunterAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos)
+Player* DummyApp::CreateHunterAt(int ownerPlayer, NetworkObjID objNumber, const XMFLOAT3& pos)
 {
 	XMFLOAT3 spawnPos = { pos.x, mTerrain.GetHeight(pos.x,pos.z), pos.z };
 	
@@ -4105,7 +4125,8 @@ Player* DummyApp::CreateHunterAt(int ownerPlayer, unsigned char objNumber, const
 
 
 	// (4) 네트워크 매핑 등록 — 이게 핵심
-	mNetworkObjects[NetKey(ownerPlayer, objNumber)] = playerGameObject2;
+	playerGameObject2->SetNetworkInfo(objNumber, ownerPlayer);
+	mNetworkObjects[objNumber] = playerGameObject2;
 
 	return playerGameObject2;
 }
@@ -4254,10 +4275,7 @@ void DummyApp::BindNetworkUnit(const SCStartUnit& u)
 
 	case ObjType::Knight:
 	{
-		Player* knight = CreateKnightAt(
-			u.ownerPlayer,
-			u.objNumber,
-			pos);
+		Player* knight = CreateKnightAt(u.ownerPlayer, u.objNumber,	pos);
 
 		if (u.ownerPlayer == mMyPlayerNumber && !mPlayer) {
 			mPlayer = knight;
@@ -4355,7 +4373,7 @@ void DummyApp::ProcessReceivedPackets()
 //-----------------------------------------------------------------
 void DummyApp::OnMoveObjResult(const SCMoveObjResult* p)
 {
-	GameObject* obj = FindNetworkObject(p->ownerPlayer, p->objNumber);
+	GameObject* obj = FindNetworkObject(p->objNumber);
 	if (!obj) return;
 
 	Player* unit = dynamic_cast<Player*>(obj);
@@ -4412,7 +4430,7 @@ void DummyApp::OnMoveMultiResult(const SCMoveMultiResult* p)
 
 	for (int i = 0; i < count; ++i)
 	{
-		GameObject* obj = FindNetworkObject(p->ownerPlayer, p->objNumbers[i]);
+		GameObject* obj = FindNetworkObject(p->objNumbers[i]);
 		if (!obj) continue;
 
 		Player* unit = dynamic_cast<Player*>(obj);
@@ -4439,7 +4457,7 @@ void DummyApp::OnPositionSync(const SCPositionSync* p)
 	for (int i = 0; i < count; ++i)
 	{
 		const SCSyncEntry& e = p->entries[i];
-		GameObject* obj = FindNetworkObject(e.ownerPlayer, e.objNumber);
+		GameObject* obj = FindNetworkObject(e.objNumber);
 		if (!obj) continue;
 
 		XMFLOAT3 cur = obj->GetPosition();
@@ -4466,7 +4484,7 @@ void DummyApp::OnMoveRejected(const SCMoveRejected* p)
 	std::cout << "[Net] move rejected, obj " << (int)p->objNumber
 		<< " reason=" << reasons[p->reason % 4] << std::endl;
 
-	GameObject* obj = FindNetworkObject(mMyPlayerNumber, p->objNumber);
+	GameObject* obj = FindNetworkObject(p->objNumber);
 	if (!obj) return;
 
 	Player* unit = dynamic_cast<Player*>(obj);
@@ -4490,14 +4508,14 @@ void DummyApp::OnHackWarning(const SCHackWarning* p)
 //        unordered_map<int, GameObject*> 로 관리하는 게 좋음.
 //        임시로 mAllGameObjects 선형 탐색 예시:
 //-----------------------------------------------------------------
-GameObject* DummyApp::FindNetworkObject(int ownerPlayer, unsigned char objNumber)
+GameObject* DummyApp::FindNetworkObject(NetworkObjID objNumber)
 {
-	auto iter = mNetworkObjects.find(NetKey(ownerPlayer, objNumber));
-	
-	if (iter != mNetworkObjects.end())
-		return iter->second;
+	auto it = mNetworkObjects.find(objNumber);
 
-	return nullptr;
+	if (it == mNetworkObjects.end())
+		return nullptr;
+
+	return it->second;
 }
 
 
@@ -4508,7 +4526,7 @@ GameObject* DummyApp::FindNetworkObject(int ownerPlayer, unsigned char objNumber
 //     SC_MOVE_*_RESULT 수신 시점에 한다.
 //=================================================================
 
-void DummyApp::SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest)
+void DummyApp::SendMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest)
 {
 	if (!mNetworkBridge) return;
 
@@ -4520,8 +4538,7 @@ void DummyApp::SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest)
 	mNetworkBridge->EnqueueSend(pkt);
 }
 
-void DummyApp::SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers,
-	const XMFLOAT3& dest)
+void DummyApp::SendMultiMoveRequest(const std::vector<NetworkObjID>& objNumbers, const XMFLOAT3& dest)
 {
 	if (!mNetworkBridge || objNumbers.empty()) return;
 
@@ -4535,7 +4552,7 @@ void DummyApp::SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers
 	mNetworkBridge->EnqueueSend(pkt);
 }
 
-void DummyApp::SendStopRequest(unsigned char objNumber)
+void DummyApp::SendStopRequest(NetworkObjID objNumber)
 {
 	if (!mNetworkBridge) return;
 

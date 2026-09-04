@@ -169,7 +169,7 @@ private:
 	void ResolveAllCollisions();                        
 
 	void InitPathfinder();
-	void BakeTerainSlopeObstacles();
+	void BakeTerrainSlopeObstacles();
 	bool ClampToWalkable(XMFLOAT3& dest);
 
 	void BuildUICursor();
@@ -187,9 +187,9 @@ private:
 
 
 	// 송신 헬퍼 (피킹 이동 시 호출)
-	void SendMoveRequest(unsigned char objNumber, const XMFLOAT3& dest);
-	void SendMultiMoveRequest(const std::vector<unsigned char>& objNumbers, const XMFLOAT3& dest);
-	void SendStopRequest(unsigned char objNumber);
+	void SendMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest);
+	void SendMultiMoveRequest(const std::vector<NetworkObjID>& objNumbers, const XMFLOAT3& dest);
+	void SendStopRequest(NetworkObjID objNumber);
 
 	void OnBuildResult(const SCBuildResult* p);
 
@@ -197,13 +197,13 @@ private:
 	void OnUnitProduced(const SCUnitProduced* p);
 
 
-	void CreateCommandCenterAt(int ownerPlayer, unsigned char buildNumber, const XMFLOAT3& pos);
-	Player* CreateKnightAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos);
-	Player* CreateHunterAt(int ownerPlayer, unsigned char objNumber, const XMFLOAT3& pos);
+	void CreateCommandCenterAt(int ownerPlayer, NetworkObjID objNumber, const XMFLOAT3& pos);
+	Player* CreateKnightAt(int ownerPlayer, NetworkObjID objNumber, const XMFLOAT3& pos);
+	Player* CreateHunterAt(int ownerPlayer, NetworkObjID objNumber, const XMFLOAT3& pos);
 
 	void DoUpgrade();
 
-	int GetNetworkObjNumber(GameObject* obj) const;
+	NetworkObjID GetNetworkObjNumber(GameObject* obj) const;
 	void OnPlayerLeft(const SCPlayerLeft* p);
 
 	void SendAttackRequest(unsigned char attackerObj,
@@ -218,12 +218,11 @@ private:
 
 	bool mGameStarted = false;
 
-	// (owner, objNumber) → GameObject* 매핑. 키 = owner*256 + objNumber
-	std::unordered_map<int, GameObject*> mNetworkObjects;
+	std::unordered_map<NetworkObjID, GameObject*> mNetworkObjects;
 
-	static int NetKey(int owner, unsigned char objNumber) {
-		return owner * 256 + objNumber;
-	}
+	//static int NetKey(int owner, unsigned char objNumber) {
+	//	return owner * 256 + objNumber;
+	//}
 
 
 	void SendLinkRequest();
@@ -247,7 +246,7 @@ private:
 	void OnHackWarning(const SCHackWarning* p);
 
 	// objNumber → GameObject 매핑 (컨테이너에 맞게 구현 필요)
-	GameObject* FindNetworkObject(int ownerPlayer, unsigned char objNumber);
+	GameObject* FindNetworkObject(NetworkObjID objNumber);
 
 	// 프레임용
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;

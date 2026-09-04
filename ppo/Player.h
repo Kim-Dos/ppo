@@ -148,13 +148,13 @@ private:
 
 
 	float mPathRetryTimer = 0.0f;
-	static constexpr float PATH_RETRY_COOLDOWN = 0.5f;
+	static constexpr float PATH_RETRY_COOLDOWN = 1.0f;
 	std::deque<XMFLOAT3> mPathWaypoints;   // A* 경로의 waypoint 목록
 	float mWaypointArriveRadius = 30.0f;    // waypoint 도착 판정 거리
 
 	XMFLOAT3 mDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	XMFLOAT3 mFinalDestination = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	FollowerKeyInput mFollowInput;
+	FollowerKeyInput mFollowInput = FollowerKeyInput::None;
 
 	Camera* mCamera = nullptr;
 	XMFLOAT3 mCameraOffsetPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);

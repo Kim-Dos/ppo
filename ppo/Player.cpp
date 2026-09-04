@@ -303,7 +303,7 @@ void Player::FollowerEvent()
 
 		mKeyInput.isPressedW = true;
 		ChangeLowerState(new RunPlayerState);
-		ChangeUpperState(new RunPlayerState);
+		//ChangeUpperState(new RunPlayerState);
 	}
 }
 
