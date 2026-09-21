@@ -207,14 +207,25 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return 0;
 	case WM_MOUSEWHEEL:
 		OnMouseWheel(wParam);
+	case WM_SYSKEYDOWN:
+		if (wParam == VK_F10) {
+			DestroyWindow(hwnd);
+			return 0;
+		}
+		break;
+	case WM_SYSKEYUP:
+		if (wParam == VK_F10) return 0;
+		break;
 	case WM_KEYDOWN:
 	case WM_KEYUP:
-		OnKeyboardMessage(hwnd, msg, wParam, lParam);
-		if (wParam == VK_ESCAPE)
-		{
-			PostQuitMessage(0);
+		if (msg == WM_KEYDOWN && wParam == VK_F10) {
+			DestroyWindow(hwnd);
+			return 0;
 		}
-		else if ((int)wParam == VK_F2)
+
+		OnKeyboardMessage(hwnd, msg, wParam, lParam);
+
+		if ((int)wParam == VK_F2)
 		{
 			Set4xMsaaState(m4xMsaaState);
 		}

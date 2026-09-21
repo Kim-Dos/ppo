@@ -17,6 +17,28 @@
 
 #include "Common.hlsl"
 
+#ifdef ENEMY_BUILDING_FOG
+    static const int MaxVisionUnits = 64;
+
+    struct VisionUnit
+    {
+    	float4 CenterPosRadius;
+    };
+    
+    cbuffer cbVision : register(b3)
+    {
+    	float4 gVisionDarkColor;
+    	float4 gVisionGlowColor;
+    	VisionUnit gVisionUnits[MaxVisionUnits];
+    
+    	int gVisionUnitCount;
+    	float3 gVisionPad0;
+    
+    	float2 gVisionMapSize;
+    	float2 gVisionPad1;
+    };
+#endif
+
 struct VertexIn
 {
 	float3 PosL    : POSITION;
@@ -88,6 +110,26 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_Target
 {
+#ifdef ENEMY_BUILDING_FOG
+	float visibility = 0.0f;
+
+	[loop]
+	for (int i = 0; i < gVisionUnitCount; ++i)
+	{
+		float2 delta = pin.PosW.xz - gVisionUnits[i].CenterPosRadius.xz;
+		float radius = gVisionUnits[i].CenterPosRadius.w;
+		float blurWidth = radius * 0.3f;
+
+		float distance = length(delta);
+		float unitVisibility = 1.0f -
+			smoothstep(radius - blurWidth, radius + blurWidth, distance);
+
+		visibility = max(visibility, unitVisibility);
+	}
+
+	clip(visibility - 0.005f);
+#endif
+    
     // 재질 자료를 가져온다.
     MaterialData matData = gMaterialData[gMaterialIndex];
     float4 diffuseAlbedo = matData.DiffuseAlbedo;
@@ -95,8 +137,11 @@ float4 PS(VertexOut pin) : SV_Target
     float  roughness = matData.Roughness;
     uint diffuseTexIndex = matData.DiffuseMapIndex;
 
+    
+    float4 textureColor = gDiffuseMap[diffuseTexIndex].Sample(gsamAnisotropicWrap, pin.TexC);
+    
     // 텍스처 배열의 텍스처를 조회한다.
-    diffuseAlbedo = gDiffuseMap[diffuseTexIndex].Sample(gsamAnisotropicWrap, pin.TexC);
+    diffuseAlbedo *= textureColor;
     
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -115,8 +160,12 @@ float4 PS(VertexOut pin) : SV_Target
     float4 litColor = ambient + directLight;
 
     // Common convention to take alpha from diffuse albedo.
-    litColor.a = diffuseAlbedo.a;
+    litColor.a = diffuseAlbedo.a * gOpacity;
 
+#ifdef ENEMY_BUILDING_FOG
+	litColor.a *= visibility;
+#endif
+    
     return litColor;
 }
 

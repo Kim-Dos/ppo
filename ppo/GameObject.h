@@ -82,34 +82,43 @@ public:
 	Microsoft::WRL::ComPtr<ID3D12Resource> mBoundIndexBufferGPU = nullptr;
 
 public:
-	int GetCurrentHP() const { return mCurrentHP; }
+	void SetMaxHP(int maxHP);
 	int GetMaxHP() const { return mMaxHP; }
 
-	void SetMaxHP(int maxHP);
 	void SetCurrentHP(int currentHP);
+	int GetCurrentHP() const { return mCurrentHP; }
 
 	bool isDamageable() const { return mCurrentHP > 0; }
-	bool isDead() const { return isDamageable() && mCurrentHP <= 0; }
+	bool isDead() const { return mMaxHP > 0 && mCurrentHP <= 0; }
 
 	float GetHPRatio() const { return mMaxHP > 0 ? static_cast<float>(mCurrentHP) / mMaxHP : 0.0f; }
 
-	void SetNetworkInfo(NetworkObjID objNumber, int ownerPlayerNumber) {
+	void SetOpacity(float opacity);
+	float GetOpacity() const { return mOpacity; }
+
+
+	void SetNetworkInfo(NetworkObjID objNumber, int ownerPlayerNumber, ObjType networkObjType) {
 		mNetworkObjNumber = objNumber;
 		mOwnerPlayerNumber = ownerPlayerNumber;
+		mNetworkObjType = networkObjType;
 	}
 
 	NetworkObjID GetNetworkObjNumber() const { return mNetworkObjNumber; }
 
 	int GetOwnerPlayerNumber() const { return mOwnerPlayerNumber; }
 
+	ObjType GetNetworkObjType() const { return mNetworkObjType; }
+
 private:
 
 	int mCurrentHP = 0;
 	int mMaxHP = 0;
+	float mOpacity = 1.0f;
 
 	NetworkObjID mNetworkObjNumber = INVALID_NETWORK_OBJ_ID;
 	int mOwnerPlayerNumber = 0;
-	
+	ObjType mNetworkObjType = ObjType::Default;
+
 	bool mWorldMatDirty = true;
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	BoundingBox mBoundingBox;

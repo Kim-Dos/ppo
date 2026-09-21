@@ -29,6 +29,8 @@ void GameObject::Update(const GameTimer& gt)
 void GameObject::SetMaterial(Material* material)
 {
     mMaterials[0] = material;
+
+    SetFrameDirty();
 }
 
 void GameObject::SetMaterials(UINT numMaterials, const vector<Material*>& materials)
@@ -230,15 +232,13 @@ D3D12_INDEX_BUFFER_VIEW GameObject::BoundingBoxIndexBufferView() const
 
 void GameObject::SetMaxHP(int maxHP)
 {
-   if (maxHP  < 0 ) {
-        mMaxHP = 0;
-    } else {
-        mMaxHP = maxHP;
-    }
-    // 현재 HP가 최대 HP를 초과하지 않도록 조정
-    if (mCurrentHP > mMaxHP) {
-        mCurrentHP = mMaxHP;
-	}
+    bool initializeCurrentHP = mMaxHP <= 0;
+
+    if (maxHP < 0) mMaxHP = 0; 
+    else mMaxHP = maxHP;
+
+    if (initializeCurrentHP) mCurrentHP = mMaxHP;
+    else if (mCurrentHP > mMaxHP) mCurrentHP = mMaxHP;
 }
 
 void GameObject::SetCurrentHP(int currentHP)
@@ -250,4 +250,13 @@ void GameObject::SetCurrentHP(int currentHP)
     } else {
         mCurrentHP = currentHP;
     }
+}
+
+void GameObject::SetOpacity(float opacity)
+{
+    if (opacity < 0.0f) opacity = 0.0f;
+    else if (opacity > 1.0f) opacity = 1.0f;
+
+    mOpacity = opacity;
+    SetFrameDirty();
 }

@@ -101,6 +101,7 @@ private:
 	XMFLOAT3 mUp = { 0.0f, 1.0f, 0.0f };
 	XMFLOAT3 mLook = { 0.0f, 0.0f, 1.0f };
 	
+	float mMinPitch = 5.0f;
 	float mMaxPitch = 89.5f;
 	float mCurrentPitch = 0.0f;
 

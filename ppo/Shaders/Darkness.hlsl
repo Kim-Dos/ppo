@@ -75,23 +75,31 @@ float4 PS(VertexOut pin) : SV_TARGET
 
     float darkness = 1.0f;
 
-    [loop]
+   [loop]
     for (int i = 0; i < gUnitCount; ++i)
     {
         float3 uPos = gUnits[i].CenterPosRadius.xyz;
         float rad = gUnits[i].CenterPosRadius.w;
 
-        float dist = distance(pixelPos.xz, uPos.xz); // XZ 평면 거리
-       
-        //float worldBlur = rad * 0.2f; // 블러 범위 (단위: 월드 좌표)
-        
-        //float pixelBlur = fwidth(dist) * 2.0f; // 픽셀 단위 블러 범위
-        float blurWidth = rad * 0.2f; // 블러 범위 결정
-        
+        float blurWidth = rad * 0.2f;
         float inner = rad - blurWidth;
         float outer = rad + blurWidth;
-        
+
+        float2 delta = pixelPos.xz - uPos.xz;
+        float distanceSquared = dot(delta, delta);
+
+        if (distanceSquared >= outer * outer)
+            continue;
+
+        if (distanceSquared <= inner * inner)
+        {
+            darkness = 0.0f;
+            break;
+        }
+
+        float dist = sqrt(distanceSquared);
         float a = smoothstep(inner, outer, dist);
+
         darkness = min(darkness, a);
     }
 

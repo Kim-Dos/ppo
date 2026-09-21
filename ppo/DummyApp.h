@@ -49,7 +49,11 @@ struct SpecialKeyInput
 
 struct UIKeyInput
 {
-	bool isB = false; // Build -> House or Tower
+	//bool isA = false; // attack
+	//bool isP = false; // patrol
+	//bool isH = false; // hold
+
+	bool isB = false; // Build -> commandCenter or Tower
 
 	bool isU = false; // Upgrade
 
@@ -58,7 +62,7 @@ struct UIKeyInput
 	bool isK = false; //Knight
 	bool isN = false; //Hunter
 	bool isL = false; //Slave
-	bool isH = false; //House
+	bool isC = false; // commandCenter
 	bool isT = false; //Tower
 };
 
@@ -80,6 +84,11 @@ struct PendingBoundingBuild
 	GameObject* object = nullptr;
 	BoundingShape shape = BoundingShape::Box;
 	int segments = 16;
+};
+
+struct PendingDeadObject {
+	GameObject* object = nullptr;
+	float remaintime = 5.0f;
 };
 
 class DummyApp : public D3DApp
@@ -108,6 +117,7 @@ private:
 
 	void DrawCursor();
 	void DrawSelectionRect();
+	void DrawPickingCircles();
 	void DrawDarkness();
 	void DrawDebug();
 	void DrawBoundingBox();
@@ -133,6 +143,13 @@ private:
 	void UIPicking(WPARAM wParam);
 	void RsetUIInput();
 	void SummonObject();
+
+	void BuildCommandCenterPreview();
+	void BeginCommandCenterPlacement();
+	void UpdateCommandCenterPreview();
+	void CancelCommandCenterPlacement();
+
+	bool CanPlaceCommandCenter(const XMFLOAT3& position) const;
 
 	void RegisterVisionObject(GameObject* obj, int ownerPlayer);
 
@@ -176,7 +193,7 @@ private:
 
 	void BuildCrystal(const float& x, const float& y, const float& degree);
 
-	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
+	void DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems, bool usEnemyBuildingFog);
 	void DrawBoundingBox(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& ritems);
 
 	void DrawButtons(ID3D12GraphicsCommandList* cmdList);
@@ -185,11 +202,26 @@ private:
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
+	struct PendingNetworkPath
+	{
+		std::uint16_t pathVersion = 0;
+		std::uint16_t chunkCount = 0;
+
+		std::vector<std::vector<FXYZ>> chunks;
+		std::vector<bool> received;
+	};
+	std::unordered_map<NetworkObjID, PendingNetworkPath> mPendingNetworkPaths;
+
+	std::unordered_map<NetworkObjID, XMFLOAT2> mPositionCorrections;
+	void ApplyPositionCorrections(float deltaTime);
+
+	void OnMovePathResult(const SCMovePathResult* p);
 
 	// 송신 헬퍼 (피킹 이동 시 호출)
 	void SendMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest);
 	void SendMultiMoveRequest(const std::vector<NetworkObjID>& objNumbers, const XMFLOAT3& dest);
 	void SendStopRequest(NetworkObjID objNumber);
+
 
 	void OnBuildResult(const SCBuildResult* p);
 
@@ -206,13 +238,15 @@ private:
 	NetworkObjID GetNetworkObjNumber(GameObject* obj) const;
 	void OnPlayerLeft(const SCPlayerLeft* p);
 
-	void SendAttackRequest(unsigned char attackerObj,
-		unsigned char targetOwner, unsigned char targetObj);
+	void SendAttackRequest(NetworkObjID attackerObj, unsigned char targetOwner, NetworkObjID targetObj);
+	void SendAttackMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest);
 	void OnAttackResult(const SCAttackResult* p);
 	void OnObjDead(const SCObjDead* p);
+	void UpdateDeadObjects(float deltaTime);
+	void RemoveDeadObject(GameObject* object);
 
 	// 화면 좌표에서 적 네트워크 유닛 피킹 (없으면 nullptr)
-	GameObject* PickEnemyUnit(int sx, int sy, int& outOwner, unsigned char& outObjNum);
+	GameObject* PickEnemyUnit(int sx, int sy, int& outOwner, NetworkObjID& outObjNum);
 
 private:
 
@@ -284,6 +318,7 @@ private:
 	std::vector<BoundingBox> mStaticColliders;          
 	std::vector<GameObject*> mDynamicColliders;
 	std::vector<PendingBoundingBuild> mPendingBoundingBuilds;
+	std::vector<PendingDeadObject> mPendingDeadObjects;
 
 	Pathfinder mPathfinder;
 
@@ -295,6 +330,11 @@ private:
 	bool mIgnoreMouseMove = false;
 	bool mMouseInputActive = false;
 	bool mIgnoreActivationMouseUp = false;
+
+	GameObject* mCommandCenterPreview =	nullptr;
+	bool mCommandCenterPlacementActive = false;
+	bool mCanPlaceCommandCenter = false;
+	XMFLOAT3 mCommandCenterPreviewPosition = XMFLOAT3(0.0f, 0.0f, 0.0f);
 
 	int objCBIndex = 0;
 	int skinnedCBIndex = 0;
@@ -313,7 +353,7 @@ private:
 
 	PassConstants mMainPassCB;
 
-	bool mDebugMode = true;
+	bool mDebugMode = false;
 
 	//SkinnedMesh* mSkinnedMesh;
 
@@ -352,6 +392,17 @@ private:
 	D3D12_INDEX_BUFFER_VIEW  mSelectionIBView;
 
 	void BuildSelectionGeometry();
+	void BuildPickingCircleGeometry();
+
+	ComPtr<ID3D12Resource> mPickingCircleVB;
+	ComPtr<ID3D12Resource> mPickingCircleIB;
+	ComPtr<ID3D12Resource> mPickingCircleVBUpload;
+	ComPtr<ID3D12Resource> mPickingCircleIBUpload;
+
+	D3D12_VERTEX_BUFFER_VIEW mPickingCircleVBView;
+	D3D12_INDEX_BUFFER_VIEW mPickingCircleIBView;
+
+	UINT mPickingCircleIndexCount = 0;
 
 	ComPtr<ID3D12Resource> mDarknessVB;
 	ComPtr<ID3D12Resource> mDarknessIB;

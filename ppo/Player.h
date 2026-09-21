@@ -38,6 +38,7 @@ enum class StateId : UINT
 	Fall,
 	Land,
 	MeleeAttack,
+	Death,
 	Count
 };
 
@@ -113,6 +114,9 @@ public:
 	void SetAttacking(bool isAttacking) { mIsAttacking = isAttacking; }
 	bool IsAttacking() { return mIsAttacking; }
 
+	void FaceTarget(const XMFLOAT3& targetPosition);
+	void TurnTowards(const XMFLOAT3& targetPosition, float deltaTime);
+
 	void SetWeapon(GameObject* weapon) { mWeapon = weapon; }
 	void SetWeaponMatrix();
 	GameObject* GetWeapon() { return mWeapon; }
@@ -131,6 +135,10 @@ public:
 	bool CanRetryPath() const { return mPathRetryTimer <= 0.0f; }
 	void ResetPathRetryTimer() { mPathRetryTimer = PATH_RETRY_COOLDOWN; }
 
+	void SetNetworkMoveSpeed(float speed) { mNetworkMoveSpeed = speed; }
+	float GetNetworkMoveSpeed() const { return mNetworkMoveSpeed; }
+
+
 private:
 	void InitPlayer();
 
@@ -138,6 +146,7 @@ private:
 	
 	XMFLOAT3 mVelocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	float mAcceleration = 400.0f;
+	float mTurnSpeed = XMConvertToRadians(540.f);
 
 	float mJumpForce = 500.0f;
 	float mGravity = 0.f;
@@ -145,7 +154,7 @@ private:
 	bool mIsAttacking = false;
 	float mFriction = 400.f;
 
-
+	float mNetworkMoveSpeed = MAX_MOVE_SPEED; // 네트워크 이동 속도
 
 	float mPathRetryTimer = 0.0f;
 	static constexpr float PATH_RETRY_COOLDOWN = 1.0f;
@@ -302,6 +311,15 @@ public:
 	MeleeAttackPlayerState() { id = StateId::MeleeAttack; }
 	virtual void Update(Player& player, const float deltaTime);
 	virtual vector<string> GetAnimationName() { return vector<string>{"MeleeAttack1"}; }
+};
+
+class DeathPlayerState : public PlayerState
+{
+public:
+	DeathPlayerState() { id = StateId::Death; }
+
+	virtual void Update(Player& player, const float deltaTime);
+	virtual vector<string> GetAnimationName() { return vector<string>{"Death"}; }
 };
 
 

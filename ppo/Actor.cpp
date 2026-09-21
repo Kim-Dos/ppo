@@ -35,16 +35,21 @@ void Actor::SetWorldMat(XMFLOAT4X4 world)
 
 void Actor::SetPosition(float x, float y, float z)
 {
+    if (fabsf(mWorld._41 - x) <= 0.001f && fabsf(mWorld._42 - y) <= 0.001f && fabsf(mWorld._43 - z) <= 0.001f)
+    {
+        return;
+    }
+
     mWorld._41 = x;
     mWorld._42 = y;
     mWorld._43 = z;
+
+    SetFrameDirty();
 }
 
 void Actor::SetPosition(XMFLOAT3 position)
 {
-    mWorld._41 = position.x;
-    mWorld._42 = position.y;
-    mWorld._43 = position.z;
+    SetPosition(position.x, position.y, position.z);
 }
 
 XMFLOAT4X4 Actor::GetWorld()
@@ -105,16 +110,22 @@ void Actor::Rotate(float pitch, float yaw, float roll)
     XMMATRIX rotationMatrix = rollRotation * pitchRotation * yawRotation;
 
     XMStoreFloat4x4(&mWorld, rotationMatrix * XMLoadFloat4x4(&mWorld));
+
+	SetFrameDirty();
 }
 
 void Actor::Rotate(XMFLOAT3* axis, float angle)
 {
-    XMMATRIX rotateMat = XMMatrixRotationAxis(XMLoadFloat3(axis), XMConvertToRadians(angle));
+    XMMATRIX rotateMat = XMMatrixRotationAxis(XMLoadFloat3(axis), angle);
     mWorld = Matrix4x4::Multiply(rotateMat, mWorld);
+
+    SetFrameDirty();
 }
 
 void Actor::Rotate(XMFLOAT4* quaternion)
 {
     XMMATRIX rotateMat = XMMatrixRotationQuaternion(XMLoadFloat4(quaternion));
     mWorld = Matrix4x4::Multiply(rotateMat, mWorld);
+
+    SetFrameDirty();
 }

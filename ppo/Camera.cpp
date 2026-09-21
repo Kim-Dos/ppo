@@ -80,13 +80,19 @@ void Camera::SetLens(float fovY, float aspect)
 void Camera::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
 {
 	XMVECTOR L = XMVector3Normalize(XMVectorSubtract(target, pos));
+
 	XMVECTOR R = XMVector3Normalize(XMVector3Cross(worldUp, L));
+
 	XMVECTOR U = XMVector3Cross(L, R);
 
 	XMStoreFloat3(&mPosition, pos);
 	XMStoreFloat3(&mLook, L);
 	XMStoreFloat3(&mRight, R);
 	XMStoreFloat3(&mUp, U);
+
+	float lookY = std::clamp(-mLook.y, -1.0f, 1.0f);
+
+	mCurrentPitch = XMConvertToDegrees(asinf(lookY));
 
 	mViewDirty = true;
 }
@@ -174,17 +180,23 @@ void Camera::Up(float d)
 
 void Camera::Pitch(float radian)
 {
-	if (fabs(mCurrentPitch + radian) > mMaxPitch) {
-		radian = (radian > 0) ? XMConvertToRadians(mMaxPitch - mCurrentPitch) : -XMConvertToRadians(mMaxPitch + mCurrentPitch);
-		mCurrentPitch = (mCurrentPitch + radian> 0) ? mMaxPitch : -mMaxPitch;
-	}
+	float deltaDegree = XMConvertToDegrees(radian);
 
-	mCurrentPitch += XMConvertToDegrees(radian);
+	float targetPitch = std::clamp(mCurrentPitch + deltaDegree,	mMinPitch, mMaxPitch);
 
-	// up, look 벡터를 right 벡터에 대해 회전
-	XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), radian);
+	float appliedDegree = targetPitch - mCurrentPitch;
+
+	if (fabsf(appliedDegree) <= 0.0001f)
+		return;
+
+	mCurrentPitch = targetPitch;
+
+	float appliedRadian = XMConvertToRadians(appliedDegree);
+
+	XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), appliedRadian);
 
 	XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
+
 	XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
 
 	mViewDirty = true;

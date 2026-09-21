@@ -103,7 +103,7 @@ void Player::Update(const GameTimer& gt)
 	Move(deltaTime);
 
 	// 카메라 이동
-	UpdateCamera();
+	//UpdateCamera();
 	//printf("%f\n", mPitch);
 	//if (mWeapon) {
 	//	SkinnedMesh* tmp = dynamic_cast<SkinnedMesh*>(GetMesh());
@@ -113,7 +113,7 @@ void Player::Update(const GameTimer& gt)
 	//	mWeapon->SetWorldMat(swordMat);
 	//}
 
-	SetFrameDirty();
+	//SetFrameDirty();
 }
 
 void Player::Move(const float deltaTime)
@@ -126,20 +126,30 @@ void Player::Move(const float deltaTime)
 		mVelocity.y = -mMaxVelocityFalling;
 	}
 
-	float maxVelocityXZ = (GetLowerStateId() == StateId::Run) ? mMaxVelocityRun : mMaxVelocityWalk;
-	float groundSpeed = sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
-	if (groundSpeed > maxVelocityXZ) {
+	const bool isPathFollowing = mFollowInput == FollowerKeyInput::Move;
+
+	float maxVelocityXZ = isPathFollowing ? mNetworkMoveSpeed : ((GetLowerStateId() == StateId::Run)  ? mMaxVelocityRun	: mMaxVelocityWalk);
+
+	float groundSpeed =	sqrt(mVelocity.x * mVelocity.x + mVelocity.z * mVelocity.z);
+
+	if (groundSpeed > maxVelocityXZ)
+	{
 		mVelocity.x *= maxVelocityXZ / groundSpeed;
 		mVelocity.z *= maxVelocityXZ / groundSpeed;
 	}
 
 	// 최대 속도 제한
 	// 마찰
-	XMFLOAT3 friction;
-	XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f)) * mFriction * deltaTime);
-	mVelocity.x = (mVelocity.x >= 0.0f) ? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
-	mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
+	if (!isPathFollowing && groundSpeed > 0.0f)
+	{
+		XMFLOAT3 friction;
 
+		XMStoreFloat3(&friction, -XMVector3Normalize(XMVectorSet(mVelocity.x, 0.0f, mVelocity.z, 0.0f))	* mFriction	* deltaTime);
+
+		mVelocity.x = (mVelocity.x >= 0.0f)	? max(0.0f, mVelocity.x + friction.x) : min(0.0f, mVelocity.x + friction.x);
+
+		mVelocity.z = (mVelocity.z >= 0.0f) ? max(0.0f, mVelocity.z + friction.z) : min(0.0f, mVelocity.z + friction.z);
+	}
 	// 위치 변환
 	SetPosition(Vector3::Add(GetPosition(), Vector3::ScalarProduct(mVelocity, deltaTime, false)));
 
@@ -285,25 +295,34 @@ void Player::FollowerEvent()
 {
 	if (mFollowInput == FollowerKeyInput::Move) {
 
-		
-		XMVECTOR curPos = XMLoadFloat3(&GetPosition());
-		XMVECTOR destPos = XMLoadFloat3(&GetDestination());
-		XMVECTOR direction = XMVectorSubtract(destPos, curPos);
-
-		direction = XMVector3Normalize(direction);
-
-		XMFLOAT3 dir3f;
-		XMStoreFloat3(&dir3f, direction);
-
-		float angle = atan2f(dir3f.x, dir3f.z); // atan2f(y, x) 대신 x, z 순서로 전달
-
-		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f); // Y 축 기준 회전
-
-		Rotate(&axis, angle);
-
 		mKeyInput.isPressedW = true;
 		ChangeLowerState(new RunPlayerState);
 		//ChangeUpperState(new RunPlayerState);
+	}
+
+	else if (mFollowInput == FollowerKeyInput::Attack) {
+		ClearPath();
+
+		SetDestination(GetPosition());
+
+		XMFLOAT3 velocity =	GetVelocity();
+		velocity.x = 0.0f;
+		velocity.z = 0.0f;
+
+		SetVelocity(velocity);
+
+		if (GetLowerStateId() !=StateId::Idle) {
+			ChangeLowerState( new IdlePlayerState);
+		}
+
+		if (GetUpperStateId() != StateId::MeleeAttack)
+		{
+			SetAttacking(true);
+
+			ChangeUpperState(new MeleeAttackPlayerState);
+		}
+
+		mFollowInput = FollowerKeyInput::None;
 	}
 }
 
@@ -321,6 +340,69 @@ vector<string> Player::GetAnimationName()
 	}
 
 	return mCurrentLowerState->GetAnimationName();
+}
+
+void Player::FaceTarget(const XMFLOAT3& targetPosition)
+{
+	XMFLOAT3 currentPosition = GetPosition();
+
+	float directionX = targetPosition.x - currentPosition.x;
+
+	float directionZ = targetPosition.z - currentPosition.z;
+
+	float lengthSquared = directionX * directionX + directionZ * directionZ;
+
+	if (lengthSquared <= 0.0001f) return;
+
+	float targetYaw = atan2f(directionX, directionZ);
+
+	XMFLOAT3 look = GetLook();
+
+	float currentYaw = atan2f(look.x, look.z);
+
+	float deltaYaw = targetYaw - currentYaw;
+
+	while (deltaYaw > XM_PI) deltaYaw -= XM_2PI;
+
+	while (deltaYaw < -XM_PI) deltaYaw += XM_2PI;
+
+	XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+
+	Rotate(&axis, deltaYaw);
+}
+
+void Player::TurnTowards(const XMFLOAT3& targetPosition, float deltaTime)
+{
+	XMFLOAT3 currentPosition = GetPosition();
+
+	float directionX = targetPosition.x - currentPosition.x;
+
+	float directionZ = targetPosition.z - currentPosition.z;
+
+	float lengthSquared = directionX * directionX + directionZ * directionZ;
+
+	if (lengthSquared <= 0.0001f) return;
+
+	float targetYaw = atan2f(directionX, directionZ);
+
+	XMFLOAT3 look = GetLook();
+
+	float currentYaw = atan2f(look.x, look.z);
+
+	float deltaYaw = targetYaw - currentYaw;
+
+	while (deltaYaw > XM_PI) deltaYaw -= XM_2PI;
+
+	while (deltaYaw < -XM_PI) deltaYaw += XM_2PI;
+
+	float maxTurnAngle = mTurnSpeed * deltaTime;
+
+	if (deltaYaw > maxTurnAngle) deltaYaw = maxTurnAngle;
+	else if (deltaYaw < -maxTurnAngle) deltaYaw = -maxTurnAngle;
+
+	XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
+
+	Rotate(&axis, deltaYaw);
 }
 
 void Player::SetWeaponMatrix()
@@ -467,20 +549,8 @@ void OnGroundPlayerState::Update(Player& player, const float deltaTime)
 		player.SetVelocity(MultipleVelocity(dir3f, XMFLOAT3(1000.f, 1000.f, 1000.f)));
 
 		// 방향 회전 설정 (기존 코드 그대로)
-		float angle = atan2f(dir3f.x, dir3f.z);
-		XMFLOAT3 axis = XMFLOAT3(0.0f, 1.0f, 0.0f);
-
-		float dotProduct = Vector3::DotProduct(dir3f, player.GetLook());
-		float lengthProduct = Vector3::Length(dir3f) * Vector3::Length(player.GetLook());
-		if (lengthProduct != 0 && fabs(dotProduct) < lengthProduct) {
-			float angleDiff = acosf(dotProduct / lengthProduct);
-			if (Vector3::CrossProduct(player.GetLook(), dir3f).y < 0) {
-				player.Rotate(&axis, -angleDiff);
-			}
-			else {
-				player.Rotate(&axis, angleDiff);
-			}
-		}
+		player.TurnTowards(currentTarget, deltaTime);
+		//player.FaceTarget(currentTarget);
 
 		// ★ 변경: waypoint 도착 판정
 		float distToTarget = Vector3::DistanceBetweenPoints(currentTarget, player.GetPosition());
@@ -633,5 +703,24 @@ void MeleeAttackPlayerState::Update(Player& player, const float deltaTime)
 		animationTime = 0.f;
 		player.SetAttacking(false);
 		player.ChangeUpperState(new IdleAttackPlayerState);
+	}
+}
+
+void DeathPlayerState::Update(Player& player, const float deltaTime)
+{
+	PlayerState::Update(player, deltaTime);
+
+	SkinnedMesh* mesh = dynamic_cast<SkinnedMesh*>(player.GetMesh());
+
+	if (mesh == nullptr) return;
+
+	float animationDuration = mesh->GetAnimationDuration("Death");
+
+	if (animationDuration <= 0.0f) return;
+
+	float lastFrameTime = animationDuration > 0.001f ? animationDuration - 0.001f : 0.0f;
+
+	if (animationTime > lastFrameTime) {
+		animationTime = lastFrameTime;
 	}
 }

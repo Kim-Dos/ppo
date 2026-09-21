@@ -1,7 +1,6 @@
 ﻿#include "DummyApp.h"
 
 const int gNumFrameResources = 3;
-constexpr float VisionRadiusWorld = 800.f;
 
 DummyApp::DummyApp(HINSTANCE hInstance, NetworkBridge* bridge)
 	: D3DApp(hInstance), mNetworkBridge(bridge)
@@ -38,6 +37,7 @@ bool DummyApp::Initialize()
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildSelectionGeometry();
+	BuildPickingCircleGeometry();
 	BuildDarknessGeometry();
 	BuildUICursor();
 	LoadMeshes();
@@ -45,6 +45,7 @@ bool DummyApp::Initialize()
 
 	BuildMaterials();
 	BuildGameObjects();
+	BuildCommandCenterPreview();
 
 	BuildStaticColliders();
 	InitPathfinder();
@@ -84,9 +85,16 @@ void DummyApp::Update(const GameTimer& gt)
 {
 	ProcessReceivedPackets();
 
+	if (mCommandCenterPlacementActive) {
+		UpdateCommandCenterPreview();
+	}
+
 	for (auto& x : mAllGameObjects) {
 		x->Update(gt);
 	}
+
+	ApplyPositionCorrections(gt.DeltaTime());
+	UpdateDeadObjects(gt.DeltaTime());
 
 	//OnKeyboardInput(gt);
 
@@ -116,6 +124,8 @@ void DummyApp::Update(const GameTimer& gt)
 	ResolveAllCollisions();
 
 	if (mFPSmode) {
+		if (mPlayer)
+			mPlayer->UpdateCamera();
 	}
 	else if(!mSpecialKeyinput.isCtrl) {
 		mMainCamera->Move(gt);
@@ -198,6 +208,7 @@ void DummyApp::Draw(const GameTimer& gt)
 
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootConstantBufferView(7, mCurrFrameResource->DarknessCB->Resource()->GetGPUVirtualAddress());
 
 	// 이 장면에 쓰이는 모든 재질을 묶는다.
 	// 구조적 버퍼는 힙을 생략하고 그냥 하나의 루트 서술자로 묶을 수 있다.
@@ -214,13 +225,20 @@ void DummyApp::Draw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootDescriptorTable(5, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
-	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Opaque]);
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Opaque], false);
 
 	mCommandList->SetPipelineState(mPSOs["skinnedOpaque"].Get());
-	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::SkinnedOpaque]);
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::SkinnedOpaque], false);
+
+	if (mDarknessEnabled){
+		mCommandList->SetPipelineState(mPSOs["enemyBuilding"].Get());
+		DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Opaque], true);
+	}
 
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
-	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Sky]);
+	DrawGameObjects(mCommandList.Get(), mRenderLayer[(int)RenderLayer::Sky], false);
+
+	DrawPickingCircles();
 
 	if (mDebugMode)
 		DrawDebug();
@@ -377,6 +395,62 @@ void DummyApp::DrawSelectionRect()
 	cmdList->DrawIndexedInstanced(8, 1, 0, 0, 0);
 }
 
+void DummyApp::DrawPickingCircles()
+{
+	auto& selectedObjects = mGameObjectLayer[(int)GameObjectLayer::Picking];
+
+	if (selectedObjects.empty()) return;
+
+	UINT pickingCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PickingCircleConstants));
+
+	auto pickingCircleCB = mCurrFrameResource->PickingCircleCB.get();
+
+	auto pickingCircleCBResource = pickingCircleCB->Resource();
+
+	mCommandList->SetPipelineState(mPSOs["pickingCircle"].Get());
+	mCommandList->IASetVertexBuffers(0, 1, &mPickingCircleVBView);
+	mCommandList->IASetIndexBuffer(&mPickingCircleIBView);
+	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->SetGraphicsRootConstantBufferView(1, 0);
+
+	int circleIndex = 0;
+
+	for (GameObject* object : selectedObjects)
+	{
+		if (circleIndex >= MaxPickingCircles) break;
+
+		if (object == nullptr) continue;
+
+		if (!ShouldRenderObject(object)) continue;
+
+		BoundingBox worldBox;
+
+		object->GetBoundingBox().Transform(worldBox, XMLoadFloat4x4(&object->GetWorld()));
+
+		float radius = max(worldBox.Extents.x, worldBox.Extents.z) + 15.0f;
+
+		float circleX = worldBox.Center.x;
+		float circleZ = worldBox.Center.z;
+
+		float circleY = mTerrain.GetHeight(circleX, circleZ) + 3.0f;
+
+		XMMATRIX world = XMMatrixScaling(radius, 1.0f, radius) * XMMatrixTranslation(circleX, circleY, circleZ);
+
+		PickingCircleConstants circleConstants;
+
+		XMStoreFloat4x4(&circleConstants.World, XMMatrixTranspose(world));
+
+		pickingCircleCB->CopyData(circleIndex, circleConstants);
+
+		D3D12_GPU_VIRTUAL_ADDRESS circleCBAddress =	pickingCircleCBResource->GetGPUVirtualAddress() + circleIndex * pickingCBByteSize;
+
+		mCommandList->SetGraphicsRootConstantBufferView(0, circleCBAddress);
+		mCommandList->DrawIndexedInstanced(mPickingCircleIndexCount, 1, 0, 0, 0);
+
+		++circleIndex;
+	}
+}
+
 void DummyApp::DrawDarkness()
 {
 	auto cmdList = mCommandList.Get();
@@ -465,6 +539,67 @@ void DummyApp::BuildSelectionGeometry()
 	mSelectionIBView.BufferLocation = mSelectionIB->GetGPUVirtualAddress();
 	mSelectionIBView.Format = DXGI_FORMAT_R16_UINT;
 	mSelectionIBView.SizeInBytes = ibByteSize;
+}
+
+void DummyApp::BuildPickingCircleGeometry()
+{
+	const int circleSegmentCount = 64;
+	const float innerRadius = 0.88f;
+
+	std::vector<ColorVertex> vertices;
+	std::vector<std::uint16_t> indices;
+
+	vertices.reserve((circleSegmentCount + 1) * 2);
+	indices.reserve(circleSegmentCount * 6);
+
+	for (int i = 0; i <= circleSegmentCount; ++i)
+	{
+		float angle = XM_2PI * static_cast<float>(i) / static_cast<float>(circleSegmentCount);
+
+		float x = std::cos(angle);
+		float z = std::sin(angle);
+
+		XMFLOAT4 color = XMFLOAT4(0.1f, 1.0f, 0.1f, 0.75f);
+
+		vertices.push_back({ XMFLOAT3(x, 0.0f, z), color });
+
+		vertices.push_back({ XMFLOAT3(x * innerRadius, 0.0f, z * innerRadius), color });
+	}
+
+	for (int i = 0; i < circleSegmentCount; ++i)
+	{
+		std::uint16_t outer0 = static_cast<std::uint16_t>(i * 2);
+		std::uint16_t inner0 = static_cast<std::uint16_t>(i * 2 + 1);
+		std::uint16_t outer1 = static_cast<std::uint16_t>((i + 1) * 2);
+		std::uint16_t inner1 = static_cast<std::uint16_t>((i + 1) * 2 + 1);
+
+		indices.push_back(outer0);
+		indices.push_back(inner0);
+		indices.push_back(outer1);
+
+		indices.push_back(outer1);
+		indices.push_back(inner0);
+		indices.push_back(inner1);
+	}
+
+	const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(ColorVertex));
+	const UINT ibByteSize = static_cast<UINT>(indices.size() * sizeof(std::uint16_t));
+
+	mPickingCircleVB = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(), mCommandList.Get(), vertices.data(), vbByteSize, mPickingCircleVBUpload);
+
+	mPickingCircleIB = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(), mCommandList.Get(), indices.data(), ibByteSize, mPickingCircleIBUpload);
+
+	mPickingCircleVBView.BufferLocation = mPickingCircleVB->GetGPUVirtualAddress();
+
+	mPickingCircleVBView.StrideInBytes = sizeof(ColorVertex);
+	mPickingCircleVBView.SizeInBytes = vbByteSize;
+
+	mPickingCircleIBView.BufferLocation = mPickingCircleIB->GetGPUVirtualAddress();
+
+	mPickingCircleIBView.Format = DXGI_FORMAT_R16_UINT;
+	mPickingCircleIBView.SizeInBytes = ibByteSize;
+
+	mPickingCircleIndexCount = static_cast<UINT>(indices.size());
 }
 
 void DummyApp::DrawDebug()
@@ -590,7 +725,7 @@ void DummyApp::OnMouseUp(UINT msg, WPARAM btnState, int x, int y)
 			if (mSpecialKeyinput.isCtrl) {
 				if (mUIkey.isO || mUIkey.isB) {
 					SummonObject();
-					std::cout << mUIkey.isB << mUIkey.isH << std::endl;
+					std::cout << mUIkey.isB << mUIkey.isC << std::endl;
 				}
 				else {
 					//std::cout << "DragFlag - " << mDragFlag << std::endl;
@@ -811,168 +946,93 @@ void DummyApp::AddPicking()
 
 	for (const auto& obj : mGameObjectLayer[(int)GameObjectLayer::Object])
 	{
-		if (GetNetworkObjNumber(obj) < 0) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
+		if (GetNetworkObjNumber(obj) == INVALID_NETWORK_OBJ_ID) continue;  // 네트워크 오브젝트가 아닌 경우 건너뜀
 
-		auto k = obj->GetBoundingBox().Center;
-		auto j = obj->GetBoundingBox().Extents;
-		//std::cout << obj->GetName() << std::endl;
-		//std::cout << "Center" << k.x << ", " << k.y << ", " << k.z << std::endl;
-		//std::cout << "Extents" << j.x << ", " << j.y << ", " << j.z << std::endl;
-		bool xo = obj->GetBoundingBox().Intersects(worldRayOrigin, rayDirection, dist);
-		//std::cout << "BBIntersectOX - " << xo << std::endl;
-		if (xo)
+
+		XMFLOAT4X4 world = obj->GetWorld();
+
+		BoundingBox worldBox;
+		obj->GetBoundingBox().Transform(worldBox, XMLoadFloat4x4(&world));
+		if (worldBox.Intersects(worldRayOrigin, rayDirection, dist) && dist < closestDist)
 		{
-
-			std::cout << "dist - " << dist << std::endl;
-			// 가장 가까운 오브젝트 찾기
-			if (dist < closestDist)
-			{
-				std::cout << "dist - " << dist << std::endl;
-				closestDist = dist;
-				closestObject = obj;
-			}
+			closestDist = dist;
+			closestObject = obj;
 		}
 	}
-	if (closestObject)
-	{
-		mGameObjectLayer[(int)GameObjectLayer::Picking].push_back(closestObject);
 
-#ifdef _DEBUG
-		//std::cout << "Picked Object - " << closestObject->GetName() << "\n";
-#endif
-		mPicking = !mGameObjectLayer[(int)GameObjectLayer::Picking].empty();
-	}
+	auto& selectedObjects = mGameObjectLayer[(int)GameObjectLayer::Picking];
+	selectedObjects.clear();
+
+	if (closestObject != nullptr)
+		selectedObjects.push_back(closestObject);
+
+	mPicking = !selectedObjects.empty();
 
 }
 
 void DummyApp::PickingMove()
 {
-	if (mPicking)
+	if (!mPicking)
+		return;
+
+	int enemyOwner = 0;
+
+	NetworkObjID enemyObj =	INVALID_NETWORK_OBJ_ID;
+
+	if (PickEnemyUnit(mLastMousePos.x, mLastMousePos.y, enemyOwner, enemyObj)) {
+		for (auto& object : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+			Player* unit = dynamic_cast<Player*>(object);
+
+			if (unit == nullptr) continue;
+
+			if (unit->GetNetworkObjType() != ObjType::Knight)continue;
+
+			NetworkObjID myObj = GetNetworkObjNumber(unit);
+
+			if (myObj == INVALID_NETWORK_OBJ_ID)continue;
+
+			SendAttackRequest(myObj, static_cast<unsigned char>(enemyOwner), enemyObj);
+		}
+		return;
+	}
+
+	XMFLOAT3 pickedTerrainPoint;
+
+	if (!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pickedTerrainPoint)) return;
+
+	if (!ClampToWalkable(pickedTerrainPoint)) return;
+
+	std::vector<NetworkObjID> netObjNumbers;
+	XMFLOAT3 netDest = pickedTerrainPoint;
+
+	for (auto& object :	mGameObjectLayer[(int)GameObjectLayer::Picking])
 	{
+		if (object->GetObjType() != ObjectsType::CHARACTER)
+			continue;
 
-		int enemyOwner; unsigned char enemyObj;
-		if (PickEnemyUnit(mLastMousePos.x, mLastMousePos.y,
-			enemyOwner, enemyObj))
-		{
-			for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
-				NetworkObjID myObj = GetNetworkObjNumber(x);
-				if (myObj != INVALID_NETWORK_OBJ_ID)
-					SendAttackRequest((unsigned char)myObj, (unsigned char)enemyOwner, enemyObj);
-			}
-			return;   // 이동 로직 건너뜀
-		}
+		Player* player = dynamic_cast<Player*>(object);
 
+		if (!player)
+			continue;
 
-		XMFLOAT3 pickedTerrainPoint;
-		if(!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pickedTerrainPoint))
-			return;
-		if(!ClampToWalkable(pickedTerrainPoint))
-			return;
+		NetworkObjID netNum = GetNetworkObjNumber(object);
 
-		std::vector<NetworkObjID> netObjNumbers;
-		XMFLOAT3 netDest = pickedTerrainPoint;
-		for (auto& x : mGameObjectLayer[(int)GameObjectLayer::Picking])
-		{
-			XMFLOAT3 destPos = pickedTerrainPoint;
+		if (netNum == INVALID_NETWORK_OBJ_ID)
+			continue;
 
-			if (x->GetObjType() == ObjectsType::CHARACTER)
-			{
-				Player* player = dynamic_cast<Player*>(x);
-				if (!player) continue;
+		netObjNumbers.push_back(netNum);
+	}
 
-				NetworkObjID netNum = GetNetworkObjNumber(x);
-				if (netNum == INVALID_NETWORK_OBJ_ID) continue;
+	if (netObjNumbers.empty())
+		return;
 
-				netObjNumbers.push_back(netNum);
-
-				// 멈춰있는 동적 오브젝트만 임시 장애물로 마킹
-				// (이동 중인 유닛은 곧 자리를 비우므로 장애물 취급 안 함)
-				mPathfinder.ClearDynamicObstacles();
-				for (auto& other : mDynamicColliders)
-				{
-					if (other == x) continue; // 자기 자신 제외
-
-					// 멈춰있는지 판별
-					bool isStationary = true;
-					if (other->GetObjType() == ObjectsType::CHARACTER)
-					{
-						Player* pOther = dynamic_cast<Player*>(other);
-						if (pOther)
-						{
-							StateId st = pOther->GetLowerStateId();
-							if (st == StateId::Walk || st == StateId::Run)
-								isStationary = false;
-						}
-					}
-
-					if (isStationary)
-					{
-						XMFLOAT3 otherPos = other->GetPosition();
-						int gx, gz;
-						mPathfinder.WorldToGrid(otherPos.x, otherPos.z, gx, gz);
-						mPathfinder.SetDynamicObstacle(gx, gz);
-
-						// 유닛 BB 크기가 셀보다 크면 주변 셀도 마킹
-						float maxExt = max(other->GetBoundingBox().Extents.x,
-							other->GetBoundingBox().Extents.z);
-						int expand = (int)(maxExt / mPathfinder.GetCellSize());
-						for (int dz = -expand; dz <= expand; ++dz)
-							for (int dx = -expand; dx <= expand; ++dx)
-								if (dx != 0 || dz != 0)
-									mPathfinder.SetDynamicObstacle(gx + dx, gz + dz);
-					}
-				}
-
-				// A* 경로 탐색
-				std::vector<XMFLOAT3> path;
-				bool found = mPathfinder.FindPath(
-					player->GetPosition(),
-					destPos,
-					XMFLOAT3(
-						player->GetBoundingBox().Extents.x,
-						0.f,
-						player->GetBoundingBox().Extents.z),
-					path
-				);
-
-				// 동적 장애물 마킹 해제
-				mPathfinder.ClearDynamicObstacles();
-
-				if (found && !path.empty())
-				{
-					// Y 좌표를 terrain 높이로 보정
-					for (auto& wp : path)
-					{
-						wp.y = mTerrain.GetHeight(wp.x, wp.z);
-					}
-
-					// waypoint 경로 설정
-					player->SetFinalDestination(destPos);
-					player->SetPath(path);
-					player->SetFollowerKeyInput(FollowerKeyInput::Move);
-					player->FollowerEvent();
-				}
-				else
-				{
-					player->SetFinalDestination(destPos);
-					// 경로를 찾지 못함 → 직선 이동 fallback
-					player->ClearPath();
-					player->SetDestination(destPos);
-					player->SetFollowerKeyInput(FollowerKeyInput::Move);
-					player->FollowerEvent();
-				}
-			}
-		}
-
-		if (!netObjNumbers.empty()) {
-			if (netObjNumbers.size() == 1)
-				SendMoveRequest(netObjNumbers[0], netDest);
-			else
-				SendMultiMoveRequest(netObjNumbers, netDest);
-		}
-	/*	for (const auto& x : mGameObjectLayer[(int)GameObjectLayer::Object])
-		{
-		}*/
+	if (netObjNumbers.size() == 1)
+	{
+		SendMoveRequest(netObjNumbers[0], netDest);
+	}
+	else
+	{
+		SendMultiMoveRequest(netObjNumbers, netDest);
 	}
 }
 
@@ -1087,6 +1147,53 @@ bool DummyApp::PickTerrainPoint(int sx, int sy, XMFLOAT3& outPoint)
 
 void DummyApp::PickingAttackMove()
 {
+	if (!mPicking)
+		return;
+
+	int enemyOwner = 0;
+
+	NetworkObjID enemyObj = INVALID_NETWORK_OBJ_ID;
+
+	GameObject* enemy =	PickEnemyUnit(mLastMousePos.x, mLastMousePos.y, enemyOwner, enemyObj);
+
+	if (enemy != nullptr)
+	{
+		for (GameObject* object	: mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+			Player* knight = dynamic_cast<Player*>(object);
+
+			if (knight == nullptr) continue;
+
+			if (knight->GetNetworkObjType() != ObjType::Knight) continue;
+
+			NetworkObjID attackerObj = GetNetworkObjNumber(knight);
+
+			if (attackerObj == INVALID_NETWORK_OBJ_ID) continue;
+
+			SendAttackRequest(attackerObj, static_cast<BYTE>(enemyOwner), enemyObj);
+		}
+
+		return;
+	}
+
+	XMFLOAT3 destination;
+
+	if (!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, destination)) return;
+
+	if (!ClampToWalkable(destination)) return;
+
+	for (GameObject* object : mGameObjectLayer[(int)GameObjectLayer::Picking]) {
+		Player* knight = dynamic_cast<Player*>(object);
+
+		if (knight == nullptr) continue;
+
+		if (knight->GetNetworkObjType() != ObjType::Knight) continue; 
+
+		NetworkObjID attackerObj = GetNetworkObjNumber(knight);
+
+		if (attackerObj == INVALID_NETWORK_OBJ_ID) continue;
+
+		SendAttackMoveRequest(attackerObj, destination);
+	}
 }
 
 void DummyApp::PickingPatrolMove()
@@ -1114,13 +1221,19 @@ void DummyApp::UIPicking(WPARAM wParam)
 		mUIkey.isK = true;
 		break;
 	case 'H':
-		mUIkey.isH = true;
+		mUIkey.isC = true;
+		if (mUIkey.isB) BeginCommandCenterPlacement(); 
 		break;
 	case 'N':
 		mUIkey.isN = true;
 		break;
 	case 'T':
 		mUIkey.isT = true;
+		break;
+	case 'A':
+		if (mPicking) {
+			mFollowerinput = FollowerKeyInput::Attack;
+		}
 		break;
 	}
 }
@@ -1132,7 +1245,7 @@ void DummyApp::RsetUIInput()
 	mUIkey.isL = false;
 	mUIkey.isU = false;
 	mUIkey.isK = false;
-	mUIkey.isH = false;
+	mUIkey.isC = false;
 	mUIkey.isN = false;
 	mUIkey.isT = false;
 }
@@ -1140,7 +1253,7 @@ void DummyApp::RsetUIInput()
 void DummyApp::SummonObject()
 {
 
-	std::cout << mUIkey.isB << mUIkey.isH << std::endl;
+	std::cout << mUIkey.isB << mUIkey.isC << std::endl;
 
 	if (mUIkey.isO) {
 		if (mUIkey.isN) {
@@ -1157,11 +1270,142 @@ void DummyApp::SummonObject()
 		if (mUIkey.isT) {
 			//SummonTower();
 		}
-		else if (mUIkey.isH) {
+		else if (mUIkey.isC) {
 			SummonCommandCenter();
 		}
 	}
 
+}
+
+void DummyApp::BuildCommandCenterPreview()
+{
+	mCommandCenterPreview = new GameObject("CommandCenterPreview", ObjectsType::BUILDING, XMMatrixTranslation(0.0f, -100000.0f, 0.0f), XMMatrixIdentity());
+
+	mCommandCenterPreview->SetCBIndex(objCBIndex);
+	mCommandCenterPreview->SetMesh(mMeshes["CommandCenter"]);
+	mCommandCenterPreview->SetMaterial(mMaterials["commandCenterPreviewValid"].get());
+	mCommandCenterPreview->AddSubmesh(mCommandCenterPreview->GetMesh()->GetSubmesh("commandcenter"));
+	mCommandCenterPreview->SetBoundingBox(XMFLOAT3(0.0f, CC_EXTENT_Y, 0.0f), XMFLOAT3(CC_EXTENT_X, CC_EXTENT_Y, CC_EXTENT_Z));
+	mCommandCenterPreview->SetOpacity(1.0f);
+	mAllGameObjects.push_back(mCommandCenterPreview);
+
+}
+
+void DummyApp::BeginCommandCenterPlacement()
+{
+	if (mCommandCenterPreview == nullptr) return;
+
+	mCommandCenterPlacementActive = true;
+
+	mCanPlaceCommandCenter = false;
+
+	auto& renderObjects =mRenderLayer[(int)RenderLayer::Opaque];
+	auto it = std::find(renderObjects.begin(), renderObjects.end(), mCommandCenterPreview);
+
+	if (it == renderObjects.end()) renderObjects.push_back(mCommandCenterPreview);
+}
+
+void DummyApp::UpdateCommandCenterPreview()
+{
+	if (!mCommandCenterPlacementActive || mCommandCenterPreview == nullptr) return;
+
+	XMFLOAT3 position;
+
+	if (!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, position))
+	{
+		mCanPlaceCommandCenter = false;
+
+		mCommandCenterPreview->SetPosition(0.0f, -100000.0f, 0.0f);
+
+		return;
+	}
+
+	position.y = mTerrain.GetHeight(position.x, position.z);
+
+	mCommandCenterPreviewPosition = position;
+	
+	mCanPlaceCommandCenter = CanPlaceCommandCenter(position);
+	
+	mCommandCenterPreview->SetPosition(position);
+
+	if (mCanPlaceCommandCenter)
+		mCommandCenterPreview->SetMaterial(mMaterials["commandCenterPreviewValid"].get());
+	else
+		mCommandCenterPreview->SetMaterial(	mMaterials["commandCenterPreviewInvalid"].get());
+}
+
+void DummyApp::CancelCommandCenterPlacement()
+{
+	mCommandCenterPlacementActive = false;
+
+	mCanPlaceCommandCenter = false;
+
+	if (mCommandCenterPreview != nullptr)
+		mCommandCenterPreview->SetPosition(0.0f, -100000.0f, 0.0f);
+
+	auto& renderObjects = mRenderLayer[(int)RenderLayer::Opaque];
+
+	renderObjects.erase(std::remove(renderObjects.begin(), renderObjects.end(), mCommandCenterPreview), renderObjects.end());
+
+	mUIkey.isB = false;
+	mUIkey.isC = false;
+}
+
+bool DummyApp::CanPlaceCommandCenter(const XMFLOAT3& position) const
+{
+	if (std::abs(position.x) + CC_EXTENT_X > MAP_BOUNDARY) return false;
+
+	if (std::abs(position.z) + CC_EXTENT_Z > MAP_BOUNDARY) return false;
+
+	const float sampleX[] = { -CC_EXTENT_X, 0.0f, CC_EXTENT_X };
+
+	const float sampleZ[] = { -CC_EXTENT_Z, 0.0f, CC_EXTENT_Z };
+
+	for (float offsetZ : sampleZ)
+	{
+		for (float offsetX : sampleX)
+		{
+			int gridX;
+			int gridZ;
+
+			mPathfinder.WorldToGrid(position.x + offsetX, position.z + offsetZ, gridX, gridZ);
+
+			if (!mPathfinder.IsWalkable(gridX, gridZ)) return false;
+		}
+	}
+
+	BoundingBox placementBox(XMFLOAT3(position.x, position.y + CC_EXTENT_Y, position.z), XMFLOAT3(CC_EXTENT_X, CC_EXTENT_Y,	CC_EXTENT_Z));
+
+	auto overlapsLayer = [&placementBox, this](const std::vector<GameObject*>& objects) 
+		{
+			for (GameObject* object : objects)
+			{
+				if (object == nullptr || object == mCommandCenterPreview) continue;
+
+				if (object->GetName() == "terrain") continue;
+
+				if (object->GetName() == "sky") continue;
+
+				if (object->GetObjType() == ObjectsType::WEAPON) continue;
+
+				BoundingBox worldBox;
+
+				object->GetBoundingBox().Transform(worldBox, XMLoadFloat4x4(&object->GetWorld()));
+
+				bool overlapX = std::abs(placementBox.Center.x - worldBox.Center.x)	<= placementBox.Extents.x + worldBox.Extents.x;
+
+				bool overlapZ = std::abs(placementBox.Center.z - worldBox.Center.z) <= placementBox.Extents.z +	worldBox.Extents.z;
+
+				if (overlapX && overlapZ) return true;
+			}
+			return false;
+		};
+
+	if (overlapsLayer(mGameObjectLayer[(int)GameObjectLayer::Object])) return false;
+
+	if (overlapsLayer(mGameObjectLayer[(int)GameObjectLayer::Environment])) return false;
+
+	return true;
 }
 
 void DummyApp::RegisterVisionObject(GameObject* obj, int ownerPlayer)
@@ -1183,34 +1427,71 @@ bool DummyApp::isInTeamVision(GameObject* obj) const
 {
 	if (!obj) return false;
 
+	const float visionRadiusSquared = UNIT_VISION_RANGE * UNIT_VISION_RANGE;
+	const bool isBuilding = obj->GetObjType() == ObjectsType::BUILDING;
+
+	BoundingBox worldBox;
+
+	if (isBuilding)
+	{
+		XMFLOAT4X4 world = obj->GetWorld();
+		obj->GetBoundingBox().Transform(worldBox, XMLoadFloat4x4(&world));
+	}
+
 	XMFLOAT3 objPos = obj->GetPosition();
-	float visionRadiusSquared = VisionRadiusWorld * VisionRadiusWorld;
+	int count = 0;
 
 	for (GameObject* teamObj : mTeamObjects)
 	{
+		if (count >= MaxFogUnits) break;
+		++count;
+
 		XMFLOAT3 teamPos = teamObj->GetPosition();
+
 		float dx = objPos.x - teamPos.x;
-		//float dy = objPos.y - teamPos.y;
 		float dz = objPos.z - teamPos.z;
-		float distanceSquared = dx * dx + dz * dz;
-		if (distanceSquared <= visionRadiusSquared)
+
+		if (isBuilding)
 		{
-			return true; // 팀 유닛의 시야 범위 안에 있음
+			float nearestX = std::clamp(teamPos.x, worldBox.Center.x - worldBox.Extents.x, worldBox.Center.x + worldBox.Extents.x);
+			float nearestZ = std::clamp(teamPos.z, worldBox.Center.z - worldBox.Extents.z, worldBox.Center.z + worldBox.Extents.z);
+
+			dx = nearestX - teamPos.x;
+			dz = nearestZ - teamPos.z;
 		}
+
+		if (dx * dx + dz * dz <= visionRadiusSquared)
+			return true;
 	}
+
+	return false;
 }
 
 bool DummyApp::ShouldRenderObject(GameObject* obj) const
 {
-	if(!mDarknessEnabled || !obj) return true;
+	if (obj == nullptr) return false;
 
-	//GameObject* visibilityObj = obj;
+	if (!mDarknessEnabled) return true;
 
-	bool isEnemy = std::find(mEnemyObjects.begin(), mEnemyObjects.end(), obj) != mEnemyObjects.end();
+	GameObject* visibilityObj = obj;
+
+	if (obj->GetObjType() == ObjectsType::WEAPON)
+	{
+		Weapon* weapon = dynamic_cast<Weapon*>(obj);
+
+		if (weapon == nullptr || weapon->GetOwner() == nullptr)
+			return false;
+
+		visibilityObj = weapon->GetOwner();
+	}
+
+	bool isEnemy = std::find(mEnemyObjects.begin(), mEnemyObjects.end(), visibilityObj) != mEnemyObjects.end();
 
 	if (!isEnemy) return true;
 
-	return isInTeamVision(obj);
+	if (visibilityObj->GetObjType() == ObjectsType::BUILDING) return true;
+
+	return isInTeamVision(visibilityObj);
 }
 
 
@@ -1239,7 +1520,7 @@ void DummyApp::UpdateDarknessCB(const GameTimer& gt)
 		DirectX::XMFLOAT3 pos = obj->GetPosition();
 
 		dc.Units[count].CenterPosRadius =
-			DirectX::XMFLOAT4(pos.x, pos.y, pos.z, VisionRadiusWorld);
+			DirectX::XMFLOAT4(pos.x, pos.y, pos.z, UNIT_VISION_RANGE);
 
 		++count;
 	}
@@ -1316,13 +1597,15 @@ void DummyApp::OnMouseWheel(WPARAM wheeldelta)
 
 bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPARAM lParam)
 {
+	
 	if (mFPSmode) {
 		mPlayer->OnKeyboardMessage(nMessageID, wParam);
 	}
-	else { //WASD QE 만 받음
+	else if (!mSpecialKeyinput.isCtrl){ //WASD QE 만 받음
 		mMainCamera->OnKeyboardMessage(nMessageID, wParam);
 	}
-
+	
+	// 
 	if (nMessageID == WM_KEYDOWN) {
 		switch (wParam)
 		{
@@ -1365,8 +1648,19 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 
 			}
 			break;
+		case VK_ESCAPE:
+			if (mCommandCenterPlacementActive) {
+				CancelCommandCenterPlacement();
+			}
+			else {
+				mUIkey.isB = false;
+				mUIkey.isC = false;
+			}
+			break;
 		default:
-			UIPicking(wParam);
+			if (!mFPSmode && mSpecialKeyinput.isCtrl) {
+				UIPicking(wParam);
+			}
 			break;
 		}
 	}
@@ -1384,7 +1678,8 @@ bool DummyApp::OnKeyboardMessage(HWND hWnd, UINT nMessageID, WPARAM wParam, LPAR
 
 				if(mSpecialKeyinput.isCtrl){
 					mIgnoreMouseMove = false;
-					//mMainCamera->SetVelocity(XMFLOAT3(0.f, 0.f, 0.f));
+					mMainCamera->ResetKeyInput();
+					mMainCamera->SetVelocity(XMFLOAT3(0.f, 0.f, 0.f));
 				}
 				else CenterMouseCursor();
 			}
@@ -1418,31 +1713,62 @@ void DummyApp::UpdateObjectCBs(const GameTimer& gt)
 {
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
 
+	static UINT animationFrame = 0;
+	++animationFrame;
+
+	const float fullRateDistance = 8000.0f;
+	const float halfRateDistance = 18000.0f;
+
+	const float fullRateDistanceSquared = fullRateDistance * fullRateDistance;
+	const float halfRateDistanceSquared = halfRateDistance * halfRateDistance;
+
 	for (auto& e : mAllGameObjects)
 	{
-		// 무기의 경우 무기의 주인의 cbuffer를 업데이트한다.
-		if (e->GetObjType() == ObjectsType::WEAPON) {
-			auto k = dynamic_cast<Weapon*>(e);
-			UpdateSkinnedCB(gt, k->GetOwner());
+		if (e->GetObjType() == ObjectsType::WEAPON)
+		{
+			Weapon* weapon = static_cast<Weapon*>(e);
+			Player* player = dynamic_cast<Player*>(weapon->GetOwner());
+
+			if (player)
+			{
+				XMFLOAT3 cameraPos = mMainCamera->GetPosition3f();
+				XMFLOAT3 unitPos = player->GetPosition();
+
+				float dx = cameraPos.x - unitPos.x;
+				float dz = cameraPos.z - unitPos.z;
+				float distanceSquared = dx * dx + dz * dz;
+
+				UINT updateInterval = 1;
+
+				if (distanceSquared > halfRateDistanceSquared)	updateInterval = 4;
+				else if (distanceSquared > fullRateDistanceSquared)	updateInterval = 2;
+
+				UINT animationPhase = static_cast<UINT>(player->GetSkinnedCBIndex());
+
+				if ((animationFrame + animationPhase) % updateInterval == 0) UpdateSkinnedCB(gt, player);
+			}
 		}
-		// 상수들이 바뀌었을 때에만 cbuffer 자료를 갱신한다.
-		// 이러한 갱신을 프레임 자원마다 수행해야한다.
+
 		if (e->GetFramesDirty() > 0)
 		{
 			XMMATRIX world = XMLoadFloat4x4(&e->GetWorld());
 			XMMATRIX texTransform = XMLoadFloat4x4(&e->GetTexTransform());
 
 			ObjectConstants objConstants;
+
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+
+			objConstants.Opacity = e->GetOpacity();
 
 			for (UINT i = 0; i < e->GetNumSubmeshes(); i++)
 			{
-				objConstants.MaterialIndex = e->GetMeterial(i)->MatCBIndex;
+				objConstants.MaterialIndex =e->GetMeterial(i)->MatCBIndex;
+
 				currObjectCB->CopyData(e->GetObjCBIndex(i), objConstants);
 			}
 
-			// 다음 프레임 자원으로 넘어간다.
 			e->DecreaseFrameDirty();
 		}
 	}
@@ -1452,6 +1778,9 @@ void DummyApp::UpdateSkinnedCB(const GameTimer& gt, GameObject* skinnobj)
 {
 	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
 	std::vector<XMFLOAT4X4> boneTransforms;
+
+	if (boneTransforms.capacity() > 96) boneTransforms.reserve(96);
+
 	SkinnedConstants skinnedConstants;
 
 	// 스킨 메쉬의 경우 뼈의 변환 행렬을 계산한다.
@@ -1662,7 +1991,7 @@ void DummyApp::BuildRootSignature()
 	depthTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
 	// 루트 파라미터는 총 7개
-	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
 
 	// 0: ObjectCB (b0)
 	slotRootParameter[0].InitAsConstantBufferView(0);
@@ -1688,10 +2017,13 @@ void DummyApp::BuildRootSignature()
 	slotRootParameter[6].InitAsDescriptorTable(
 		1, &depthTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
+	// 7: 건물 시야 검사 (b3)
+	slotRootParameter[7].InitAsConstantBufferView(3);
+
 	auto staticSamplers = GetStaticSamplers();
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		7, slotRootParameter,
+		8, slotRootParameter,
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1895,9 +2227,17 @@ void DummyApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	const D3D_SHADER_MACRO enemyBuildingDefines[] =
+	{
+		"ENEMY_BUILDING_FOG", "1",
+		NULL, NULL
+	};
+
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["toonLightingOpaquePS"] = d3dUtil::CompileShader(L"Shaders/ToonLighting.hlsl", nullptr, "PS", "ps_5_1");
+	
+	mShaders["enemyBuildingPS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", enemyBuildingDefines, "PS", "ps_5_1");
 
 	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders/Default.hlsl", skinnedDefines, "VS", "vs_5_1");
 
@@ -1915,6 +2255,7 @@ void DummyApp::BuildShadersAndInputLayout()
 
 	mShaders["darknessVS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["darknessPS"] = d3dUtil::CompileShader(L"Shaders/Darkness.hlsl", nullptr, "PS", "ps_5_1");
+
 
 	mInputLayout = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1955,6 +2296,7 @@ void DummyApp::BuildShadersAndInputLayout()
 		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,
 		  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 	};
+
 
 }
 
@@ -2095,6 +2437,7 @@ void DummyApp::LoadSkinnedMesh()
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Landing.fbx", "Landing");
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack1.fbx", "MeleeAttack1");
 		mSkinnedMesh->LoadAnimation("Models/Character/Animations/MeleeAttack2.fbx", "MeleeAttack2");
+		mSkinnedMesh->LoadAnimation("Models/Character/Animations/Death.fbx", "Death");
 
 		UINT vcount = 0;
 		UINT tcount = 0;
@@ -2489,7 +2832,17 @@ void DummyApp::BuildPSOs()
 	opaquePsoDesc.PS = {
 		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()), mShaders["opaquePS"]->GetBufferSize() };
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	
+	auto alphaBlendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	alphaBlendDesc.RenderTarget[0].BlendEnable =TRUE;
+	alphaBlendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	alphaBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	alphaBlendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	alphaBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	alphaBlendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	alphaBlendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	opaquePsoDesc.BlendState = alphaBlendDesc;
+
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.SampleMask = UINT_MAX;
 	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -2500,6 +2853,16 @@ void DummyApp::BuildPSOs()
 	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc,
 		IID_PPV_ARGS(&mPSOs["opaque"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC enemyBuildingPsoDesc = opaquePsoDesc;
+
+	enemyBuildingPsoDesc.PS = {
+		reinterpret_cast<BYTE*>(mShaders["enemyBuildingPS"]->GetBufferPointer()),
+		mShaders["enemyBuildingPS"]->GetBufferSize()
+	};
+	enemyBuildingPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&enemyBuildingPsoDesc,
+		IID_PPV_ARGS(&mPSOs["enemyBuilding"])));
 
 	//
 	// PSO for opaque wireframe objects.
@@ -2579,6 +2942,21 @@ void DummyApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc,
 		IID_PPV_ARGS(&mPSOs["debug"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC pickingCirclePsoDesc = opaquePsoDesc;
+
+	pickingCirclePsoDesc.InputLayout = { mColorInputLayout.data(), (UINT)mColorInputLayout.size() };
+
+	pickingCirclePsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["colorVS"]->GetBufferPointer()), mShaders["colorVS"]->GetBufferSize() };
+	pickingCirclePsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["colorPS"]->GetBufferPointer()), mShaders["colorPS"]->GetBufferSize() };
+	pickingCirclePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	pickingCirclePsoDesc.DepthStencilState.DepthEnable = TRUE;
+	pickingCirclePsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	pickingCirclePsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	pickingCirclePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pickingCirclePsoDesc, IID_PPV_ARGS(&mPSOs["pickingCircle"])));
+
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC uiPsoDesc = {};
 	uiPsoDesc.InputLayout = { mUIInputLayout.data(), (UINT)mUIInputLayout.size() };
@@ -2806,6 +3184,27 @@ void DummyApp::BuildMaterials()
 
 	mMaterials["commandCenter"] = std::move(commandCenter);
 
+	auto commandCenterPreviewValid = std::make_unique<Material>();
+	commandCenterPreviewValid->Name = "commandCenterPreviewValid";
+	commandCenterPreviewValid->MatCBIndex = matCBIndex++;
+	commandCenterPreviewValid->DiffuseSrvHeapIndex = mMaterials["commandCenter"]->DiffuseSrvHeapIndex;
+	commandCenterPreviewValid->DiffuseAlbedo = XMFLOAT4(0.45f, 1.0f, 0.45f, 0.55f);
+	commandCenterPreviewValid->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	commandCenterPreviewValid->Roughness = 0.1f;
+
+	mMaterials["commandCenterPreviewValid"] = std::move(commandCenterPreviewValid);
+
+
+	auto commandCenterPreviewInvalid = std::make_unique<Material>();
+	commandCenterPreviewInvalid->Name = "commandCenterPreviewInvalid";
+	commandCenterPreviewInvalid->MatCBIndex = matCBIndex++;
+	commandCenterPreviewInvalid->DiffuseSrvHeapIndex = mMaterials["commandCenter"]->DiffuseSrvHeapIndex;
+	commandCenterPreviewInvalid->DiffuseAlbedo =XMFLOAT4(1.0f, 0.15f, 0.15f, 0.55f);
+	commandCenterPreviewInvalid->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	commandCenterPreviewInvalid->Roughness = 0.1f;
+
+	mMaterials["commandCenterPreviewInvalid"] = std::move(commandCenterPreviewInvalid);
+
 	//Cursor Material는 무조건 마지막에 있어야한다.
 	mCursorTexHeapIndex = SRVIndex++;
 }
@@ -3008,94 +3407,18 @@ void DummyApp::BuildGameObjects()
 	BuildCrystal(9600, 8750, 180);
 	BuildCrystal(9400, 8600, 180);
 
-	//----------------------------------------------
-	Weapon* swordGameObject = new Weapon("sword", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	swordGameObject->SetCBIndex(objCBIndex);
-	swordGameObject->SetMesh(mMeshes["Sword"]);
-	swordGameObject->SetMaterial(mMaterials["sword"].get());
-	swordGameObject->AddSubmesh(swordGameObject->GetMesh()->GetSubmesh("sword"));
-	swordGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	swordGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(swordGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(swordGameObject);
-	mAllGameObjects.push_back(swordGameObject);
-
-	Weapon* bowGameObject = new Weapon("bow", ObjectsType::WEAPON, XMMatrixIdentity(), XMMatrixIdentity());
-	bowGameObject->SetCBIndex(objCBIndex);
-	bowGameObject->SetMesh(mMeshes["Bow"]);
-	bowGameObject->SetMaterial(mMaterials["bow"].get());
-	bowGameObject->AddSubmesh(bowGameObject->GetMesh()->GetSubmesh("bow"));
-	bowGameObject->SetBoundingBox(XMFLOAT3(0.0f, 0.0f, 60.0f), XMFLOAT3(1.0f, 8.0f, 65.0f));
-	bowGameObject->CreateBoundingBox(md3dDevice.Get(), mCommandList.Get());
-
-	mRenderLayer[(int)RenderLayer::Opaque].push_back(bowGameObject);
-	mGameObjectLayer[(int)GameObjectLayer::Environment].push_back(bowGameObject);
-	mAllGameObjects.push_back(bowGameObject);
-
-	// ------------------------------------------
-	// Skinned objects - player
-	// ------------------------------------------
-	Player* Skinned1 = new Player("skinned1", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 0.0f), XMMatrixIdentity());
-	Skinned1->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	Skinned1->SetMesh(mMeshes["Vanguard"]);
-	Skinned1->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[0]);
-	Skinned1->AddSubmesh(Skinned1->GetMesh()->mSubmeshes[1]);
-	Skinned1->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Skinned1->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
-
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Skinned1);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Skinned1);
-	mAllGameObjects.push_back(Skinned1);
-	mTeamObjects.push_back(Skinned1);
-
-	Player* Knight = new Player("skinned", ObjectsType::CHARACTER, XMMatrixTranslation(1000.0f, 0.0f, 200.0f), XMMatrixIdentity());
-	Knight->SetMesh(mMeshes["Vanguard"]);
-	Knight->SetCBIndex(2, objCBIndex, skinnedCBIndex);
-	Knight->SetMaterials(2, { mMaterials["vanguard"].get(),  mMaterials["vanguard"].get() });
-	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[0]);
-	Knight->AddSubmesh(Knight->GetMesh()->mSubmeshes[1]);
-	Knight->SetBoundingBox(XMFLOAT3(0.0f, 85.0f, 0.0f), XMFLOAT3(40.0f, 85.0f, 40.0f));
-	Knight->CreateCylinderBoundingBox(md3dDevice.Get(), mCommandList.Get(), 16);
-
-	mRenderLayer[(int)RenderLayer::SkinnedOpaque].push_back(Knight);
-	mGameObjectLayer[(int)GameObjectLayer::Object].push_back(Knight);
-	mAllGameObjects.push_back(Knight);
-	mTeamObjects.push_back(Knight);
-
-	// ------------------------------------------
-	// Buttobn
-	// -----------------------------------------
-
-	//Button* test1 = new LobbyButton({ mClientWidth/2 , mClientHeight/2 }, { 100,100 });
-	//mButtons.push_back(test1);
-
-	mPlayer = Skinned1;
-	//if (mMainCamera) {
-	//	delete mMainCamera;
-	//	mMainCamera = nullptr;
-	//}
+	mPlayer = nullptr;
 
 	Camera* m = new Camera();
-	//m->SetPlayerDirections(mPlayer);
-	//mMainCamera = m;
-	//m->SetPosition(1100.f, mTerrain.GetHeight(1100.f, 0.f)+1000, 0.f);
-
 	m->SetPosition(9500, mTerrain.GetHeight(9500, 9000) + 2000, 9000);
-	m->LookAt(m->GetPosition3f(), mPlayer->GetPosition(), mPlayer->GetUp());
+	XMFLOAT3 cameraTarget = { 0.f, mTerrain.GetHeight(0.f, 0.f),0.f };
+	m->LookAt(m->GetPosition3f(), cameraTarget, XMFLOAT3(0.f , 1.f, 0.f));
 	mSubCamera.push_back(m);
 
-	if (mFPSmode) mMainCamera = mPlayer->GetCamera();
+	if (mFPSmode && mPlayer != nullptr ) mMainCamera = mPlayer->GetCamera();
 	else mMainCamera = m;
 
 	mMainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.f, 30000.f);
-
-	Skinned1->SetWeapon(swordGameObject);
-	swordGameObject->SetOwner(Skinned1);
-
-	Knight->SetWeapon(bowGameObject);
-	bowGameObject->SetOwner(Knight);
 
 }
 
@@ -3231,6 +3554,8 @@ void DummyApp::BuildDynamicColliders()
 		// 캐릭터 = 동적 충돌 대상
 		if (obj->GetObjType() == ObjectsType::CHARACTER)
 		{
+			if (obj->isDead()) continue;
+
 			mDynamicColliders.push_back(obj);
 			continue;
 		}
@@ -3386,195 +3711,7 @@ void DummyApp::ResolveAllCollisions()
 		}
 	}
 
-	// ----------------------------------------------------------
-	// Phase 4: 충돌로 막힌 캐릭터 → A* 재탐색 or 멈춤
-	// ----------------------------------------------------------
-	// 주의: A* 재탐색은 비용이 크므로 쿨타임 적용 필요
-	// Player.h에 다음 멤버 추가 필요:
-	//   float mPathRetryTimer = 0.0f;
-	//   static constexpr float PATH_RETRY_COOLDOWN = 0.5f; // 0.5초마다 재탐색
-
-	for (auto& obj : mDynamicColliders)
-	{
-		if (obj->GetObjType() != ObjectsType::CHARACTER)
-			continue;
-
-		Player* player = dynamic_cast<Player*>(obj);
-		if (!player)
-			continue;
-
-		if(GetNetworkObjNumber(obj) < 0)
-			continue;
-
-		// 이동 중이 아니면 스킵
-		StateId lowerState = player->GetLowerStateId();
-		if (lowerState != StateId::Walk && lowerState != StateId::Run)
-			continue;
-
-		XMFLOAT3 pos = player->GetPosition();
-		XMFLOAT3 dest = player->GetDestination(); // 현재 waypoint 또는 최종 목적지
-
-		float toDest = std::sqrt(
-			(dest.x - pos.x) * (dest.x - pos.x) +
-			(dest.z - pos.z) * (dest.z - pos.z)
-		);
-
-		if (toDest < 1.0f)
-			continue;
-
-		// "내 앞이 다른 동적 오브젝트에 막혀있는가?" 체크
-		XMFLOAT3 dirToDest = {
-			(dest.x - pos.x) / toDest,
-			0.0f,
-			(dest.z - pos.z) / toDest
-		};
-
-		float stepSize = max(player->GetBoundingBox().Extents.x,
-			player->GetBoundingBox().Extents.z) * 0.5f;
-		XMFLOAT3 testPos = {
-			pos.x + dirToDest.x * stepSize,
-			pos.y,
-			pos.z + dirToDest.z * stepSize
-		};
-
-		BoundingBox testBB = PhysicsHelper::MakeWorldBB(player->GetBoundingBox(), testPos);
-
-		bool blockedByDynamic = false;
-		bool blockedByStatic = false;
-
-		// 정적 충돌체에 막히는지
-		for (const auto& collider : mStaticColliders)
-		{
-			if (testBB.Intersects(collider))
-			{
-				blockedByStatic = true;
-				break;
-			}
-		}
-
-		// 다른 동적 오브젝트(멈춘 것)에 막히는지
-		if (!blockedByStatic)
-		{
-			for (auto& other : mDynamicColliders)
-			{
-				if (other == obj) continue;
-
-				// 이동 중인 상대는 스킵 (서로 밀치는 건 Phase 2에서 처리)
-				if (other->GetObjType() == ObjectsType::CHARACTER)
-				{
-					Player* pOther = dynamic_cast<Player*>(other);
-					if (pOther)
-					{
-						StateId otherState = pOther->GetLowerStateId();
-						if (otherState == StateId::Walk || otherState == StateId::Run)
-							continue;
-					}
-				}
-
-				BoundingBox otherBB = PhysicsHelper::MakeWorldBB(
-					other->GetBoundingBox(), other->GetPosition());
-
-				if (testBB.Intersects(otherBB))
-				{
-					blockedByDynamic = true;
-					break;
-				}
-			}
-		}
-
-		bool blocked = blockedByStatic || blockedByDynamic;
-
-		if (blocked)
-		{
-
-			if (!player->CanRetryPath())
-				continue;
-			player->ResetPathRetryTimer();
-			// 재탐색 쿨타임 체크 (매 프레임 재탐색 방지)
-			// Player.h에 mPathRetryTimer 추가 필요
-			// player->mPathRetryTimer가 0 이하일 때만 재탐색
-			// if (player->mPathRetryTimer > 0.f) continue;
-			// player->mPathRetryTimer = Player::PATH_RETRY_COOLDOWN;
-
-			// 최종 목적지 (마지막 waypoint 또는 path가 없으면 dest 자체)
-			XMFLOAT3 finalDest = dest;
-			if (player->HasPath())
-			{
-				// path의 마지막 waypoint가 진짜 최종 목적지
-				// GetDestination()은 현재 waypoint이므로, 
-				// 최종 목적지는 따로 저장해둬야 하지만
-				// 없으면 현재 dest로 재탐색
-				finalDest = player->GetFinalDestination();
-
-				// finalDest가 현재 위치와 동일하면 (초기값 or 미설정) dest로 fallback
-				float distToFinal = std::sqrt(
-					(finalDest.x - pos.x) * (finalDest.x - pos.x) +
-					(finalDest.z - pos.z) * (finalDest.z - pos.z));
-
-				if (distToFinal < 1.0f)
-					finalDest = dest;
-			}
-
-			// A* 재탐색
-			mPathfinder.ClearDynamicObstacles();
-			for (auto& other : mDynamicColliders)
-			{
-				if (other == obj) continue;
-
-				bool isStationary = true;
-				if (other->GetObjType() == ObjectsType::CHARACTER)
-				{
-					Player* pOther = dynamic_cast<Player*>(other);
-					if (pOther)
-					{
-						StateId st = pOther->GetLowerStateId();
-						if (st == StateId::Walk || st == StateId::Run)
-							isStationary = false;
-					}
-				}
-
-				if (isStationary)
-				{
-					XMFLOAT3 otherPos = other->GetPosition();
-					int gx, gz;
-					mPathfinder.WorldToGrid(otherPos.x, otherPos.z, gx, gz);
-					mPathfinder.SetDynamicObstacle(gx, gz);
-
-					float maxExt = max(other->GetBoundingBox().Extents.x,
-						other->GetBoundingBox().Extents.z);
-					int expand = (int)(maxExt / mPathfinder.GetCellSize());
-					for (int dz = -expand; dz <= expand; ++dz)
-						for (int dx = -expand; dx <= expand; ++dx)
-							if (dx != 0 || dz != 0)
-								mPathfinder.SetDynamicObstacle(gx + dx, gz + dz);
-				}
-			}
-
-			std::vector<XMFLOAT3> newPath;
-			bool found = mPathfinder.FindPath(
-				pos, finalDest,
-				XMFLOAT3(player->GetBoundingBox().Extents.x, 0.f,
-					player->GetBoundingBox().Extents.z),
-				newPath);
-
-			mPathfinder.ClearDynamicObstacles();
-
-			if (found && newPath.size() >= 2)
-			{
-				for (auto& wp : newPath)
-					wp.y = mTerrain.GetHeight(wp.x, wp.z);
-				player->SetPath(newPath);
-			}
-			else
-			{
-				// 정말 갈 수 없으면 멈춤
-				player->SetDestination(pos);
-				player->SetVelocity(XMFLOAT3(0.f, player->GetVelocity().y, 0.f));
-				player->ClearPath();
-				player->ChangeLowerState(new IdlePlayerState());
-			}
-		}
-	}
+	
 }
 void DummyApp::InitPathfinder()
 {
@@ -3676,7 +3813,7 @@ bool DummyApp::ClampToWalkable(XMFLOAT3& dest)
 	return false;   // 주변에 갈 수 있는 곳이 없음
 }
 
-void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects)
+void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::vector<GameObject*>& gameObjects, bool useEnemyBuildingFog)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	UINT skinnedCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(SkinnedConstants));
@@ -3690,6 +3827,12 @@ void DummyApp::DrawGameObjects(ID3D12GraphicsCommandList* cmdList, const std::ve
 		auto gameObj = gameObjects[i];
 
 		if(!ShouldRenderObject(gameObj)) continue;
+
+		bool isEnemyBuilding = mDarknessEnabled &&
+			gameObj->GetObjType() == ObjectsType::BUILDING &&
+			std::find(mEnemyObjects.begin(), mEnemyObjects.end(), gameObj) != mEnemyObjects.end();
+
+		if (isEnemyBuilding != useEnemyBuildingFog) continue;
 
 		cmdList->IASetVertexBuffers(0, 1, &gameObj->GetMesh()->VertexBufferView());
 		cmdList->IASetIndexBuffer(&gameObj->GetMesh()->IndexBufferView());
@@ -3840,12 +3983,13 @@ void DummyApp::OnPlayerLeft(const SCPlayerLeft* p)
 	}
 }
 
-void DummyApp::SendAttackRequest(unsigned char attackerObj, unsigned char targetOwner, unsigned char targetObj)
+void DummyApp::SendAttackRequest(NetworkObjID attackerObj, unsigned char targetOwner, NetworkObjID targetObj)
 {
 	if (!mNetworkBridge || mMyPlayerNumber == 0) return;
 
 	CSAttackRequest req;
 	req.playerNumber = (unsigned char)mMyPlayerNumber;
+	req.commandMode = ATTACK_TARGET;
 	req.attackerObj = attackerObj;
 	req.targetOwner = targetOwner;
 	req.targetObj = targetObj;
@@ -3853,28 +3997,43 @@ void DummyApp::SendAttackRequest(unsigned char attackerObj, unsigned char target
 	mNetworkBridge->EnqueueSend(req);
 }
 
+void DummyApp::SendAttackMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest)
+{
+	if (!mNetworkBridge || mMyPlayerNumber == 0) return;
+
+	CSAttackRequest request;
+	request.playerNumber =(unsigned char)mMyPlayerNumber;
+	request.commandMode = ATTACK_MOVE;
+	request.attackerObj = objNumber;
+	request.destination ={dest.x, dest.y, dest.z };
+
+	mNetworkBridge->EnqueueSend(request);
+}
+
 void DummyApp::OnAttackResult(const SCAttackResult* p)
 {
-	// 공격자 애니메이션
-	if (GameObject* atk = FindNetworkObject(p->attackerObj)) {
-		if (Player* unit = dynamic_cast<Player*>(atk)) {
-			// 대상 바라보기 + 공격 모션
-			if (GameObject* tgt = FindNetworkObject(p->targetObj)) {
-				XMFLOAT3 tp = tgt->GetPosition();
-				unit->SetDestination(unit->GetPosition());   // 제자리
-				// TODO: unit->LookAt(tp) 같은 회전 함수가 있으면 호출
-			}
-			unit->SetFollowerKeyInput(FollowerKeyInput::Attack);  // ※ enum 이름 확인
-			unit->FollowerEvent();
+	GameObject* attacker = FindNetworkObject(p->attackerObj);
+
+	GameObject* target = FindNetworkObject(p->targetObj);
+
+	Player* knight = dynamic_cast<Player*>(attacker);
+
+	if (knight != nullptr && knight->GetNetworkObjType() == ObjType::Knight)
+	{
+		if (target != nullptr)
+		{
+			knight->FaceTarget(target->GetPosition());
 		}
+
+		knight->SetFollowerKeyInput(FollowerKeyInput::Attack);
+
+		knight->FollowerEvent();
 	}
 
-	// 대상 HP 반영
-	std::cout << "[Combat] obj " << (int)p->targetObj
-		<< " (owner " << (int)p->targetOwner << ") hp -> "
-		<< p->targetHpRemaining << "\n";
-	// TODO: HP바 UI. GameObject에 hp 멤버가 없으면 추가하거나
-	//       DummyApp에 unordered_map<int,int> mUnitHp 로 관리.
+	if (target != nullptr)
+	{
+		target->SetCurrentHP(p->targetHpRemaining);
+	}
 }
 
 void DummyApp::OnObjDead(const SCObjDead* p)
@@ -3885,67 +4044,208 @@ void DummyApp::OnObjDead(const SCObjDead* p)
 	auto it = mNetworkObjects.find(p->objNumber);
 	if (it == mNetworkObjects.end()) return;
 
-	if (Player* unit = dynamic_cast<Player*>(it->second)) {
+	GameObject* deadObject = it->second;
+	deadObject->SetCurrentHP(0);
+	deadObject->SetOpacity(1.0f);
+
+	if (Player* unit = dynamic_cast<Player*>(deadObject))
+	{
+		XMFLOAT3 position = unit->GetPosition();
+
 		unit->ClearPath();
-		unit->SetDestination(unit->GetPosition());
-		// TODO: 사망 애니메이션 (StateId::Death 등이 있으면 전환)
-		//       렌더 레이어에서 제거 or 눕히기. 당장은 매핑 해제로
-		//       추가 명령 대상에서만 빠진다.
+		unit->ResetKeyInput();
+		unit->SetFollowerKeyInput(FollowerKeyInput::None);
+		unit->SetDestination(position);
+		unit->SetFinalDestination(position);
+		unit->SetVelocity(XMFLOAT3(0.0f, 0.0f, 0.0f));
+		unit->SetAttacking(false);
+
+		GameObject* weapon = unit->GetWeapon();
+		if (weapon != nullptr) weapon->SetOpacity(1.0f);
+
+		unit->ChangeLowerState(new DeathPlayerState);
+		unit->ChangeUpperState(new DeathPlayerState);
 	}
+
+	mPendingNetworkPaths.erase(p->objNumber);
 	mNetworkObjects.erase(it);
+
+	auto& selectedObjects = mGameObjectLayer[(int)GameObjectLayer::Picking];
+
+	selectedObjects.erase(std::remove(selectedObjects.begin(), selectedObjects.end(), deadObject), selectedObjects.end());
+
+	mPicking = !selectedObjects.empty();
+
+	auto& objectLayer =	mGameObjectLayer[(int)GameObjectLayer::Object];
+
+	objectLayer.erase(std::remove(objectLayer.begin(), objectLayer.end(), deadObject), objectLayer.end());
+
+	//mTeamObjects.erase(std::remove(mTeamObjects.begin(), mTeamObjects.end(), deadObject), mTeamObjects.end());
+
+	mPendingDeadObjects.push_back({ deadObject, 2.0f });
 }
 
-GameObject* DummyApp::PickEnemyUnit(int sx, int sy, int& outOwner, unsigned char& outObjNum)
+void DummyApp::UpdateDeadObjects(float deltaTime)
+{
+	const float fadeDuration = 0.5f;
+
+	for (auto it = mPendingDeadObjects.begin(); it != mPendingDeadObjects.end();)
+	{
+		it->remaintime -= deltaTime;
+
+		GameObject* object = it->object;
+
+		if (object != nullptr && it->remaintime <= fadeDuration)
+		{
+			float opacity = it->remaintime / fadeDuration;
+
+			object->SetOpacity(opacity);
+
+			if (Player* unit = dynamic_cast<Player*>(object))
+			{
+				GameObject* weapon = unit->GetWeapon();
+
+				if (weapon != nullptr)
+				{
+					weapon->SetOpacity(opacity);
+				}
+			}
+		}
+
+		if (it->remaintime > 0.0f)
+		{
+			++it;
+			continue;
+		}
+
+		it = mPendingDeadObjects.erase(it);
+
+		RemoveDeadObject(object);
+	}
+}
+
+void DummyApp::RemoveDeadObject(GameObject* object)
+{
+	if (object == nullptr) return;
+
+	GameObject* weapon = nullptr;
+
+	if (Player* unit = dynamic_cast<Player*>(object))
+	{
+		weapon = unit->GetWeapon();
+	}
+
+	auto eraseObject = [](std::vector<GameObject*>& objects, GameObject* target) {
+		if (target == nullptr) return;
+		objects.erase(std::remove(objects.begin(), objects.end(), target), objects.end());
+	};
+
+	eraseObject(mAllGameObjects, object);
+	eraseObject(mTeamObjects, object);
+	eraseObject(mEnemyObjects, object);
+	eraseObject(mDynamicColliders, object);
+
+	if (weapon != nullptr)
+	{
+		eraseObject(mAllGameObjects, weapon);
+		eraseObject(mTeamObjects, weapon);
+		eraseObject(mEnemyObjects, weapon);
+		eraseObject(mDynamicColliders, weapon);
+	}
+
+	for (int i = 0; i < (int)RenderLayer::Count; ++i)
+	{
+		eraseObject(mRenderLayer[i], object);
+		eraseObject(mRenderLayer[i], weapon);
+	}
+
+	for (int i = 0; i < (int)GameObjectLayer::Count; ++i)
+	{
+		eraseObject(mGameObjectLayer[i], object);
+		eraseObject(mGameObjectLayer[i], weapon);
+	}
+
+	mPendingBoundingBuilds.erase(std::remove_if(mPendingBoundingBuilds.begin(), mPendingBoundingBuilds.end(), [object, weapon](const PendingBoundingBuild& pending) {
+		return pending.object == object || pending.object == weapon;
+	}), mPendingBoundingBuilds.end());
+
+	if (mPlayer == object) mPlayer = nullptr;
+
+	if (weapon != nullptr) delete weapon; 
+
+	delete object;
+}
+
+
+GameObject* DummyApp::PickEnemyUnit(int sx, int sy, int& outOwner, NetworkObjID& outObjNum)
 {
 	XMVECTOR rayOrigin, rayDir;
 	MathHelper::ScreenToRay(sx, sy, mClientWidth, mClientHeight,
 		mMainCamera->GetView(), mMainCamera->GetProj(),	rayOrigin, rayDir);  
 
+	GameObject* closestObject = nullptr;
+	float closestDistance =	MathHelper::Infinity;
+
 	for (const auto& [key, obj] : mNetworkObjects) {
-		int owner = key / 256;
-		if (owner == mMyPlayerNumber) continue;      // 적만
-		if (obj->GetObjType() != ObjectsType::CHARACTER) continue; // 유닛만
-		if (mDarknessEnabled && !isInTeamVision(obj)) continue;  // 시야 밖이면 스킵
+		if (obj == nullptr) continue;
+
+		int owner =	obj->GetOwnerPlayerNumber();
+
+		if (owner == 0 || owner == mMyPlayerNumber) continue;
+
+		if (obj->GetObjType() != ObjectsType::CHARACTER && obj->GetObjType() != ObjectsType::BUILDING) continue;
+
+		if (mDarknessEnabled && !isInTeamVision(obj)) continue;
 
 		BoundingBox worldBB;
 		obj->GetBoundingBox().Transform(worldBB,
 			XMLoadFloat4x4(&obj->GetWorld()));
 
-		float dist;
+		float dist = 0.0f;
 		if (worldBB.Intersects(rayOrigin, rayDir, dist)) {
-			outOwner = owner;
-			outObjNum = (unsigned char)(key % 256);
-			return obj;
+			if (dist < closestDistance) {
+				closestDistance = dist;
+				closestObject = obj;
+				outOwner = owner;
+				outObjNum = obj->GetNetworkObjNumber();
+			}
 		}
 	}
-	return nullptr;
+	return closestObject;
 }
 
 void DummyApp::SummonCommandCenter()
 {
-	if (!mNetworkBridge || mMyPlayerNumber == 0) {
+	if (!mNetworkBridge || mMyPlayerNumber == 0)
+	{
 		std::cout << "[Build] not linked to server yet\n";
-		mUIkey.isH = false;
-		mUIkey.isB = false;
+		CancelCommandCenterPlacement();
 		return;
 	}
 
-	XMFLOAT3 pos;
-	if (!PickTerrainPoint(mLastMousePos.x, mLastMousePos.y, pos)) {
-		std::cout << "[BUILD] invalid terrain point \n";
-		mUIkey.isH = false;
-		mUIkey.isB = false;
+	if (!mCommandCenterPlacementActive) return;
+
+	if (!mCanPlaceCommandCenter)
+	{
+		std::cout << "[Build] cannot build here\n";
+
+		return;
 	}
 
-	CSBuildRequest req;
-	req.playerNumber = (unsigned char)mMyPlayerNumber;
-	req.buildType = (unsigned char)ObjType::Base;
-	req.position = { pos.x, pos.y, pos.z };
+	CSBuildRequest request;
 
-	mNetworkBridge->EnqueueSend(req);
+	request.playerNumber = (unsigned char)mMyPlayerNumber;
+	request.buildType = (unsigned char)ObjType::Base;
+	request.position =
+	{
+		mCommandCenterPreviewPosition.x,
+		mCommandCenterPreviewPosition.y,
+		mCommandCenterPreviewPosition.z
+	};
 
-	mUIkey.isH = false;
-	mUIkey.isB = false;
+	mNetworkBridge->EnqueueSend(request);
+
+	CancelCommandCenterPlacement();
 }
 
 void DummyApp::OnBuildResult(const SCBuildResult* p)
@@ -4027,7 +4327,7 @@ void DummyApp::CreateCommandCenterAt(int ownerPlayerNumber, NetworkObjID objNumb
 	mStaticColliders.push_back(worldBB);
 
 	// 네트워크 매핑 등록 (건물 번호는 유닛과 겹치지 않게 +100 오프셋)
-	cc->SetNetworkInfo(objNumber, ownerPlayerNumber);
+	cc->SetNetworkInfo(objNumber, ownerPlayerNumber, ObjType::Base);
 	mNetworkObjects[objNumber] = cc;
 
 	std::cout << "[Build] CommandCenter #" << (int)objNumber
@@ -4075,7 +4375,7 @@ Player* DummyApp::CreateKnightAt(int ownerPlayerNumber, NetworkObjID objNumber, 
 	if (mDebugMode) std::cout << "[Debug] Summoned Knight at (" << spawnPos.x << ", " << spawnPos.z << ")" << std::endl;
 
 
-	playerGameObject1->SetNetworkInfo(objNumber, ownerPlayerNumber);
+	playerGameObject1->SetNetworkInfo(objNumber, ownerPlayerNumber, ObjType::Knight);
 	mNetworkObjects[objNumber] = playerGameObject1;
 
 	return playerGameObject1;
@@ -4125,7 +4425,7 @@ Player* DummyApp::CreateHunterAt(int ownerPlayer, NetworkObjID objNumber, const 
 
 
 	// (4) 네트워크 매핑 등록 — 이게 핵심
-	playerGameObject2->SetNetworkInfo(objNumber, ownerPlayer);
+	playerGameObject2->SetNetworkInfo(objNumber, ownerPlayer, ObjType::Hunter);
 	mNetworkObjects[objNumber] = playerGameObject2;
 
 	return playerGameObject2;
@@ -4309,6 +4609,11 @@ void DummyApp::ProcessReceivedPackets()
 
 		switch (packetType)
 		{
+		case SC_MOVE_PATH_RESULT:
+			if (pkt.length >= sizeof(SCMovePathResult)) {
+				OnMovePathResult(reinterpret_cast<const SCMovePathResult*>(pkt.data));
+			}
+			break;
 		case SC_MOVE_OBJ_RESULT:
 			OnMoveObjResult(
 				reinterpret_cast<const SCMoveObjResult*>(pkt.data));
@@ -4466,9 +4771,32 @@ void DummyApp::OnPositionSync(const SCPositionSync* p)
 		float errSq = dx * dx + dz * dz;
 
 		bool isMine = (e.ownerPlayer == mMyPlayerNumber);
-		float snapThresholdSq = isMine ? 400.0f : 25.0f; // 내 것 20u, 남의 것 5u
+		if (isMine)
+		{
+			const float softThreshold = 60.0f;
+			const float hardThreshold = 250.0f;
 
-		if (errSq > snapThresholdSq) {
+			if (errSq > hardThreshold * hardThreshold)
+			{
+				float y = mTerrain.GetHeight(e.position.x, e.position.z);
+				obj->SetPosition(e.position.x, y, e.position.z);
+				mPositionCorrections.erase(e.objNumber);
+			}
+			else if (errSq > softThreshold * softThreshold)
+			{
+				// 더하지 말고 최신 오차로 교체한다.
+				mPositionCorrections[e.objNumber] =	XMFLOAT2(e.position.x - cur.x, e.position.z - cur.z);
+			}
+			else
+			{
+				mPositionCorrections.erase(e.objNumber);
+			}
+
+			continue;
+		}
+
+		if (errSq > 25.0f)
+		{
 			float y = mTerrain.GetHeight(e.position.x, e.position.z);
 			obj->SetPosition(e.position.x, y, e.position.z);
 		}
@@ -4480,33 +4808,67 @@ void DummyApp::OnPositionSync(const SCPositionSync* p)
 //-----------------------------------------------------------------
 void DummyApp::OnMoveRejected(const SCMoveRejected* p)
 {
-	static const char* reasons[] = { "collision", "speed", "no-auth", "out-of-map" };
-	std::cout << "[Net] move rejected, obj " << (int)p->objNumber
-		<< " reason=" << reasons[p->reason % 4] << std::endl;
+	if (p == nullptr)
+		return;
+
+#ifdef _DEBUG
+	static const char* reasons[] =
+	{
+		"path-find-failed",
+		"speed",
+		"no-auth",
+		"out-of-map"
+	};
+
+		const char* reason = p->reason < 4 ? reasons[p->reason] : "unknown";
+
+	std::cout << "[Net] move rejected, obj " << static_cast<int>(p->objNumber) << " reason=" << reason << '\n';
+
+#endif
+
+	// 경로 없음, 권한 없음, 맵 밖은 새 이동 명령만 무시한다.
+	// 서버도 기존 경로를 유지하므로 클라이언트 상태를 변경하면 안 된다.
+	if (p->reason != 1)
+		return;
+
+	// 속도 위반처럼 실제 위치 보정이 필요한 경우에만 강제 보정한다.
+	mPendingNetworkPaths.erase(p->objNumber);
 
 	GameObject* obj = FindNetworkObject(p->objNumber);
-	if (!obj) return;
+
+	if (obj == nullptr)
+		return;
 
 	Player* unit = dynamic_cast<Player*>(obj);
-	if (unit) {
-		unit->ClearPath();
-		float y = mTerrain.GetHeight(p->correctedPos.x, p->correctedPos.z);
-		unit->SetPosition(p->correctedPos.x, y, p->correctedPos.z);
-	}
+
+	if (unit == nullptr)
+		return;
+
+	const float terrainY = mTerrain.GetHeight(p->correctedPos.x, p->correctedPos.z);
+
+	const XMFLOAT3 correctedPosition(p->correctedPos.x, terrainY, p->correctedPos.z);
+
+	unit->ClearPath();
+	unit->SetPosition(correctedPosition);
+	unit->SetDestination(correctedPosition);
+	unit->SetFinalDestination(correctedPosition);
+	unit->SetVelocity(XMFLOAT3(0.0f,0.0f,0.0f));
+
+	unit->ResetKeyInput();
+	unit->SetFollowerKeyInput(FollowerKeyInput::None);
+
+	unit->ChangeLowerState(new IdlePlayerState);
+	
 }
 
 void DummyApp::OnHackWarning(const SCHackWarning* p)
 {
 	std::cout << "[Net] HACK WARNING " << (int)p->warningCount
 		<< "/" << (int)p->maxWarnings << std::endl;
-	// TODO: UI 경고 표시
 }
 
 //-----------------------------------------------------------------
 // objNumber → GameObject 매핑
-//  TODO: 오브젝트 생성 시 (ownerPlayer, objNumber)를 부여하고
-//        unordered_map<int, GameObject*> 로 관리하는 게 좋음.
-//        임시로 mAllGameObjects 선형 탐색 예시:
 //-----------------------------------------------------------------
 GameObject* DummyApp::FindNetworkObject(NetworkObjID objNumber)
 {
@@ -4519,12 +4881,145 @@ GameObject* DummyApp::FindNetworkObject(NetworkObjID objNumber)
 }
 
 
+
+void DummyApp::ApplyPositionCorrections(float deltaTime)
+{
+	const float dt = std::clamp(deltaTime, 0.0f, 0.05f);
+	const float blend = 1.0f - std::exp(-8.0f * dt);
+	const float maxStep = 200.0f * dt;
+
+	for (auto it = mPositionCorrections.begin(); it != mPositionCorrections.end();)
+	{
+		GameObject* obj = FindNetworkObject(it->first);
+
+		if (obj == nullptr)
+		{
+			it = mPositionCorrections.erase(it);
+			continue;
+		}
+
+		XMFLOAT2& remaining = it->second;
+
+		float stepX = remaining.x * blend;
+		float stepZ = remaining.y * blend;
+		float stepLength = std::sqrt(stepX * stepX + stepZ * stepZ);
+
+		if (stepLength > maxStep && stepLength > 0.0f)
+		{
+			float scale = maxStep / stepLength;
+			stepX *= scale;
+			stepZ *= scale;
+		}
+
+		XMFLOAT3 pos = obj->GetPosition();
+		float nextX = pos.x + stepX;
+		float nextZ = pos.z + stepZ;
+
+		obj->SetPosition(nextX, mTerrain.GetHeight(nextX, nextZ), nextZ);
+
+		remaining.x -= stepX;
+		remaining.y -= stepZ;
+
+		if (remaining.x * remaining.x + remaining.y * remaining.y < 0.25f)
+			it = mPositionCorrections.erase(it);
+		else
+			++it;
+	}
+}
+
 //=================================================================
 // [4] DummyApp.cpp — 송신 헬퍼
 //     PickingMove()에서 로컬 A* 대신(또는 A*와 병행해서) 호출.
 //     서버 권위 구조이므로: 요청만 보내고, 실제 이동 시작은
 //     SC_MOVE_*_RESULT 수신 시점에 한다.
 //=================================================================
+void DummyApp::OnMovePathResult(const SCMovePathResult* p)
+{
+	if (p == nullptr) {
+		return;
+	}
+
+	if (p->chunkCount == 0 ||
+		p->chunkIndex >= p->chunkCount ||
+		p->waypointCount > MAX_PATH_WAYPOINTS_PER_PACKET) {
+		return;
+	}
+
+	mPositionCorrections.erase(p->objNumber);
+
+	PendingNetworkPath& pending = mPendingNetworkPaths[p->objNumber];
+
+	if (pending.pathVersion != p->pathVersion ||
+		pending.chunkCount != p->chunkCount) {
+		pending.pathVersion = p->pathVersion;
+
+		pending.chunkCount = p->chunkCount;
+
+		pending.chunks.clear();
+		pending.chunks.resize(p->chunkCount);
+		pending.received.assign(p->chunkCount,false);
+	}
+
+	std::vector<FXYZ>& chunk =pending.chunks[p->chunkIndex];
+
+	chunk.clear();
+	chunk.reserve(p->waypointCount);
+	for (unsigned char i = 0; i < p->waypointCount;	++i) {
+		chunk.push_back(p->waypoints[i]);
+	}
+
+	pending.received[p->chunkIndex] = true;
+	for (const bool received :pending.received) {
+		if (!received) {
+			return;
+		}
+	}
+
+	GameObject* object = FindNetworkObject( p->objNumber);
+
+	Player* unit = dynamic_cast<Player*>(object);
+
+	if (unit == nullptr) {
+		mPendingNetworkPaths.erase(
+			p->objNumber);
+
+		return;
+	}
+
+	float networkMoveSpeed = p->speed;
+
+	if (!std::isfinite(networkMoveSpeed) ||	networkMoveSpeed <= 0.0f)
+	{
+		networkMoveSpeed = MAX_MOVE_SPEED;
+	}
+
+	unit->SetNetworkMoveSpeed(std::min(networkMoveSpeed, MAX_MOVE_SPEED));
+
+
+	std::vector<XMFLOAT3> path;
+
+	path.push_back(unit->GetPosition());
+
+	for (const auto& receivedChunk : pending.chunks) {
+		for (const FXYZ& waypoint : receivedChunk) {
+			const float height = mTerrain.GetHeight(waypoint.x, waypoint.z);
+
+			path.push_back(XMFLOAT3(waypoint.x, height, waypoint.z));
+		}
+	}
+
+	if (path.size() > 1) {
+		unit->SetFinalDestination(path.back());
+
+		unit->SetPath(path);
+
+		unit->SetFollowerKeyInput(FollowerKeyInput::Move);
+
+		unit->FollowerEvent();
+	}
+
+	mPendingNetworkPaths.erase(p->objNumber);
+}
 
 void DummyApp::SendMoveRequest(NetworkObjID objNumber, const XMFLOAT3& dest)
 {

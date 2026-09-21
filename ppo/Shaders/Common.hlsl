@@ -54,7 +54,7 @@ cbuffer cbPerObject : register(b0)
     float4x4 gWorld;
 	float4x4 gTexTransform;
 	uint gMaterialIndex;
-	uint gObjPad0;
+    float gOpacity;  //uint gObjPad0;
 	uint gObjPad1;
 	uint gObjPad2;
 };

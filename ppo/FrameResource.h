@@ -5,6 +5,7 @@
 #include "UploadBuffer.h"
 
 static const int MaxFogUnits = 64;
+static const int MaxPickingCircles = 128;
 
 struct DarknessUnit
 {
@@ -34,6 +35,11 @@ struct SelectionConstants
     XMFLOAT4 Color;    
 };
 
+struct PickingCircleConstants
+{
+    DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+};
+
 struct CursorConstants
 {
     XMFLOAT2 CursorPosNDC;
@@ -45,7 +51,7 @@ struct ObjectConstants
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
     UINT     MaterialIndex;
-    UINT     ObjPad0;
+    float    Opacity = 1.0f; //UINT     ObjPad0;
     UINT     ObjPad1;
     UINT     ObjPad2;
 };
@@ -187,7 +193,9 @@ public:
 
     std::unique_ptr<UploadBuffer<CursorConstants>> CursorCB;
     std::unique_ptr<UploadBuffer<SelectionConstants>> SelectionCB;
+    std::unique_ptr<UploadBuffer<PickingCircleConstants>> PickingCircleCB;
     std::unique_ptr<UploadBuffer<DarknessConstants>> DarknessCB;
+
 
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
